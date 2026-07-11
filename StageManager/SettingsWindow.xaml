@@ -1,0 +1,254 @@
+<Window x:Class="StageManager.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="StageBar 设置"
+        Icon="Assets/stagebar.ico"
+        Width="520"
+        Height="570"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Foreground="#FFF4F7FB"
+        ShowInTaskbar="True">
+  <Window.Resources>
+    <Style x:Key="ModeOption" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#FFD5DCE6" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="OptionBorder"
+                    Padding="16,14"
+                    Background="#FF171E28"
+                    BorderBrush="#26FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="12">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ContentPresenter VerticalAlignment="Center" />
+                <Border x:Name="SelectionDot" Grid.Column="1"
+                        Width="18" Height="18" Margin="12,0,0,0"
+                        Background="#FF222C39" BorderBrush="#FF59677A"
+                        BorderThickness="1" CornerRadius="9">
+                  <Ellipse x:Name="SelectionCore" Width="8" Height="8"
+                           Fill="#FF60A5FA" Visibility="Collapsed" />
+                </Border>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="OptionBorder" Property="Background" Value="#FF1D2632" />
+                <Setter TargetName="OptionBorder" Property="BorderBrush" Value="#45FFFFFF" />
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="OptionBorder" Property="Background" Value="#FF18283D" />
+                <Setter TargetName="OptionBorder" Property="BorderBrush" Value="#FF3B82F6" />
+                <Setter TargetName="SelectionDot" Property="BorderBrush" Value="#FF60A5FA" />
+                <Setter TargetName="SelectionCore" Property="Visibility" Value="Visible" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="SectionCard" TargetType="Border">
+      <Setter Property="Background" Value="#E8141B24" />
+      <Setter Property="BorderBrush" Value="#24FFFFFF" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="18" />
+    </Style>
+
+    <Style TargetType="Slider">
+      <Setter Property="Foreground" Value="#FF3B82F6" />
+      <Setter Property="Margin" Value="0,12,0,5" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Slider">
+            <Grid Height="24" VerticalAlignment="Center">
+              <Track x:Name="PART_Track" VerticalAlignment="Center">
+                <Track.DecreaseRepeatButton>
+                  <RepeatButton Command="Slider.DecreaseLarge">
+                    <RepeatButton.Template>
+                      <ControlTemplate TargetType="RepeatButton">
+                        <Border Height="5" Background="#FF3B82F6" CornerRadius="3" />
+                      </ControlTemplate>
+                    </RepeatButton.Template>
+                  </RepeatButton>
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                  <Thumb Width="18" Height="18">
+                    <Thumb.Template>
+                      <ControlTemplate TargetType="Thumb">
+                        <Border Background="#FFF8FAFC" BorderBrush="#FF60A5FA"
+                                BorderThickness="2" CornerRadius="9">
+                          <Border.Effect>
+                            <DropShadowEffect BlurRadius="7" ShadowDepth="1" Opacity="0.5" />
+                          </Border.Effect>
+                        </Border>
+                      </ControlTemplate>
+                    </Thumb.Template>
+                  </Thumb>
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                  <RepeatButton Command="Slider.IncreaseLarge">
+                    <RepeatButton.Template>
+                      <ControlTemplate TargetType="RepeatButton">
+                        <Border Height="5" Background="#FF303B49" CornerRadius="3" />
+                      </ControlTemplate>
+                    </RepeatButton.Template>
+                  </RepeatButton>
+                </Track.IncreaseRepeatButton>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="CloseButton" TargetType="Button">
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Foreground" Value="#FFC9D1DC" />
+      <Setter Property="Background" Value="#FF1A222D" />
+      <Setter Property="BorderBrush" Value="#28FFFFFF" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="CloseBorder" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="9">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="CloseBorder" Property="Background" Value="#FF34212A" />
+                <Setter Property="Foreground" Value="#FFFFA4B4" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Border Margin="18"
+          Padding="26"
+          Background="#FF0F141B"
+          BorderBrush="#35FFFFFF"
+          BorderThickness="1"
+          CornerRadius="20">
+    <Border.Effect>
+      <DropShadowEffect BlurRadius="32" ShadowDepth="12" Opacity="0.62" Color="#D0000000" />
+    </Border.Effect>
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+
+      <Grid MouseLeftButtonDown="Header_MouseLeftButtonDown">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Border Width="42" Height="42" Background="#FF1D4ED8" CornerRadius="12">
+          <TextBlock Text="▦" FontSize="22" HorizontalAlignment="Center"
+                     VerticalAlignment="Center" Foreground="White" />
+        </Border>
+        <StackPanel Grid.Column="1" Margin="13,0,0,0" VerticalAlignment="Center">
+          <TextBlock Text="台前调度" FontSize="20" FontWeight="SemiBold" />
+          <TextBlock Text="显示与交互" Margin="0,2,0,0" Foreground="#FF8793A3" FontSize="11" />
+        </StackPanel>
+        <Button Grid.Column="2" Content="×" Width="34" Height="34"
+                Style="{StaticResource CloseButton}" FontSize="19"
+                Click="CloseButton_Click" />
+      </Grid>
+
+      <StackPanel Grid.Row="1" Margin="0,25,0,20">
+        <TextBlock Text="展示形式" FontSize="12" Foreground="#FF98A4B4" Margin="2,0,0,9" />
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <RadioButton x:Name="FixedModeRadio" Style="{StaticResource ModeOption}"
+                       GroupName="DisplayMode" Checked="ModeRadio_Checked">
+            <StackPanel>
+              <TextBlock Text="固定" FontSize="14" FontWeight="SemiBold" Foreground="#FFF4F7FB" />
+              <TextBlock Text="预留左侧空间" Margin="0,4,0,0" FontSize="11" Foreground="#FF8C98A8" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="FloatingModeRadio" Grid.Column="2"
+                       Style="{StaticResource ModeOption}"
+                       GroupName="DisplayMode" Checked="ModeRadio_Checked">
+            <StackPanel>
+              <TextBlock Text="悬浮" FontSize="14" FontWeight="SemiBold" Foreground="#FFF4F7FB" />
+              <TextBlock Text="靠近边缘唤出" Margin="0,4,0,0" FontSize="11" Foreground="#FF8C98A8" />
+            </StackPanel>
+          </RadioButton>
+        </Grid>
+
+        <Border Style="{StaticResource SectionCard}" Margin="0,18,0,0">
+          <StackPanel>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="展示宽度" FontSize="14" FontWeight="SemiBold" />
+                <TextBlock Text="同时调整预览卡片尺寸" Margin="0,3,0,0"
+                           Foreground="#FF7F8B9B" FontSize="11" />
+              </StackPanel>
+              <Border Grid.Column="1" Padding="10,5" Background="#FF182D46" CornerRadius="8">
+                <TextBlock x:Name="WidthValueText" Foreground="#FF7DD3FC" FontWeight="SemiBold" />
+              </Border>
+            </Grid>
+            <Slider x:Name="WidthSlider" Minimum="200" Maximum="420" TickFrequency="10"
+                    IsSnapToTickEnabled="True" ValueChanged="WidthSlider_ValueChanged" />
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource SectionCard}" Margin="0,12,0,0">
+          <StackPanel>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="展示卡片数" FontSize="14" FontWeight="SemiBold" />
+                <TextBlock x:Name="CardCountHintText" Margin="0,3,0,0"
+                           Foreground="#FF7F8B9B" FontSize="11" />
+              </StackPanel>
+              <Border Grid.Column="1" Padding="10,5" Background="#FF182D46" CornerRadius="8">
+                <TextBlock x:Name="CardCountValueText" Foreground="#FF7DD3FC" FontWeight="SemiBold" />
+              </Border>
+            </Grid>
+            <Slider x:Name="CardCountSlider" Minimum="1" TickFrequency="1"
+                    IsSnapToTickEnabled="True" ValueChanged="CardCountSlider_ValueChanged" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+
+      <Grid Grid.Row="2">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Ellipse Width="7" Height="7" Fill="#FF34D399" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" Text="更改会立即应用并自动保存"
+                   Margin="8,0,0,0" Foreground="#FF8290A1" FontSize="11" />
+      </Grid>
+    </Grid>
+  </Border>
+</Window>

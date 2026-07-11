@@ -1,0 +1,52 @@
+<UserControl x:Class="StageManager.Controls.WindowPreviewControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Cursor="Hand"
+             Focusable="False"
+             Background="Transparent">
+  <Grid Background="Transparent">
+    <Grid x:Name="PreviewVisual"
+          HorizontalAlignment="Center"
+          VerticalAlignment="Center"
+          RenderTransformOrigin="0.5,0.5">
+      <Grid.RenderTransform>
+        <TransformGroup>
+          <ScaleTransform x:Name="CardScale" ScaleX="1" ScaleY="1" />
+          <TranslateTransform x:Name="CardTranslate" X="0" Y="0" />
+        </TransformGroup>
+      </Grid.RenderTransform>
+
+      <!-- DWM paints the live window into this exact client rectangle. -->
+      <Border x:Name="PreviewSurface"
+              Background="#01000000"
+              IsHitTestVisible="False">
+        <Border.Effect>
+          <DropShadowEffect BlurRadius="18" ShadowDepth="8" Direction="285"
+                            Opacity="0.48" Color="#C0000000" />
+        </Border.Effect>
+      </Border>
+
+      <!-- Lighting cue: the right side recedes along the Z axis. -->
+      <Border x:Name="DepthOverlay" IsHitTestVisible="False">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+            <GradientStop Color="#00000000" Offset="0" />
+            <GradientStop Color="#06000000" Offset="0.48" />
+            <GradientStop Color="#28030A14" Offset="0.82" />
+            <GradientStop Color="#5001070E" Offset="1" />
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+
+      <!-- The real badge is rendered in a separate transparent HWND so it can
+           stay above DWM thumbnails. This invisible element is its layout anchor. -->
+      <Border x:Name="AppIconAnchor"
+              Width="30" Height="30"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Bottom"
+              Margin="-7,0,0,-7"
+              Opacity="0"
+              IsHitTestVisible="False" />
+    </Grid>
+  </Grid>
+</UserControl>

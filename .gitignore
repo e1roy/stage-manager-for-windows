@@ -1,0 +1,17 @@
+# Visual Studio / .NET
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# Build and release output
+artifacts/
+
+# Generated source artwork; keep the processed PNG and ICO
+StageManager/Assets/stagebar-icon-source.png
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store

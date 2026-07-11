@@ -1,0 +1,15 @@
+<Window x:Class="StageManager.IconOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Topmost="True"
+        Focusable="False">
+  <Canvas x:Name="IconCanvas"
+          Background="Transparent"
+          IsHitTestVisible="False" />
+</Window>

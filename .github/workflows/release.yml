@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer
+        id: package
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          .\installer\build-installer.ps1 -Version $version
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "asset=artifacts\installer\StageBar-Setup-$version-x64.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+          ASSET: ${{ steps.package.outputs.asset }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notesFile = "release-notes\$env:VERSION.md"
+          $generatedNotes = Join-Path $env:RUNNER_TEMP "stagebar-release-notes.md"
+          $sha256 = (Get-FileHash -LiteralPath $env:ASSET -Algorithm SHA256).Hash
+          if (Test-Path -LiteralPath $notesFile) {
+            $notes = Get-Content -LiteralPath $notesFile -Raw
+            "$notes`n`n## Installer checksum / 安装包校验值`n`n``StageBar-Setup-$env:VERSION-x64.exe```n`n``SHA-256: $sha256``" |
+              Set-Content -LiteralPath $generatedNotes -Encoding utf8NoBOM
+            gh release create $tag $env:ASSET --title "StageBar $env:VERSION" --notes-file $generatedNotes
+          }
+          else {
+            gh release create $tag $env:ASSET --title "StageBar $env:VERSION" --generate-notes
+          }

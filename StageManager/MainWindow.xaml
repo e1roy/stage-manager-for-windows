@@ -1,0 +1,48 @@
+<Window x:Class="StageManager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="StageBar"
+        Icon="Assets/stagebar.ico"
+        Width="286"
+        Height="560"
+        MinHeight="320"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="False"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Topmost="True"
+        Opacity="1">
+  <shell:WindowChrome.WindowChrome>
+    <shell:WindowChrome CaptionHeight="0" CornerRadius="0" GlassFrameThickness="-1"
+                        NonClientFrameEdges="None" ResizeBorderThickness="0"
+                        UseAeroCaptionButtons="False" />
+  </shell:WindowChrome.WindowChrome>
+
+  <Grid Background="Transparent">
+    <ScrollViewer x:Name="PreviewScrollViewer"
+                  VerticalAlignment="Center"
+                  HorizontalAlignment="Center"
+                  Background="Transparent"
+                  BorderThickness="0"
+                  VerticalScrollBarVisibility="Hidden"
+                  HorizontalScrollBarVisibility="Disabled"
+                  PanningMode="VerticalOnly"
+                  CanContentScroll="False"
+                  PreviewMouseWheel="PreviewScrollViewer_PreviewMouseWheel"
+                  ScrollChanged="PreviewScrollViewer_ScrollChanged">
+      <Grid Background="Transparent">
+        <StackPanel x:Name="PreviewList" Background="Transparent" />
+        <TextBlock x:Name="EmptyState"
+                   Text="没有可用窗口"
+                   Visibility="Collapsed"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Foreground="#CCFFFFFF"
+                   FontSize="12" />
+      </Grid>
+    </ScrollViewer>
+  </Grid>
+</Window>
