@@ -11,6 +11,9 @@ internal sealed class AppBarService : IDisposable
     private const uint AbmSetPos = 0x00000003;
     private const uint AbeLeft = 0;
 
+    internal const int PositionChangedNotification = 1;
+    internal const int FullScreenAppNotification = 2;
+
     private readonly nint _window;
     private bool _registered;
 

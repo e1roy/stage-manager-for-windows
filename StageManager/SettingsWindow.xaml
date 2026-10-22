@@ -3,53 +3,231 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="StageBar 设置"
         Icon="Assets/stagebar.ico"
-        Width="520"
-        Height="570"
+        Width="640"
+        SizeToContent="Height"
         WindowStartupLocation="CenterScreen"
-        WindowStyle="None"
-        ResizeMode="NoResize"
-        AllowsTransparency="True"
-        Background="Transparent"
-        Foreground="#FFF4F7FB"
+        ResizeMode="CanMinimize"
+        Foreground="{DynamicResource TextPrimary}"
+        FontFamily="Segoe UI, Microsoft YaHei UI"
+        FontSize="14"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display"
         ShowInTaskbar="True">
+  <!-- Brushes are Windows' Fluent color tokens, set in code for the current
+       light/dark mode and accent color. -->
   <Window.Resources>
-    <Style x:Key="ModeOption" TargetType="RadioButton">
-      <Setter Property="Foreground" Value="#FFD5DCE6" />
-      <Setter Property="Cursor" Value="Hand" />
+    <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+    <Style x:Key="FocusVisual">
+      <Setter Property="Control.Template">
+        <Setter.Value>
+          <ControlTemplate>
+            <Rectangle Margin="-3" RadiusX="6" RadiusY="6" StrokeThickness="2"
+                       Stroke="{DynamicResource TextPrimary}" />
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="PageTitle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="28" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
+    </Style>
+
+    <Style x:Key="GroupHeader" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="1,28,0,8" />
+    </Style>
+
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource CardBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardStroke}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="16,0" />
+      <Setter Property="MinHeight" Value="68" />
+    </Style>
+
+    <Style x:Key="CardIcon" TargetType="TextBlock">
+      <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="Margin" Value="2,0,20,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="CardDescription" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style x:Key="ToggleSwitch" TargetType="CheckBox">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <Grid Background="Transparent">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBlock x:Name="StateText" Text="关" Margin="0,0,12,0" VerticalAlignment="Center" />
+              <Border x:Name="Track" Grid.Column="1" Width="40" Height="20" CornerRadius="10"
+                      BorderThickness="1"
+                      Background="{DynamicResource ControlAltFill}"
+                      BorderBrush="{DynamicResource ControlStrong}" />
+              <Grid Grid.Column="1" Width="20" Height="20" HorizontalAlignment="Left">
+                <Grid.RenderTransform>
+                  <TranslateTransform x:Name="KnobOffset" />
+                </Grid.RenderTransform>
+                <Ellipse x:Name="Knob" Width="12" Height="12"
+                         Fill="{DynamicResource TextSecondary}" />
+              </Grid>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Track" Property="Background" Value="{DynamicResource ControlAltFillHover}" />
+                <Setter TargetName="Knob" Property="Width" Value="14" />
+                <Setter TargetName="Knob" Property="Height" Value="14" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Knob" Property="Width" Value="17" />
+                <Setter TargetName="Knob" Property="Height" Value="14" />
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="StateText" Property="Text" Value="开" />
+                <Setter TargetName="Track" Property="Background" Value="{DynamicResource Accent}" />
+                <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource TextOnAccent}" />
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="KnobOffset" Storyboard.TargetProperty="X"
+                                       To="20" Duration="0:0:0.167">
+                        <DoubleAnimation.EasingFunction>
+                          <CubicEase EasingMode="EaseOut" />
+                        </DoubleAnimation.EasingFunction>
+                      </DoubleAnimation>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="KnobOffset" Storyboard.TargetProperty="X"
+                                       To="0" Duration="0:0:0.167">
+                        <DoubleAnimation.EasingFunction>
+                          <CubicEase EasingMode="EaseOut" />
+                        </DoubleAnimation.EasingFunction>
+                      </DoubleAnimation>
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
+              </Trigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsChecked" Value="True" />
+                  <Condition Property="IsMouseOver" Value="True" />
+                </MultiTrigger.Conditions>
+                <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentHover}" />
+                <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentHover}" />
+              </MultiTrigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="RadioOption" TargetType="RadioButton">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual}" />
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="RadioButton">
-            <Border x:Name="OptionBorder"
-                    Padding="16,14"
-                    Background="#FF171E28"
-                    BorderBrush="#26FFFFFF"
-                    BorderThickness="1"
-                    CornerRadius="12">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <ContentPresenter VerticalAlignment="Center" />
-                <Border x:Name="SelectionDot" Grid.Column="1"
-                        Width="18" Height="18" Margin="12,0,0,0"
-                        Background="#FF222C39" BorderBrush="#FF59677A"
-                        BorderThickness="1" CornerRadius="9">
-                  <Ellipse x:Name="SelectionCore" Width="8" Height="8"
-                           Fill="#FF60A5FA" Visibility="Collapsed" />
-                </Border>
+            <Grid Background="Transparent">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Grid Width="20" Height="20" Margin="0,1,0,0" VerticalAlignment="Top">
+                <Ellipse x:Name="Outer" StrokeThickness="1"
+                         Fill="{DynamicResource ControlAltFill}"
+                         Stroke="{DynamicResource ControlStrong}" />
+                <Ellipse x:Name="Dot" Width="0" Height="0"
+                         Fill="{DynamicResource TextOnAccent}" />
               </Grid>
-            </Border>
+              <ContentPresenter Grid.Column="1" Margin="12,0,0,0" />
+            </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="OptionBorder" Property="Background" Value="#FF1D2632" />
-                <Setter TargetName="OptionBorder" Property="BorderBrush" Value="#45FFFFFF" />
+                <Setter TargetName="Outer" Property="Fill" Value="{DynamicResource ControlAltFillHover}" />
               </Trigger>
               <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="OptionBorder" Property="Background" Value="#FF18283D" />
-                <Setter TargetName="OptionBorder" Property="BorderBrush" Value="#FF3B82F6" />
-                <Setter TargetName="SelectionDot" Property="BorderBrush" Value="#FF60A5FA" />
-                <Setter TargetName="SelectionCore" Property="Visibility" Value="Visible" />
+                <Setter TargetName="Outer" Property="Fill" Value="{DynamicResource Accent}" />
+                <Setter TargetName="Outer" Property="Stroke" Value="{DynamicResource Accent}" />
+                <Setter TargetName="Dot" Property="Width" Value="12" />
+                <Setter TargetName="Dot" Property="Height" Value="12" />
+              </Trigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsChecked" Value="True" />
+                  <Condition Property="IsMouseOver" Value="True" />
+                </MultiTrigger.Conditions>
+                <Setter TargetName="Outer" Property="Fill" Value="{DynamicResource AccentHover}" />
+                <Setter TargetName="Outer" Property="Stroke" Value="{DynamicResource AccentHover}" />
+                <Setter TargetName="Dot" Property="Width" Value="14" />
+                <Setter TargetName="Dot" Property="Height" Value="14" />
+              </MultiTrigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsChecked" Value="True" />
+                  <Condition Property="IsPressed" Value="True" />
+                </MultiTrigger.Conditions>
+                <Setter TargetName="Dot" Property="Width" Value="10" />
+                <Setter TargetName="Dot" Property="Height" Value="10" />
+              </MultiTrigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="SliderTrackPart" TargetType="RepeatButton">
+      <Setter Property="OverridesDefaultStyle" Value="True" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="IsTabStop" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RepeatButton">
+            <Border Background="Transparent">
+              <Border Height="4" CornerRadius="2" VerticalAlignment="Center"
+                      Background="{TemplateBinding Foreground}" />
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="SliderThumb" TargetType="Thumb">
+      <Setter Property="OverridesDefaultStyle" Value="True" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Thumb">
+            <Grid Width="20" Height="20">
+              <Ellipse StrokeThickness="1"
+                       Fill="{DynamicResource ControlSolidFill}"
+                       Stroke="{DynamicResource ThumbStroke}" />
+              <Ellipse x:Name="Inner" Width="12" Height="12" Fill="{DynamicResource Accent}" />
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Inner" Property="Width" Value="14" />
+                <Setter TargetName="Inner" Property="Height" Value="14" />
+              </Trigger>
+              <Trigger Property="IsDragging" Value="True">
+                <Setter TargetName="Inner" Property="Width" Value="10" />
+                <Setter TargetName="Inner" Property="Height" Value="10" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -57,54 +235,27 @@
       </Setter>
     </Style>
 
-    <Style x:Key="SectionCard" TargetType="Border">
-      <Setter Property="Background" Value="#E8141B24" />
-      <Setter Property="BorderBrush" Value="#24FFFFFF" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="Padding" Value="18" />
-    </Style>
-
-    <Style TargetType="Slider">
-      <Setter Property="Foreground" Value="#FF3B82F6" />
-      <Setter Property="Margin" Value="0,12,0,5" />
-      <Setter Property="Height" Value="24" />
+    <Style x:Key="FluentSlider" TargetType="Slider">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual}" />
+      <Setter Property="IsMoveToPointEnabled" Value="True" />
+      <Setter Property="IsSnapToTickEnabled" Value="True" />
+      <Setter Property="Width" Value="200" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Slider">
-            <Grid Height="24" VerticalAlignment="Center">
-              <Track x:Name="PART_Track" VerticalAlignment="Center">
+            <Grid Height="32" Background="Transparent">
+              <Track x:Name="PART_Track">
                 <Track.DecreaseRepeatButton>
-                  <RepeatButton Command="Slider.DecreaseLarge">
-                    <RepeatButton.Template>
-                      <ControlTemplate TargetType="RepeatButton">
-                        <Border Height="5" Background="#FF3B82F6" CornerRadius="3" />
-                      </ControlTemplate>
-                    </RepeatButton.Template>
-                  </RepeatButton>
+                  <RepeatButton Command="Slider.DecreaseLarge" Style="{StaticResource SliderTrackPart}"
+                                Foreground="{DynamicResource Accent}" />
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
-                  <Thumb Width="18" Height="18">
-                    <Thumb.Template>
-                      <ControlTemplate TargetType="Thumb">
-                        <Border Background="#FFF8FAFC" BorderBrush="#FF60A5FA"
-                                BorderThickness="2" CornerRadius="9">
-                          <Border.Effect>
-                            <DropShadowEffect BlurRadius="7" ShadowDepth="1" Opacity="0.5" />
-                          </Border.Effect>
-                        </Border>
-                      </ControlTemplate>
-                    </Thumb.Template>
-                  </Thumb>
+                  <Thumb Style="{StaticResource SliderThumb}" />
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
-                  <RepeatButton Command="Slider.IncreaseLarge">
-                    <RepeatButton.Template>
-                      <ControlTemplate TargetType="RepeatButton">
-                        <Border Height="5" Background="#FF303B49" CornerRadius="3" />
-                      </ControlTemplate>
-                    </RepeatButton.Template>
-                  </RepeatButton>
+                  <RepeatButton Command="Slider.IncreaseLarge" Style="{StaticResource SliderTrackPart}"
+                                Foreground="{DynamicResource ControlStrong}" />
                 </Track.IncreaseRepeatButton>
               </Track>
             </Grid>
@@ -113,142 +264,111 @@
       </Setter>
     </Style>
 
-    <Style x:Key="CloseButton" TargetType="Button">
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Foreground" Value="#FFC9D1DC" />
-      <Setter Property="Background" Value="#FF1A222D" />
-      <Setter Property="BorderBrush" Value="#28FFFFFF" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="CloseBorder" Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="9">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="CloseBorder" Property="Background" Value="#FF34212A" />
-                <Setter Property="Foreground" Value="#FFFFA4B4" />
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
+    <Style x:Key="SliderValue" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+      <Setter Property="MinWidth" Value="52" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+      <Setter Property="TextAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
   </Window.Resources>
 
-  <Border Margin="18"
-          Padding="26"
-          Background="#FF0F141B"
-          BorderBrush="#35FFFFFF"
-          BorderThickness="1"
-          CornerRadius="20">
-    <Border.Effect>
-      <DropShadowEffect BlurRadius="32" ShadowDepth="12" Opacity="0.62" Color="#D0000000" />
-    </Border.Effect>
-    <Grid>
-      <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="*" />
-        <RowDefinition Height="Auto" />
-      </Grid.RowDefinitions>
+  <StackPanel Margin="28,12,28,28">
+    <TextBlock Text="台前调度" Style="{StaticResource PageTitle}" />
 
-      <Grid MouseLeftButtonDown="Header_MouseLeftButtonDown">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-        <Border Width="42" Height="42" Background="#FF1D4ED8" CornerRadius="12">
-          <TextBlock Text="▦" FontSize="22" HorizontalAlignment="Center"
-                     VerticalAlignment="Center" Foreground="White" />
-        </Border>
-        <StackPanel Grid.Column="1" Margin="13,0,0,0" VerticalAlignment="Center">
-          <TextBlock Text="台前调度" FontSize="20" FontWeight="SemiBold" />
-          <TextBlock Text="显示与交互" Margin="0,2,0,0" Foreground="#FF8793A3" FontSize="11" />
-        </StackPanel>
-        <Button Grid.Column="2" Content="×" Width="34" Height="34"
-                Style="{StaticResource CloseButton}" FontSize="19"
-                Click="CloseButton_Click" />
-      </Grid>
-
-      <StackPanel Grid.Row="1" Margin="0,25,0,20">
-        <TextBlock Text="展示形式" FontSize="12" Foreground="#FF98A4B4" Margin="2,0,0,9" />
-        <Grid>
+    <TextBlock Text="行为" Style="{StaticResource GroupHeader}" />
+    <Border Style="{StaticResource Card}" Padding="0">
+      <StackPanel>
+        <Grid Margin="16,0" MinHeight="66">
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
           </Grid.ColumnDefinitions>
-          <RadioButton x:Name="FixedModeRadio" Style="{StaticResource ModeOption}"
-                       GroupName="DisplayMode" Checked="ModeRadio_Checked">
-            <StackPanel>
-              <TextBlock Text="固定" FontSize="14" FontWeight="SemiBold" Foreground="#FFF4F7FB" />
-              <TextBlock Text="预留左侧空间" Margin="0,4,0,0" FontSize="11" Foreground="#FF8C98A8" />
-            </StackPanel>
-          </RadioButton>
-          <RadioButton x:Name="FloatingModeRadio" Grid.Column="2"
-                       Style="{StaticResource ModeOption}"
-                       GroupName="DisplayMode" Checked="ModeRadio_Checked">
-            <StackPanel>
-              <TextBlock Text="悬浮" FontSize="14" FontWeight="SemiBold" Foreground="#FFF4F7FB" />
-              <TextBlock Text="靠近边缘唤出" Margin="0,4,0,0" FontSize="11" Foreground="#FF8C98A8" />
-            </StackPanel>
-          </RadioButton>
+          <TextBlock Text="&#xE7C4;" Style="{StaticResource CardIcon}" />
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock Text="展示形式" />
+            <TextBlock Text="选择侧边栏在桌面上的显示方式" Style="{StaticResource CardDescription}" />
+          </StackPanel>
         </Grid>
-
-        <Border Style="{StaticResource SectionCard}" Margin="0,18,0,0">
-          <StackPanel>
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <StackPanel>
-                <TextBlock Text="展示宽度" FontSize="14" FontWeight="SemiBold" />
-                <TextBlock Text="同时调整预览卡片尺寸" Margin="0,3,0,0"
-                           Foreground="#FF7F8B9B" FontSize="11" />
-              </StackPanel>
-              <Border Grid.Column="1" Padding="10,5" Background="#FF182D46" CornerRadius="8">
-                <TextBlock x:Name="WidthValueText" Foreground="#FF7DD3FC" FontWeight="SemiBold" />
-              </Border>
-            </Grid>
-            <Slider x:Name="WidthSlider" Minimum="200" Maximum="420" TickFrequency="10"
-                    IsSnapToTickEnabled="True" ValueChanged="WidthSlider_ValueChanged" />
-          </StackPanel>
-        </Border>
-
-        <Border Style="{StaticResource SectionCard}" Margin="0,12,0,0">
-          <StackPanel>
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <StackPanel>
-                <TextBlock Text="展示卡片数" FontSize="14" FontWeight="SemiBold" />
-                <TextBlock x:Name="CardCountHintText" Margin="0,3,0,0"
-                           Foreground="#FF7F8B9B" FontSize="11" />
-              </StackPanel>
-              <Border Grid.Column="1" Padding="10,5" Background="#FF182D46" CornerRadius="8">
-                <TextBlock x:Name="CardCountValueText" Foreground="#FF7DD3FC" FontWeight="SemiBold" />
-              </Border>
-            </Grid>
-            <Slider x:Name="CardCountSlider" Minimum="1" TickFrequency="1"
-                    IsSnapToTickEnabled="True" ValueChanged="CardCountSlider_ValueChanged" />
-          </StackPanel>
-        </Border>
+        <Border Height="1" Background="{DynamicResource Divider}" />
+        <StackPanel Margin="58,14,16,16">
+          <RadioButton x:Name="FixedModeRadio" GroupName="DisplayMode"
+                       Style="{StaticResource RadioOption}" Checked="ModeRadio_Checked">
+            <StackPanel>
+              <TextBlock Text="固定" />
+              <TextBlock Text="在屏幕左侧预留空间，窗口不会遮挡侧边栏" Style="{StaticResource CardDescription}" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="FloatingModeRadio" GroupName="DisplayMode" Margin="0,12,0,0"
+                       Style="{StaticResource RadioOption}" Checked="ModeRadio_Checked">
+            <StackPanel>
+              <TextBlock Text="悬浮" />
+              <TextBlock Text="不占用屏幕空间，被窗口遮挡时自动让开" Style="{StaticResource CardDescription}" />
+            </StackPanel>
+          </RadioButton>
+        </StackPanel>
       </StackPanel>
+    </Border>
 
-      <Grid Grid.Row="2">
+    <Border Style="{StaticResource Card}" Margin="0,4,0,0">
+      <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
-        <Ellipse Width="7" Height="7" Fill="#FF34D399" VerticalAlignment="Center" />
-        <TextBlock Grid.Column="1" Text="更改会立即应用并自动保存"
-                   Margin="8,0,0,0" Foreground="#FF8290A1" FontSize="11" />
+        <TextBlock Text="&#xED1A;" Style="{StaticResource CardIcon}" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="隐藏其他窗口" />
+          <TextBlock Text="桌面上只保留当前应用，其余窗口收进左侧" Style="{StaticResource CardDescription}" />
+        </StackPanel>
+        <CheckBox x:Name="HideWindowsToggle" Grid.Column="2" Margin="24,0,0,0" VerticalAlignment="Center"
+                  Style="{StaticResource ToggleSwitch}"
+                  Checked="HideWindowsToggle_Changed" Unchecked="HideWindowsToggle_Changed" />
       </Grid>
-    </Grid>
-  </Border>
+    </Border>
+
+    <TextBlock Text="外观" Style="{StaticResource GroupHeader}" />
+    <Border Style="{StaticResource Card}">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="&#xE740;" Style="{StaticResource CardIcon}" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="展示宽度" />
+          <TextBlock Text="卡片的最大尺寸，应用多时会自动缩小" Style="{StaticResource CardDescription}" />
+        </StackPanel>
+        <StackPanel Grid.Column="2" Margin="24,0,0,0" Orientation="Horizontal">
+          <TextBlock x:Name="WidthValueText" Style="{StaticResource SliderValue}" />
+          <Slider x:Name="WidthSlider" Style="{StaticResource FluentSlider}"
+                  Minimum="100" Maximum="420" TickFrequency="10" SmallChange="10" LargeChange="20"
+                  ValueChanged="Slider_ValueChanged" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border Style="{StaticResource Card}" Margin="0,4,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="&#xECA5;" Style="{StaticResource CardIcon}" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="图标大小" />
+          <TextBlock Text="侧边栏中应用图标的大小" Style="{StaticResource CardDescription}" />
+        </StackPanel>
+        <StackPanel Grid.Column="2" Margin="24,0,0,0" Orientation="Horizontal">
+          <TextBlock x:Name="IconSizeValueText" Style="{StaticResource SliderValue}" />
+          <Slider x:Name="IconSizeSlider" Style="{StaticResource FluentSlider}"
+                  Minimum="60" Maximum="160" TickFrequency="10" SmallChange="10" LargeChange="20"
+                  ValueChanged="Slider_ValueChanged" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </StackPanel>
 </Window>

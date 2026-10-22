@@ -1,0 +1,92 @@
+//go:build windows
+
+// Package winapi is the thin layer of Win32 that StageBar needs beyond what
+// MyGo covers: other processes' windows, monitors, the shell's app bars,
+// WinEvent hooks and window captures. It holds no state of the app.
+package winapi
+
+import "syscall"
+
+var (
+	user32   = syscall.NewLazyDLL("user32.dll")
+	gdi32    = syscall.NewLazyDLL("gdi32.dll")
+	dwmapi   = syscall.NewLazyDLL("dwmapi.dll")
+	shell32  = syscall.NewLazyDLL("shell32.dll")
+	shcore   = syscall.NewLazyDLL("shcore.dll")
+	kernel32 = syscall.NewLazyDLL("kernel32.dll")
+	comctl32 = syscall.NewLazyDLL("comctl32.dll")
+
+	procEnumWindows              = user32.NewProc("EnumWindows")
+	procEnumChildWindows         = user32.NewProc("EnumChildWindows")
+	procIsWindow                 = user32.NewProc("IsWindow")
+	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
+	procIsIconic                 = user32.NewProc("IsIconic")
+	procIsZoomed                 = user32.NewProc("IsZoomed")
+	procGetWindowRect            = user32.NewProc("GetWindowRect")
+	procGetWindowTextLengthW     = user32.NewProc("GetWindowTextLengthW")
+	procGetWindowTextW           = user32.NewProc("GetWindowTextW")
+	procGetClassNameW            = user32.NewProc("GetClassNameW")
+	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
+	procGetAncestor              = user32.NewProc("GetAncestor")
+	procGetWindow                = user32.NewProc("GetWindow")
+	procGetWindowLongPtrW        = user32.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtrW        = user32.NewProc("SetWindowLongPtrW")
+	procGetForegroundWindow      = user32.NewProc("GetForegroundWindow")
+	procSetForegroundWindow      = user32.NewProc("SetForegroundWindow")
+	procSetWindowPos             = user32.NewProc("SetWindowPos")
+	procShowWindowAsync          = user32.NewProc("ShowWindowAsync")
+	procShowWindow               = user32.NewProc("ShowWindow")
+	procGetWindowPlacement       = user32.NewProc("GetWindowPlacement")
+	procRedrawWindow             = user32.NewProc("RedrawWindow")
+	procPostMessageW             = user32.NewProc("PostMessageW")
+	procSendMessageTimeoutW      = user32.NewProc("SendMessageTimeoutW")
+	procGetClassLongPtrW         = user32.NewProc("GetClassLongPtrW")
+	procAttachThreadInput        = user32.NewProc("AttachThreadInput")
+	procGetAsyncKeyState         = user32.NewProc("GetAsyncKeyState")
+	procGetSystemMetrics         = user32.NewProc("GetSystemMetrics")
+	procGetCursorPos             = user32.NewProc("GetCursorPos")
+	procWindowFromPoint          = user32.NewProc("WindowFromPoint")
+	procEnumDisplayMonitors      = user32.NewProc("EnumDisplayMonitors")
+	procGetMonitorInfoW          = user32.NewProc("GetMonitorInfoW")
+	procMonitorFromRect          = user32.NewProc("MonitorFromRect")
+	procMonitorFromPoint         = user32.NewProc("MonitorFromPoint")
+	procMonitorFromWindow        = user32.NewProc("MonitorFromWindow")
+	procGetDpiForWindow          = user32.NewProc("GetDpiForWindow")
+	procSetWinEventHook          = user32.NewProc("SetWinEventHook")
+	procUnhookWinEvent           = user32.NewProc("UnhookWinEvent")
+	procRegisterWindowMessageW   = user32.NewProc("RegisterWindowMessageW")
+	procPrintWindow              = user32.NewProc("PrintWindow")
+	procGetDC                    = user32.NewProc("GetDC")
+	procReleaseDC                = user32.NewProc("ReleaseDC")
+	procGetIconInfo              = user32.NewProc("GetIconInfo")
+	procDestroyIcon              = user32.NewProc("DestroyIcon")
+	procGetWindowInfo            = user32.NewProc("GetWindowInfo")
+
+	procCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
+	procCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
+	procSelectObject       = gdi32.NewProc("SelectObject")
+	procDeleteObject       = gdi32.NewProc("DeleteObject")
+	procDeleteDC           = gdi32.NewProc("DeleteDC")
+	procGetDIBits          = gdi32.NewProc("GetDIBits")
+	procGetObjectW         = gdi32.NewProc("GetObjectW")
+	procStretchBlt         = gdi32.NewProc("StretchBlt")
+	procSetStretchBltMode  = gdi32.NewProc("SetStretchBltMode")
+	procSetBrushOrgEx      = gdi32.NewProc("SetBrushOrgEx")
+
+	procDwmGetWindowAttribute = dwmapi.NewProc("DwmGetWindowAttribute")
+	procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
+	procDwmFlush              = dwmapi.NewProc("DwmFlush")
+
+	procSHAppBarMessage = shell32.NewProc("SHAppBarMessage")
+
+	procGetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")
+
+	procOpenProcess                = kernel32.NewProc("OpenProcess")
+	procCloseHandle                = kernel32.NewProc("CloseHandle")
+	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
+	procGetCurrentThreadId         = kernel32.NewProc("GetCurrentThreadId")
+
+	procSetWindowSubclass    = comctl32.NewProc("SetWindowSubclass")
+	procRemoveWindowSubclass = comctl32.NewProc("RemoveWindowSubclass")
+	procDefSubclassProc      = comctl32.NewProc("DefSubclassProc")
+)
