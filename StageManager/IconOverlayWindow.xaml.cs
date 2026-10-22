@@ -11,7 +11,7 @@ namespace StageManager;
 
 public partial class IconOverlayWindow : Window
 {
-    private readonly Dictionary<nint, Border> _badges = [];
+    private readonly Dictionary<string, Border> _badges = new(StringComparer.Ordinal);
 
     internal IconOverlayWindow(Window owner)
     {
@@ -39,10 +39,10 @@ public partial class IconOverlayWindow : Window
 
     internal void UpdateBadges(IReadOnlyCollection<IconOverlayItem> items)
     {
-        var visibleHandles = items.Select(static item => item.Handle).ToHashSet();
-        foreach (var (handle, badge) in _badges)
+        var visibleKeys = items.Select(static item => item.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var (key, badge) in _badges)
         {
-            if (!visibleHandles.Contains(handle))
+            if (!visibleKeys.Contains(key))
             {
                 badge.Visibility = Visibility.Collapsed;
             }
@@ -50,10 +50,10 @@ public partial class IconOverlayWindow : Window
 
         foreach (var item in items)
         {
-            if (!_badges.TryGetValue(item.Handle, out var badge))
+            if (!_badges.TryGetValue(item.Key, out var badge))
             {
                 badge = CreateBadge(item.Icon);
-                _badges.Add(item.Handle, badge);
+                _badges.Add(item.Key, badge);
                 IconCanvas.Children.Add(badge);
             }
 
@@ -71,6 +71,41 @@ public partial class IconOverlayWindow : Window
         }
     }
 
+    /// <summary>
+    /// Puts the icons above the transition layer, which places itself on top
+    /// when flights begin, so an icon shown before its windows land is not
+    /// covered by them. The strip itself stays below the flights.
+    /// </summary>
+    internal void BringToTop()
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        // Behind a full-screen app the icons stay out of the topmost band.
+        if (handle == 0 || !Topmost)
+        {
+            return;
+        }
+
+        NativeMethods.SetWindowPos(
+            handle,
+            NativeMethods.HwndTopmost,
+            0,
+            0,
+            0,
+            0,
+            NativeMethods.SwpNoMove |
+            NativeMethods.SwpNoSize |
+            NativeMethods.SwpNoActivate |
+            NativeMethods.SwpNoOwnerZOrder);
+    }
+
+    internal void RemoveBadge(string key)
+    {
+        if (_badges.Remove(key, out var badge))
+        {
+            IconCanvas.Children.Remove(badge);
+        }
+    }
+
     internal void ClearBadges()
     {
         IconCanvas.Children.Clear();
@@ -85,28 +120,33 @@ public partial class IconOverlayWindow : Window
                  NativeMethods.WsExNoActivate |
                  NativeMethods.WsExTransparent;
         NativeMethods.SetWindowLongPtr(handle, NativeMethods.GwlExStyle, (nint)style);
+        StageManager.Services.WindowCatalog.SetTransitionsDisabled(handle, true);
     }
 
+    // Like macOS, the app icon stands on its own with a soft shadow, no plate.
     private static Border CreateBadge(ImageSource icon) => new()
     {
-        Padding = new Thickness(2),
-        Background = new SolidColorBrush(WpfColor.FromRgb(17, 22, 29)),
-        BorderBrush = new SolidColorBrush(WpfColor.FromRgb(52, 65, 84)),
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(8),
         IsHitTestVisible = false,
         Effect = new DropShadowEffect
         {
-            BlurRadius = 9,
+            BlurRadius = 12,
             ShadowDepth = 3,
-            Opacity = 0.65,
-            Color = WpfColor.FromArgb(208, 0, 0, 0)
+            Direction = 270,
+            Opacity = 0.45,
+            Color = WpfColor.FromRgb(0, 0, 0)
         },
-        Child = new WpfImage
+        Child = CreateIconImage(icon)
+    };
+
+    private static WpfImage CreateIconImage(ImageSource icon)
+    {
+        var image = new WpfImage
         {
             Source = icon,
             Stretch = Stretch.Uniform,
             IsHitTestVisible = false
-        }
-    };
+        };
+        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+        return image;
+    }
 }

@@ -4,7 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="StageBar"
         Icon="Assets/stagebar.ico"
-        Width="286"
+        Width="200"
         Height="560"
         MinHeight="320"
         WindowStyle="None"
@@ -21,28 +21,21 @@
                         UseAeroCaptionButtons="False" />
   </shell:WindowChrome.WindowChrome>
 
-  <Grid Background="Transparent">
-    <ScrollViewer x:Name="PreviewScrollViewer"
-                  VerticalAlignment="Center"
-                  HorizontalAlignment="Center"
-                  Background="Transparent"
-                  BorderThickness="0"
-                  VerticalScrollBarVisibility="Hidden"
-                  HorizontalScrollBarVisibility="Disabled"
-                  PanningMode="VerticalOnly"
-                  CanContentScroll="False"
-                  PreviewMouseWheel="PreviewScrollViewer_PreviewMouseWheel"
-                  ScrollChanged="PreviewScrollViewer_ScrollChanged">
-      <Grid Background="Transparent">
-        <StackPanel x:Name="PreviewList" Background="Transparent" />
-        <TextBlock x:Name="EmptyState"
-                   Text="没有可用窗口"
-                   Visibility="Collapsed"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Foreground="#CCFFFFFF"
-                   FontSize="12" />
-      </Grid>
-    </ScrollViewer>
+  <!-- The window never moves while revealing; the strip slides inside it so
+       DWM thumbnails can follow every frame. Cards are positioned by springs. -->
+  <Grid x:Name="StripRoot"
+        Background="Transparent"
+        MouseWheel="StripRoot_MouseWheel">
+    <Grid.RenderTransform>
+      <TranslateTransform x:Name="StripTranslate" X="0" />
+    </Grid.RenderTransform>
+    <Canvas x:Name="StripCanvas" />
+    <TextBlock x:Name="EmptyState"
+               Text="没有其他窗口"
+               Visibility="Collapsed"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center"
+               Foreground="#CCFFFFFF"
+               FontSize="12" />
   </Grid>
 </Window>

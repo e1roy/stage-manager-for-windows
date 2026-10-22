@@ -24,12 +24,14 @@
 
 ## Overview
 
-StageBar places live previews of your open application windows along the left edge of the desktop. It uses the Windows Desktop Window Manager (DWM) thumbnail API, so previews remain live without repeatedly capturing or repainting target windows.
+StageBar brings macOS Stage Manager to Windows. The application you are working in stays on the stage in the middle of the desktop; every other application waits in a strip along the left edge, grouped by app. Switching apps animates the current windows into the slot of the card you picked while the chosen app grows out of that card into place, so the rest of the strip stays put.
+
+Previews use the Windows Desktop Window Manager (DWM) thumbnail API, so they are composed by Windows without repeatedly capturing or repainting target windows.
 
 Two display modes are available:
 
 - **Fixed:** reserves a strip of desktop work area through the Windows AppBar API. Maximized applications use the remaining area and do not cover StageBar.
-- **Floating:** stays hidden until the pointer reaches the left screen edge, then slides in above other windows and automatically retracts.
+- **Floating:** like macOS, the strip stays visible while it has room and steps aside when a window on the stage covers it. Move the pointer to the left screen edge to bring it back.
 
 ## Download
 
@@ -44,17 +46,24 @@ The installer is self-contained; the target computer does not need a separate .N
 
 ## Features
 
-- Live DWM previews of regular desktop application windows
+- Stage Manager behavior: only the current app stays on the desktop, other apps are hidden into the strip
+- Animated hand-over: leaving windows shrink into the strip while the chosen app grows out of its card
+- Interruptible spring animations for the strip: cards glide, appear, disappear and react to hover
+- Cards are turned in perspective like the macOS strip, with soft shadows and large app icons; hovering turns a card toward you
+- Windows of the same app are grouped into one card with stacked previews
+- The app leaving the stage takes the picked card's slot, so the strip keeps its order; Alt+Tab, taskbar clicks and newly opened apps take the stage immediately
+- Drag a card onto the desktop to add its app to the current stage
+- Click the wallpaper to send the stage to the strip
+- Hidden windows keep their size and state and return instantly; they are restored if StageBar exits or crashes
 - Stable compositor-based previews without `PrintWindow` repaint loops
 - Fixed AppBar mode that reserves desktop workspace
 - Animated floating mode with left-edge activation and automatic hiding
-- Configurable panel width and visible card count
-- Card-count limit calculated from the current monitor height
-- Mouse-wheel card navigation with snapping animation
-- Drawer-style launch animation when switching windows
+- Configurable panel width and app icon size
+- Cards shrink as apps are added so the whole strip fits the screen height
+- Mouse-wheel card navigation
 - Application icon badges rendered above DWM thumbnails
 - Multi-monitor positioning and per-monitor DPI awareness
-- Live settings: changes apply and save immediately
+- Windows 11-style settings window that follows the system theme; changes apply and save immediately
 - Global `Ctrl + Alt + Space` panel toggle
 - System tray menu and background operation
 - Automatic exclusion of desktop, taskbar, hidden, cloaked, and tool windows
@@ -72,10 +81,11 @@ StageBar can preview elevated applications, but Windows may prevent a non-elevat
 ## Usage
 
 1. Install and launch StageBar.
-2. Open the tray menu and choose **Settings** to select Fixed or Floating mode.
-3. In Floating mode, move the pointer to the leftmost 2 pixels of any monitor.
-4. Scroll over the cards to browse windows.
-5. Click a card to restore and activate that window.
+2. Open the tray menu and choose **Settings** to select Fixed or Floating mode, whether other windows are hidden, the panel width, and the icon size.
+3. Click a card to bring that app onto the stage. The current app moves into the strip.
+4. Drag a card onto the desktop to show its app next to the current one.
+5. Click the wallpaper to clear the stage; open or activate any app to start a new one.
+6. In Floating mode, move the pointer to the leftmost 2 pixels of a monitor when the strip is covered.
 
 Additional controls:
 
@@ -84,7 +94,8 @@ Additional controls:
 | Show or hide the floating panel | `Ctrl + Alt + Space` |
 | Open the tray menu | Right-click the StageBar tray icon |
 | Toggle the panel | Double-click the tray icon |
-| Browse window cards | Mouse wheel |
+| Browse app cards | Mouse wheel |
+| Add an app to the stage | Drag its card onto the desktop |
 
 Settings are stored at `%LOCALAPPDATA%\StageManager\settings.json`. The legacy directory name is intentionally retained so upgrades preserve settings from earlier builds.
 
@@ -92,8 +103,11 @@ Settings are stored at `%LOCALAPPDATA%\StageManager\settings.json`. The legacy d
 
 | Component | Responsibility |
 | --- | --- |
-| WPF | Panel, settings interface, animations, and interaction |
-| DWM thumbnails | Real-time window previews composed by Windows |
+| WPF | Panel, settings interface, spring animations, and interaction |
+| DWM thumbnails | Window previews composed by Windows |
+| Transition layer | A click-through window without a redirection bitmap that animates thumbnails between the strip and the stage |
+| Window parking | Hides inactive windows just outside the desktop, on a side that keeps their monitor DPI, with a crash-recovery journal |
+| WinEvent hooks | React to activation, new windows, minimizing and closing without polling |
 | Transparent icon overlay | Keeps application badges above compositor-owned thumbnails |
 | Windows AppBar API | Reserves desktop work area in Fixed mode |
 | Win32 window catalog | Discovers, filters, restores, and activates application windows |
@@ -111,6 +125,8 @@ cd stage-bar
 dotnet build .\StageManager\StageManager.csproj -c Release
 dotnet run --project .\StageManager\StageManager.csproj
 ```
+
+Debug builds honour two development variables so a test run cannot rearrange your own windows: `STAGEBAR_APP_FILTER` (comma-separated executable names to manage) and `STAGEBAR_DATA_DIR` (directory for settings and the parking journal).
 
 ### Build the installer
 
@@ -140,8 +156,9 @@ The workflow builds the installer and attaches it to a GitHub Release. If `relea
 ## Known limitations
 
 - DRM-protected video, some games, and exclusive full-screen applications may not expose usable DWM thumbnails.
-- Windows privilege isolation may prevent activation of elevated applications.
-- StageBar currently displays individual windows; application grouping and workspaces are not implemented yet.
+- Windows privilege isolation may prevent activation of elevated applications, and a non-elevated StageBar cannot hide them.
+- Windows does not repaint windows that are outside the desktop, so strip previews of hidden apps show their last frame until they return.
+- Always-on-top windows are left alone and float above the stage.
 - The first preview release is unsigned.
 
 ## Contributing

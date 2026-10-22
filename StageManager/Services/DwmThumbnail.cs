@@ -4,7 +4,11 @@ namespace StageManager.Services;
 
 internal sealed class DwmThumbnail : IDisposable
 {
+    private static int _updates;
+    private static int _resizes;
     private nint _handle;
+    private NativeMethods.DwmThumbnailProperties _applied;
+    private bool _hasApplied;
 
     private DwmThumbnail(nint handle)
     {
@@ -14,73 +18,144 @@ internal sealed class DwmThumbnail : IDisposable
     public static DwmThumbnail? TryCreate(nint destination, nint source)
     {
         var result = NativeMethods.DwmRegisterThumbnail(destination, source, out var thumbnail);
-        return result == 0 && thumbnail != 0 ? new DwmThumbnail(thumbnail) : null;
+        if (result != 0 || thumbnail == 0)
+        {
+            return null;
+        }
+
+        var created = new DwmThumbnail(thumbnail);
+        created.SetVisible(false);
+        return created;
     }
 
-    public void Update(NativeMethods.Rect availableBounds, NativeMethods.Rect clipBounds, byte opacity)
+    /// <summary>
+    /// Draws the cropped source window exactly into <paramref name="destination"/>,
+    /// optionally clipped to <paramref name="clip"/>. Both rectangles are in
+    /// device pixels relative to the destination window.
+    /// </summary>
+    public void Show(NativeMethods.Rect destination, ThumbnailCrop crop, double opacity, NativeMethods.Rect? clip = null)
     {
-        if (_handle == 0 || availableBounds.Width <= 0 || availableBounds.Height <= 0 || opacity == 0)
+        if (!TryGetSourceSize(out var sourceSize))
         {
             SetVisible(false);
             return;
         }
 
-        if (NativeMethods.DwmQueryThumbnailSourceSize(_handle, out var sourceSize) != 0 ||
-            sourceSize.Width <= 0 || sourceSize.Height <= 0)
+        var source = crop.Apply(sourceSize);
+        // The crop is empty for every window measured so far, and asking for the
+        // whole source explicitly is not the same thing as asking for none.
+        if (source.Left == 0 && source.Top == 0 &&
+            source.Right == sourceSize.Width && source.Bottom == sourceSize.Height)
         {
+            ShowRegion(destination, null, opacity, clip);
             return;
         }
 
-        var scale = Math.Min(
-            (double)availableBounds.Width / sourceSize.Width,
-            (double)availableBounds.Height / sourceSize.Height);
-        var width = Math.Max(1, (int)Math.Round(sourceSize.Width * scale));
-        var height = Math.Max(1, (int)Math.Round(sourceSize.Height * scale));
-        var left = availableBounds.Left + (availableBounds.Width - width) / 2;
-        var top = availableBounds.Top + (availableBounds.Height - height) / 2;
+        ShowRegion(destination, source, opacity, clip);
+    }
 
-        var fullDestination = new NativeMethods.Rect
-        {
-            Left = left,
-            Top = top,
-            Right = left + width,
-            Bottom = top + height
-        };
-        var clippedDestination = Intersect(fullDestination, clipBounds);
-        if (clippedDestination.Width <= 0 || clippedDestination.Height <= 0)
+    public bool TryGetSourceSize(out NativeMethods.Size size)
+    {
+        size = default;
+        return _handle != 0 &&
+               NativeMethods.DwmQueryThumbnailSourceSize(_handle, out size) == 0 &&
+               size.Width > 0 &&
+               size.Height > 0;
+    }
+
+    /// <summary>
+    /// Draws <paramref name="source"/>, in source-window pixels, into
+    /// <paramref name="destination"/>. A null source asks DWM for the whole window,
+    /// which is the only way to get its visible frame landed where the frame belongs:
+    /// an explicit rectangle is measured from the window's corner, while the size
+    /// DWM reports is the frame's, so passing the frame's own size shifts the
+    /// picture right and down by the frame inset. DWM only means the whole window
+    /// by a null source while this thumbnail has never been given one: afterwards
+    /// it keeps drawing the last source rectangle it was given. A clip has to spell
+    /// the whole window out after all, so it is moved by <paramref name="frameOrigin"/>,
+    /// see <see cref="WindowGeometry.GetFrameOrigin"/>.
+    /// </summary>
+    public void ShowRegion(
+        NativeMethods.Rect destination,
+        NativeMethods.Rect? source,
+        double opacity,
+        NativeMethods.Rect? clip = null,
+        System.Drawing.Point frameOrigin = default)
+    {
+        var alpha = (byte)Math.Clamp((int)Math.Round(opacity * 255), 0, 255);
+        if (_handle == 0 || destination.Width <= 0 || destination.Height <= 0 || alpha == 0)
         {
             SetVisible(false);
             return;
         }
 
-        var source = new NativeMethods.Rect
+        if (clip is { } clipBounds)
         {
-            Left = Math.Clamp((int)Math.Round((clippedDestination.Left - fullDestination.Left) / scale), 0, sourceSize.Width),
-            Top = Math.Clamp((int)Math.Round((clippedDestination.Top - fullDestination.Top) / scale), 0, sourceSize.Height),
-            Right = Math.Clamp((int)Math.Round((clippedDestination.Right - fullDestination.Left) / scale), 0, sourceSize.Width),
-            Bottom = Math.Clamp((int)Math.Round((clippedDestination.Bottom - fullDestination.Top) / scale), 0, sourceSize.Height)
-        };
+            var clipped = Intersect(destination, clipBounds);
+            if (clipped.Width <= 0 || clipped.Height <= 0)
+            {
+                SetVisible(false);
+                return;
+            }
 
-        var properties = new NativeMethods.DwmThumbnailProperties
-        {
-            Flags = NativeMethods.DwmThumbnailFlags.RectDestination |
-                    NativeMethods.DwmThumbnailFlags.RectSource |
+            if (source is not { } current)
+            {
+                // The clip has to be expressed in source pixels, so the whole
+                // window is spelled out here even though DWM would use it anyway.
+                if (!TryGetSourceSize(out var size))
+                {
+                    SetVisible(false);
+                    return;
+                }
+
+                current = new NativeMethods.Rect
+                {
+                    Left = frameOrigin.X,
+                    Top = frameOrigin.Y,
+                    Right = frameOrigin.X + size.Width,
+                    Bottom = frameOrigin.Y + size.Height
+                };
+            }
+
+            var scaleX = (double)current.Width / destination.Width;
+            var scaleY = (double)current.Height / destination.Height;
+            source = new NativeMethods.Rect
+            {
+                Left = current.Left + (int)Math.Round((clipped.Left - destination.Left) * scaleX),
+                Top = current.Top + (int)Math.Round((clipped.Top - destination.Top) * scaleY),
+                Right = current.Right - (int)Math.Round((destination.Right - clipped.Right) * scaleX),
+                Bottom = current.Bottom - (int)Math.Round((destination.Bottom - clipped.Bottom) * scaleY)
+            };
+            destination = clipped;
+        }
+
+        var flags = NativeMethods.DwmThumbnailFlags.RectDestination |
                     NativeMethods.DwmThumbnailFlags.Opacity |
-                    NativeMethods.DwmThumbnailFlags.Visible |
-                    NativeMethods.DwmThumbnailFlags.SourceClientAreaOnly,
-            Destination = clippedDestination,
-            Source = source,
-            Opacity = opacity,
+                    NativeMethods.DwmThumbnailFlags.Visible;
+        if (source is { } rect && rect.Width > 0 && rect.Height > 0)
+        {
+            flags |= NativeMethods.DwmThumbnailFlags.RectSource;
+        }
+        else if (source is not null)
+        {
+            SetVisible(false);
+            return;
+        }
+
+        Apply(new NativeMethods.DwmThumbnailProperties
+        {
+            Flags = flags,
+            Destination = destination,
+            Source = source ?? default,
+            Opacity = alpha,
             Visible = true,
             SourceClientAreaOnly = false
-        };
-
-        NativeMethods.DwmUpdateThumbnailProperties(_handle, ref properties);
+        });
     }
 
     public void SetVisible(bool visible)
     {
-        if (_handle == 0)
+        if (_handle == 0 || (_hasApplied && _applied.Visible == visible))
         {
             return;
         }
@@ -91,7 +166,41 @@ internal sealed class DwmThumbnail : IDisposable
             Visible = visible
         };
         NativeMethods.DwmUpdateThumbnailProperties(_handle, ref properties);
+        _applied.Visible = visible;
+        _hasApplied = true;
     }
+
+    private void Apply(NativeMethods.DwmThumbnailProperties properties)
+    {
+        // Skipping unchanged frames keeps idle cards from calling into DWM.
+        if (_hasApplied &&
+            _applied.Visible &&
+            _applied.Flags == properties.Flags &&
+            _applied.Destination == properties.Destination &&
+            _applied.Source == properties.Source &&
+            _applied.Opacity == properties.Opacity)
+        {
+            return;
+        }
+
+        if (_applied.Destination.Width != properties.Destination.Width ||
+            _applied.Destination.Height != properties.Destination.Height)
+        {
+            Interlocked.Increment(ref _resizes);
+        }
+
+        Interlocked.Increment(ref _updates);
+        NativeMethods.DwmUpdateThumbnailProperties(_handle, ref properties);
+        _applied = properties;
+        _hasApplied = true;
+    }
+
+    /// <summary>
+    /// Thumbnail updates, and how many of them changed a thumbnail's size, across
+    /// the process since the last call. DWM pays for the resizes, see <see cref="SlicedThumbnail"/>.
+    /// </summary>
+    internal static (int Updates, int Resizes) TakeCounts() =>
+        (Interlocked.Exchange(ref _updates, 0), Interlocked.Exchange(ref _resizes, 0));
 
     private static NativeMethods.Rect Intersect(NativeMethods.Rect first, NativeMethods.Rect second) => new()
     {

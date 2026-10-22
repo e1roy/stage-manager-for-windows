@@ -2,24 +2,25 @@ namespace StageManager.Services;
 
 internal static class LayoutMetrics
 {
-    internal const double MinimumWidth = 200;
+    internal const double MinimumWidth = 100;
     internal const double MaximumWidth = 420;
-    internal const int AbsoluteMaximumCardCount = 8;
 
-    internal static CardLayout Calculate(double panelWidth)
+    /// <summary>Range of the user's icon size, relative to the size that suits the card.</summary>
+    internal const double MinimumIconScale = 0.6;
+    internal const double MaximumIconScale = 1.6;
+
+    /// <summary>How far cards shrink to fit more apps before the strip scrolls.</summary>
+    internal const double MinimumCardScale = 0.42;
+
+    internal static CardLayout Calculate(double panelWidth, double iconScale = 1)
     {
         var normalizedWidth = Math.Clamp(panelWidth, MinimumWidth, MaximumWidth);
-        var previewWidth = Math.Max(150, normalizedWidth - 42);
-        var previewHeight = Math.Clamp(previewWidth * 0.57, 88, 176);
-        return new CardLayout(previewWidth, previewHeight, previewHeight + 22);
-    }
-
-    internal static int CalculateMaximumCardCount(double panelWidth, double availableHeight)
-    {
-        var layout = Calculate(panelWidth);
-        var maximum = (int)Math.Floor(Math.Max(layout.ItemExtent, availableHeight - 32) / layout.ItemExtent);
-        return Math.Clamp(maximum, 1, AbsoluteMaximumCardCount);
+        var previewWidth = normalizedWidth - 42;
+        var previewHeight = Math.Min(previewWidth * 0.57, 176);
+        var iconSize = Math.Clamp(previewHeight * 0.3, 20, 56) *
+                       Math.Clamp(iconScale, MinimumIconScale, MaximumIconScale);
+        return new CardLayout(previewWidth, previewHeight, previewHeight + 22, iconSize);
     }
 }
 
-internal readonly record struct CardLayout(double PreviewWidth, double PreviewHeight, double ItemExtent);
+internal readonly record struct CardLayout(double PreviewWidth, double PreviewHeight, double ItemExtent, double IconSize);

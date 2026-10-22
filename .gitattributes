@@ -7,3 +7,4 @@
 *.isl text eol=crlf
 *.png binary
 *.ico binary
+*.bat text eol=crlf

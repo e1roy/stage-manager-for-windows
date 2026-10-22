@@ -7,10 +7,7 @@ namespace StageManager.Services;
 internal sealed class SettingsService
 {
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
-    private readonly string _settingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "StageManager",
-        "settings.json");
+    private readonly string _settingsPath = Path.Combine(AppPaths.DataDirectory, "settings.json");
 
     internal StageManagerSettings Load()
     {
@@ -51,6 +48,9 @@ internal sealed class SettingsService
             settings.DisplayWidth,
             LayoutMetrics.MinimumWidth,
             LayoutMetrics.MaximumWidth),
-        CardCount = Math.Clamp(settings.CardCount, 1, LayoutMetrics.AbsoluteMaximumCardCount)
+        IconScale = Math.Clamp(
+            settings.IconScale,
+            LayoutMetrics.MinimumIconScale,
+            LayoutMetrics.MaximumIconScale)
     };
 }

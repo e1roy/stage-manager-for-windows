@@ -9,7 +9,8 @@ public enum DisplayMode
 public sealed record StageManagerSettings(
     DisplayMode DisplayMode,
     double DisplayWidth,
-    int CardCount)
+    bool HideInactiveWindows = true,
+    double IconScale = 1)
 {
-    public static StageManagerSettings Default { get; } = new(DisplayMode.Fixed, 286, 3);
+    public static StageManagerSettings Default { get; } = new(DisplayMode.Fixed, 200);
 }

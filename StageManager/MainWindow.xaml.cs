@@ -1,13 +1,12 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
-using StageManager.Controls;
 using StageManager.Interop;
 using StageManager.Models;
 using StageManager.Services;
@@ -15,40 +14,44 @@ using Application = System.Windows.Application;
 using DrawingIcon = System.Drawing.Icon;
 using FormsCursor = System.Windows.Forms.Cursor;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
-using MouseWheelEventArgs = System.Windows.Input.MouseWheelEventArgs;
-using Point = System.Windows.Point;
 
 namespace StageManager;
 
 public partial class MainWindow : Window
 {
     private const int HotKeyId = 0x534D;
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(1400);
-    private static readonly TimeSpan EdgePollInterval = TimeSpan.FromMilliseconds(90);
+#if DEBUG
+    private static readonly int DebugSelectCardMessage = (int)RegisterWindowMessage("StageBar.Debug.SelectCard");
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern uint RegisterWindowMessage(string message);
+#endif
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(1500);
+    private static readonly TimeSpan EdgePollInterval = TimeSpan.FromMilliseconds(16);
+    private static readonly TimeSpan AutoHideDelay = TimeSpan.FromMilliseconds(650);
 
     private readonly WindowCatalog _windowCatalog = new();
     private readonly WindowIconService _windowIconService = new();
     private readonly SettingsService _settingsService = new();
-    private readonly Dictionary<nint, DwmThumbnail> _thumbnails = [];
+    private readonly WindowParkingService _parking = new();
     private readonly DispatcherTimer _refreshTimer = new() { Interval = RefreshInterval };
     private readonly DispatcherTimer _edgeTimer = new() { Interval = EdgePollInterval };
-    private readonly ScrollOffsetAnimator _scrollAnimator;
+    private readonly Spring _panelReveal = new(0, response: 0.32);
+    private readonly Stopwatch _frameClock = Stopwatch.StartNew();
     private readonly DrawingIcon _applicationIcon;
     private readonly NotifyIcon _trayIcon;
     private StageManagerSettings _settings;
     private SettingsWindow? _settingsWindow;
     private IconOverlayWindow? _iconOverlay;
+    private StageTransitionWindow? _transition;
+    private WinEventWatcher? _winEvents;
     private AppBarService? _appBar;
     private HwndSource? _source;
     private nint _windowHandle;
-    private DateTime _lastInsideAt = DateTime.UtcNow;
-    private bool _isPanelVisible;
+    private DateTime _lastInsideAt = DateTime.MinValue;
     private bool _isExiting;
-    private bool _isLaunching;
     private bool _isRenderingSubscribed;
-    private int _carouselStartIndex;
-    private int _visibleCardCount = 3;
-    private double _itemExtent = 158;
+    private double _lastFrameTime;
     private double _shownLeft;
     private Screen? _currentScreen;
     private DateTime _lastAppBarNotification = DateTime.MinValue;
@@ -58,18 +61,21 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         _settings = _settingsService.Load();
-        _scrollAnimator = new ScrollOffsetAnimator(PreviewScrollViewer);
         _applicationIcon = LoadApplicationIcon();
         _trayIcon = CreateTrayIcon();
-        _refreshTimer.Tick += (_, _) => RefreshWindowList();
+        _refreshTimer.Tick += (_, _) => RefreshWindows();
         _edgeTimer.Tick += (_, _) => PollScreenEdge();
+        _eventRefreshTimer.Tick += (_, _) => RefreshWindows();
+        _coverTimer.Tick += (_, _) => UpdatePanelCovered();
+        _foregroundTimer.Tick += ForegroundTimer_Tick;
         MouseEnter += Panel_MouseEnter;
         MouseLeave += Panel_MouseLeave;
-        LocationChanged += (_, _) => Dispatcher.BeginInvoke(UpdateVisualLayers, DispatcherPriority.Render);
-        SizeChanged += (_, _) => Dispatcher.BeginInvoke(UpdateVisualLayers, DispatcherPriority.Render);
+        SizeChanged += (_, _) => LayoutStrip();
         SourceInitialized += MainWindow_SourceInitialized;
         Loaded += MainWindow_Loaded;
     }
+
+    private bool IsPanelShown => _panelReveal.Target > 0.5;
 
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {
@@ -81,6 +87,8 @@ public partial class MainWindow : Window
         var style = NativeMethods.GetWindowLongPtr(_windowHandle, NativeMethods.GwlExStyle).ToInt64();
         style |= NativeMethods.WsExToolWindow | NativeMethods.WsExNoActivate;
         NativeMethods.SetWindowLongPtr(_windowHandle, NativeMethods.GwlExStyle, (nint)style);
+        // The strip animates its own reveal; a DWM show/hide fade on top of it reads as a flash.
+        WindowCatalog.SetTransitionsDisabled(_windowHandle, true);
         NativeMethods.RegisterHotKey(
             _windowHandle,
             HotKeyId,
@@ -91,278 +99,21 @@ public partial class MainWindow : Window
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _iconOverlay = new IconOverlayWindow(this);
+        _transition = new StageTransitionWindow();
+        _parking.RecoverFromJournal();
         _currentScreen = Screen.FromPoint(FormsCursor.Position);
         ApplySettingsLayout(initial: true);
+        _winEvents = new WinEventWatcher();
+        _winEvents.ForegroundChanged += WinEvents_ForegroundChanged;
+        _winEvents.WindowChanged += WinEvents_WindowChanged;
         _refreshTimer.Start();
         _edgeTimer.Start();
-    }
-
-    private void RefreshWindowList(bool force = false)
-    {
-        var windows = _windowCatalog.GetWindows();
-        var handles = windows.Select(static window => window.Handle).ToHashSet();
-        var currentHandles = PreviewList.Children
-            .OfType<WindowPreviewControl>()
-            .Select(static control => control.Snapshot.Handle)
-            .ToHashSet();
-
-        if (!force && handles.SetEquals(currentHandles))
-        {
-            UpdateVisualLayers();
-            return;
-        }
-
-        DisposeThumbnails();
-        _iconOverlay?.ClearBadges();
-        PreviewList.Children.Clear();
-        var layout = LayoutMetrics.Calculate(_settings.DisplayWidth);
-        _itemExtent = layout.ItemExtent;
-        foreach (var window in windows)
-        {
-            var control = new WindowPreviewControl(
-                window,
-                _windowIconService.GetIcon(window.Handle),
-                layout);
-            control.WindowSelected += Preview_WindowSelected;
-            PreviewList.Children.Add(control);
-        }
-
-        _carouselStartIndex = Math.Clamp(_carouselStartIndex, 0, Math.Max(0, windows.Count - _visibleCardCount));
-        PreviewScrollViewer.ScrollToVerticalOffset(_carouselStartIndex * _itemExtent);
-        UpdateCarouselVisuals();
-        EmptyState.Visibility = windows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        Dispatcher.BeginInvoke(RegisterThumbnails, DispatcherPriority.Loaded);
-    }
-
-    private void RegisterThumbnails()
-    {
-        if (_windowHandle == 0)
-        {
-            return;
-        }
-
-        foreach (var control in PreviewList.Children.OfType<WindowPreviewControl>())
-        {
-            if (_thumbnails.ContainsKey(control.Snapshot.Handle))
-            {
-                continue;
-            }
-
-            if (DwmThumbnail.TryCreate(_windowHandle, control.Snapshot.Handle) is { } thumbnail)
-            {
-                _thumbnails.Add(control.Snapshot.Handle, thumbnail);
-            }
-        }
-
-        UpdateVisualLayers();
-    }
-
-    private void UpdateThumbnailBounds()
-    {
-        if (!_isPanelVisible ||
-            PresentationSource.FromVisual(this)?.CompositionTarget is not { } compositionTarget ||
-            PreviewScrollViewer.ViewportWidth <= 0 ||
-            PreviewScrollViewer.ViewportHeight <= 0)
-        {
-            return;
-        }
-
-        var toDevice = compositionTarget.TransformToDevice;
-        var viewportOrigin = PreviewScrollViewer.TransformToAncestor(this).Transform(new Point(0, 0));
-        var viewportBottomRight = PreviewScrollViewer.TransformToAncestor(this).Transform(new Point(
-            PreviewScrollViewer.ViewportWidth,
-            PreviewScrollViewer.ViewportHeight));
-        var deviceViewportOrigin = toDevice.Transform(viewportOrigin);
-        var deviceViewportBottomRight = toDevice.Transform(viewportBottomRight);
-        var clipBounds = new NativeMethods.Rect
-        {
-            Left = (int)Math.Floor(deviceViewportOrigin.X),
-            Top = (int)Math.Floor(deviceViewportOrigin.Y),
-            Right = (int)Math.Ceiling(deviceViewportBottomRight.X),
-            Bottom = (int)Math.Ceiling(deviceViewportBottomRight.Y)
-        };
-
-        foreach (var control in PreviewList.Children.OfType<WindowPreviewControl>())
-        {
-            if (!_thumbnails.TryGetValue(control.Snapshot.Handle, out var thumbnail))
-            {
-                continue;
-            }
-
-            if (!control.ThumbnailSurface.IsVisible ||
-                control.ThumbnailSurface.ActualWidth <= 0 ||
-                control.ThumbnailSurface.ActualHeight <= 0)
-            {
-                thumbnail.SetVisible(false);
-                continue;
-            }
-
-            try
-            {
-                var transform = control.ThumbnailSurface.TransformToAncestor(this);
-                var origin = transform.Transform(new Point(0, 0));
-                var bottomRight = transform.Transform(new Point(
-                    control.ThumbnailSurface.ActualWidth,
-                    control.ThumbnailSurface.ActualHeight));
-                var deviceOrigin = toDevice.Transform(origin);
-                var deviceBottomRight = toDevice.Transform(bottomRight);
-
-                thumbnail.Update(
-                    new NativeMethods.Rect
-                    {
-                        Left = (int)Math.Round(deviceOrigin.X),
-                        Top = (int)Math.Round(deviceOrigin.Y),
-                        Right = (int)Math.Round(deviceBottomRight.X),
-                        Bottom = (int)Math.Round(deviceBottomRight.Y)
-                    },
-                    clipBounds,
-                    (byte)Math.Clamp((int)Math.Round(control.Opacity * 255), 0, 255));
-            }
-            catch (InvalidOperationException)
-            {
-                thumbnail.SetVisible(false);
-            }
-        }
-    }
-
-    private void UpdateIconOverlay()
-    {
-        if (_iconOverlay is null || !_isPanelVisible || !_iconOverlay.IsVisible)
-        {
-            return;
-        }
-
-        _iconOverlay.SyncToOwner(this);
-        if (PreviewScrollViewer.ViewportWidth <= 0 || PreviewScrollViewer.ViewportHeight <= 0)
-        {
-            _iconOverlay.UpdateBadges([]);
-            return;
-        }
-
-        var viewportTransform = PreviewScrollViewer.TransformToAncestor(this);
-        var viewportOrigin = viewportTransform.Transform(new Point(0, 0));
-        var viewportBottomRight = viewportTransform.Transform(new Point(
-            PreviewScrollViewer.ViewportWidth,
-            PreviewScrollViewer.ViewportHeight));
-        var viewportBounds = new Rect(viewportOrigin, viewportBottomRight);
-        var items = new List<IconOverlayItem>();
-
-        foreach (var control in PreviewList.Children.OfType<WindowPreviewControl>())
-        {
-            if (control.AppIcon is null ||
-                control.Opacity <= 0.01 ||
-                !control.IconAnchor.IsVisible ||
-                control.IconAnchor.ActualWidth <= 0 ||
-                control.IconAnchor.ActualHeight <= 0)
-            {
-                continue;
-            }
-
-            try
-            {
-                var transform = control.IconAnchor.TransformToAncestor(this);
-                var origin = transform.Transform(new Point(0, 0));
-                var bottomRight = transform.Transform(new Point(
-                    control.IconAnchor.ActualWidth,
-                    control.IconAnchor.ActualHeight));
-                var bounds = new Rect(origin, bottomRight);
-                if (bounds.IntersectsWith(viewportBounds))
-                {
-                    items.Add(new IconOverlayItem(
-                        control.Snapshot.Handle,
-                        control.AppIcon,
-                        bounds,
-                        control.Opacity));
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                // A layout pass can briefly detach a card while the list refreshes.
-            }
-        }
-
-        _iconOverlay.UpdateBadges(items);
-    }
-
-    private void UpdateVisualLayers()
-    {
-        UpdateThumbnailBounds();
-        UpdateIconOverlay();
-    }
-
-    private void PreviewScrollViewer_ScrollChanged(object sender, System.Windows.Controls.ScrollChangedEventArgs e)
-    {
-        UpdateCarouselVisuals();
-        Dispatcher.BeginInvoke(UpdateVisualLayers, DispatcherPriority.Render);
-    }
-
-    private void PreviewScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-    {
-        e.Handled = true;
-        if (_isLaunching || PreviewList.Children.Count <= _visibleCardCount)
-        {
-            return;
-        }
-
-        var direction = e.Delta < 0 ? 1 : -1;
-        var maxStart = Math.Max(0, PreviewList.Children.Count - _visibleCardCount);
-        var nextIndex = Math.Clamp(_carouselStartIndex + direction, 0, maxStart);
-        if (nextIndex == _carouselStartIndex)
-        {
-            return;
-        }
-
-        _carouselStartIndex = nextIndex;
-        _scrollAnimator.AnimateTo(_carouselStartIndex * _itemExtent);
-    }
-
-    private void UpdateCarouselVisuals()
-    {
-        var count = PreviewList.Children.Count;
-        var visibleCount = Math.Min(_visibleCardCount, Math.Max(1, count));
-        var centerIndex = count <= 1
-            ? 0d
-            : PreviewScrollViewer.VerticalOffset / _itemExtent + (visibleCount - 1) / 2d;
-        var maximumVisibleDistance = Math.Max(0, (visibleCount - 1) / 2d);
-
-        var index = 0;
-        foreach (var control in PreviewList.Children.OfType<WindowPreviewControl>())
-        {
-            control.SetCarouselPosition(index - centerIndex, maximumVisibleDistance);
-            index++;
-        }
-    }
-
-    private async void Preview_WindowSelected(object? sender, WindowSnapshot window)
-    {
-        if (_isLaunching || sender is not WindowPreviewControl control)
-        {
-            return;
-        }
-
-        _isLaunching = true;
-        try
-        {
-            await control.PlayLaunchAnimationAsync();
-            WindowCatalog.Activate(window.Handle);
-            if (_settings.DisplayMode is DisplayMode.Floating)
-            {
-                HidePanel();
-            }
-
-            await Task.Delay(70);
-        }
-        finally
-        {
-            control.ResetAnimations();
-            UpdateCarouselVisuals();
-            _isLaunching = false;
-        }
+        InitializeStage();
     }
 
     private void PollScreenEdge()
     {
-        if (_settings.DisplayMode is DisplayMode.Fixed)
+        if (_settings.DisplayMode is DisplayMode.Fixed || _isExiting)
         {
             return;
         }
@@ -372,7 +123,6 @@ public partial class MainWindow : Window
         var isAtLeftEdge = cursor.X <= screen.Bounds.Left + 2 &&
                            cursor.Y >= screen.Bounds.Top &&
                            cursor.Y <= screen.Bounds.Bottom;
-        var isInsidePanel = _isPanelVisible && IsCursorInsideWindow(cursor);
 
         if (isAtLeftEdge)
         {
@@ -381,16 +131,25 @@ public partial class MainWindow : Window
                 _currentScreen = screen;
                 ApplySettingsLayout(initial: false);
             }
-            ShowPanel();
-            _lastInsideAt = DateTime.UtcNow;
-            return;
-        }
 
-        if (isInsidePanel)
+            _lastInsideAt = DateTime.UtcNow;
+        }
+        else if (IsPanelShown && IsCursorInsideWindow(cursor))
         {
             _lastInsideAt = DateTime.UtcNow;
         }
-        else if (_isPanelVisible && DateTime.UtcNow - _lastInsideAt > TimeSpan.FromMilliseconds(650))
+
+        // Like macOS, the strip stays out while it has room and steps aside
+        // when a window on the stage covers it; the left edge brings it back.
+        var shouldShow = DateTime.UtcNow - _lastInsideAt < AutoHideDelay ||
+                         _isHoldingPanelOpen ||
+                         _drag is not null ||
+                         (!_isPanelCovered && _cards.Count > 0);
+        if (shouldShow)
+        {
+            ShowPanel();
+        }
+        else
         {
             HidePanel();
         }
@@ -415,18 +174,16 @@ public partial class MainWindow : Window
         var source = PresentationSource.FromVisual(this);
         var scaleX = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
         var scaleY = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-        var availableHeightDips = screen.WorkingArea.Height / scaleY;
-        var maximumCards = LayoutMetrics.CalculateMaximumCardCount(
-            _settings.DisplayWidth,
-            availableHeightDips);
-        _visibleCardCount = Math.Min(_settings.CardCount, maximumCards);
-        var layout = LayoutMetrics.Calculate(_settings.DisplayWidth);
-        _itemExtent = layout.ItemExtent;
-        PreviewScrollViewer.Width = Math.Max(180, _settings.DisplayWidth - 10);
-        PreviewScrollViewer.Height = _visibleCardCount * _itemExtent;
+        var layout = LayoutMetrics.Calculate(_settings.DisplayWidth, _settings.IconScale);
+        if (layout != _cardLayout)
+        {
+            // Cards keep the geometry they were built with; rebuild them.
+            ClearCards();
+        }
 
-        BeginAnimation(LeftProperty, null);
-        BeginAnimation(OpacityProperty, null);
+        _cardLayout = layout;
+        _itemExtent = _cardLayout.ItemExtent;
+
         if (_settings.DisplayMode is DisplayMode.Fixed && _appBar is not null)
         {
             _lastAppBarNotification = DateTime.UtcNow;
@@ -441,22 +198,23 @@ public partial class MainWindow : Window
         }
         else
         {
+            // The strip spans the work area height like Fixed mode, so cards
+            // can use all of it; only the band they occupy reacts to windows.
             _appBar?.Unregister();
             var workArea = screen.WorkingArea;
             Width = _settings.DisplayWidth;
-            Height = Math.Min(
-                availableHeightDips,
-                _visibleCardCount * _itemExtent + 24);
+            Height = workArea.Height / scaleY;
             _shownLeft = (screen.Bounds.Left + 4) / scaleX;
             Left = _shownLeft;
-            Top = (workArea.Top + (workArea.Height - Height * scaleY) / 2.0) / scaleY;
+            Top = workArea.Top / scaleY;
         }
 
-        RefreshWindowList(force: true);
+        RefreshWindows();
         if (_settings.DisplayMode is DisplayMode.Fixed)
         {
-            _isPanelVisible = false;
             ShowPanel();
+            _panelReveal.Snap(1);
+            ApplyStripVisuals();
         }
         else
         {
@@ -470,12 +228,12 @@ public partial class MainWindow : Window
 
     private void ShowPanel()
     {
-        if (_isPanelVisible)
+        if (IsPanelShown)
         {
             return;
         }
 
-        _isPanelVisible = true;
+        _panelReveal.Target = 1;
         Visibility = Visibility.Visible;
         if (_windowHandle != 0)
         {
@@ -491,21 +249,7 @@ public partial class MainWindow : Window
             }
         }
 
-        BeginAnimation(OpacityProperty, null);
-        Opacity = 1;
-        if (_settings.DisplayMode is DisplayMode.Floating)
-        {
-            BeginAnimation(LeftProperty, null);
-            Left = _shownLeft;
-            var hiddenLeft = _shownLeft - Width + 12;
-            BeginAnimation(LeftProperty, new DoubleAnimation(hiddenLeft, _shownLeft, TimeSpan.FromMilliseconds(230))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            });
-            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(170)));
-        }
-        SubscribeRendering();
-        Dispatcher.BeginInvoke(UpdateVisualLayers, DispatcherPriority.Render);
+        RequestFrame();
     }
 
     private void HidePanel(bool immediate = false)
@@ -515,42 +259,23 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_isPanelVisible && !immediate)
-        {
-            return;
-        }
-
-        _isPanelVisible = false;
+        _panelReveal.Target = 0;
         if (immediate)
         {
-            UnsubscribeRendering();
-            _iconOverlay?.Hide();
-            Opacity = 0;
-            Visibility = Visibility.Hidden;
-            BeginAnimation(LeftProperty, null);
-            Left = _shownLeft;
+            _panelReveal.Snap(0);
+            ApplyStripVisuals();
+            ConcealWindow();
             return;
         }
 
-        var animation = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(140));
-        var currentLeft = Left;
-        var hiddenLeft = _shownLeft - Width + 12;
-        BeginAnimation(LeftProperty, new DoubleAnimation(currentLeft, hiddenLeft, TimeSpan.FromMilliseconds(210))
-        {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-        });
-        animation.Completed += (_, _) =>
-        {
-            if (!_isPanelVisible)
-            {
-                UnsubscribeRendering();
-                _iconOverlay?.Hide();
-                Visibility = Visibility.Hidden;
-                BeginAnimation(LeftProperty, null);
-                Left = _shownLeft;
-            }
-        };
-        BeginAnimation(OpacityProperty, animation);
+        RequestFrame();
+    }
+
+    /// <summary>Hides the HWND once the strip has slid away so it stops intercepting clicks.</summary>
+    private void ConcealWindow()
+    {
+        _iconOverlay?.Hide();
+        Visibility = Visibility.Hidden;
     }
 
     private void TogglePanel()
@@ -561,58 +286,24 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_isPanelVisible)
+        if (IsPanelShown)
         {
+            _lastInsideAt = DateTime.MinValue;
             HidePanel();
         }
         else
         {
-            _currentScreen = Screen.FromPoint(FormsCursor.Position);
-            ApplyFloatingPosition();
+            var screen = Screen.FromPoint(FormsCursor.Position);
+            if (_currentScreen?.DeviceName != screen.DeviceName)
+            {
+                _currentScreen = screen;
+                ApplySettingsLayout(initial: false);
+            }
+
+            _lastInsideAt = DateTime.UtcNow;
             ShowPanel();
         }
     }
-
-    private void ApplyFloatingPosition()
-    {
-        if (_settings.DisplayMode is not DisplayMode.Floating || _currentScreen is null)
-        {
-            return;
-        }
-
-        var source = PresentationSource.FromVisual(this);
-        var scaleX = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-        var scaleY = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-        var workArea = _currentScreen.WorkingArea;
-        BeginAnimation(LeftProperty, null);
-        _shownLeft = (_currentScreen.Bounds.Left + 4) / scaleX;
-        Left = _shownLeft;
-        Top = (workArea.Top + (workArea.Height - Height * scaleY) / 2.0) / scaleY;
-    }
-
-    private void SubscribeRendering()
-    {
-        if (_isRenderingSubscribed)
-        {
-            return;
-        }
-
-        CompositionTarget.Rendering += CompositionTarget_Rendering;
-        _isRenderingSubscribed = true;
-    }
-
-    private void UnsubscribeRendering()
-    {
-        if (!_isRenderingSubscribed)
-        {
-            return;
-        }
-
-        CompositionTarget.Rendering -= CompositionTarget_Rendering;
-        _isRenderingSubscribed = false;
-    }
-
-    private void CompositionTarget_Rendering(object? sender, EventArgs e) => UpdateVisualLayers();
 
     private void Panel_MouseEnter(object sender, MouseEventArgs e) => _lastInsideAt = DateTime.UtcNow;
 
@@ -625,13 +316,46 @@ public partial class MainWindow : Window
             TogglePanel();
             handled = true;
         }
+#if DEBUG
+        else if (message == DebugSelectCardMessage)
+        {
+            // Development aid: lets an automated test select strip card N
+            // through the same path as a click, without moving the mouse.
+            if (wParam.ToInt32() is var index && index >= 0 && index < _cards.Count)
+            {
+                var card = _cards[index];
+                _ = SwitchStageAsync([card.Key], card.Group.Front.Handle, activate: true);
+            }
+
+            handled = true;
+        }
+#endif
         else if (_appBar is not null &&
                  message == _appBar.CallbackMessage &&
-                 _settings.DisplayMode is DisplayMode.Fixed &&
-                 DateTime.UtcNow - _lastAppBarNotification > TimeSpan.FromMilliseconds(500))
+                 _settings.DisplayMode is DisplayMode.Fixed)
         {
-            _lastAppBarNotification = DateTime.UtcNow;
-            Dispatcher.BeginInvoke(() => ApplySettingsLayout(initial: false), DispatcherPriority.Background);
+            switch (wParam.ToInt32())
+            {
+                // Only a real change of the taskbar or other app bars needs a
+                // new reservation; re-reserving on every notice makes the shell
+                // rearrange the taskbar again.
+                case AppBarService.PositionChangedNotification
+                    when DateTime.UtcNow - _lastAppBarNotification > TimeSpan.FromMilliseconds(500):
+                    _lastAppBarNotification = DateTime.UtcNow;
+                    Dispatcher.BeginInvoke(() => ApplySettingsLayout(initial: false), DispatcherPriority.Background);
+                    break;
+                // App bars step behind full-screen apps such as videos and games.
+                case AppBarService.FullScreenAppNotification:
+                    var isFullScreen = lParam != 0;
+                    Topmost = !isFullScreen;
+                    if (_iconOverlay is not null)
+                    {
+                        _iconOverlay.Topmost = !isFullScreen;
+                    }
+
+                    break;
+            }
+
             handled = true;
         }
 
@@ -699,6 +423,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        var hidingChanged = normalized.HideInactiveWindows != _settings.HideInactiveWindows;
         _settings = normalized;
         try
         {
@@ -709,8 +434,23 @@ public partial class MainWindow : Window
             // The applied in-memory settings remain valid even if persistence fails.
         }
 
+        if (hidingChanged)
+        {
+            if (_settings.HideInactiveWindows)
+            {
+                ParkInactiveWindows(BuildGroups(_windowCatalog.GetWindows()));
+            }
+            else
+            {
+                _parking.RestoreAll();
+            }
+        }
+
         ApplySettingsLayout(initial: false);
     }
+
+    /// <summary>Puts every parked window back where it was. Safe to call while shutting down.</summary>
+    internal void RestoreParkedWindows() => _parking.RestoreAll();
 
     private void ExitApplication()
     {
@@ -729,8 +469,15 @@ public partial class MainWindow : Window
 
         _refreshTimer.Stop();
         _edgeTimer.Stop();
+        _eventRefreshTimer.Stop();
+        _coverTimer.Stop();
+        _foregroundTimer.Stop();
+        _winEvents?.Dispose();
         UnsubscribeRendering();
-        DisposeThumbnails();
+        _transition?.Dispose();
+        _transition = null;
+        _parking.RestoreAll();
+        ClearCards();
         _iconOverlay?.ClearBadges();
         _iconOverlay?.Close();
         _iconOverlay = null;
@@ -746,15 +493,5 @@ public partial class MainWindow : Window
         _applicationIcon.Dispose();
         base.OnClosing(e);
         Application.Current.Shutdown();
-    }
-
-    private void DisposeThumbnails()
-    {
-        foreach (var thumbnail in _thumbnails.Values)
-        {
-            thumbnail.Dispose();
-        }
-
-        _thumbnails.Clear();
     }
 }
