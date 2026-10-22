@@ -124,6 +124,10 @@ func IsWindowVisible(h HWND) bool { return boolCall(procIsWindowVisible, uintptr
 func IsIconic(h HWND) bool        { return boolCall(procIsIconic, uintptr(h)) }
 func IsZoomed(h HWND) bool        { return boolCall(procIsZoomed, uintptr(h)) }
 
+// IsHung reports whether a window's app has stopped taking messages, as
+// Windows tells when it shows a ghost window in its place.
+func IsHung(h HWND) bool { return boolCall(procIsHungAppWindow, uintptr(h)) }
+
 // WindowRect returns the window's rectangle, invisible resize borders included.
 func WindowRect(h HWND) Rect {
 	var r Rect

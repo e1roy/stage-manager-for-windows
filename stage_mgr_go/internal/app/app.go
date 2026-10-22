@@ -41,7 +41,8 @@ type set struct {
 	key  string   // the card's identity: its first app
 	apps []*group // in the order they came on the stage
 	// windows are what the card shows, front first: the front window of
-	// each app, so that every app shows, then the others.
+	// each app, so that every app shows, then the others. The ones shown
+	// are in z-order.
 	windows []catalog.Window
 }
 
@@ -56,8 +57,14 @@ func newSet(apps []*group) *set {
 	for _, g := range byZ {
 		s.windows = append(s.windows, g.windows[1:]...)
 	}
+	// Those the card shows overlap as they do on the desktop, so that the
+	// windows flying out of the card and home keep their order all the way.
+	slices.SortStableFunc(s.stacked(), frontFirst)
 	return s
 }
+
+// frontFirst orders windows by their place in the z-order.
+func frontFirst(x, y catalog.Window) int { return x.Z - y.Z }
 
 func (s *set) front() catalog.Window { return s.windows[0] }
 
@@ -324,11 +331,14 @@ func (a *App) frontApp(d *display) string {
 // release brings back the parked windows of a display Stage Manager stops
 // arranging, and forgets its stage.
 func (a *App) release(d *display) {
+	// Together, in the order they were in, front first.
+	var hs []winapi.HWND
 	for _, w := range a.windows {
 		if a.park.IsParked(w.HWND) && a.displayOf(w) == d {
-			a.park.Unpark(w.HWND)
+			hs = append(hs, w.HWND)
 		}
 	}
+	a.park.Unpark(hs...)
 	d.model.Init("", time.Now())
 	d.sets, d.onStage = nil, nil
 }

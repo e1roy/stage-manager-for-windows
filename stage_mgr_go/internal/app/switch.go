@@ -54,6 +54,20 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 			}
 		}
 	}
+	// The windows fly and land overlapping as they did on the desktop, and
+	// the one activated comes in front of the others, as it does on landing.
+	slices.SortStableFunc(departing, frontFirst)
+	slices.SortStableFunc(arriving, func(x, y catalog.Window) int {
+		switch {
+		case x.HWND == y.HWND:
+			return 0
+		case activate && x.HWND == focus:
+			return -1
+		case activate && y.HWND == focus:
+			return 1
+		}
+		return frontFirst(x, y)
+	})
 	if len(departing)+len(arriving) == 0 {
 		d.model.Switch(next, time.Now())
 		if activate && focus != 0 {
@@ -133,17 +147,20 @@ func (h *handover) takeOff() {
 func (h *handover) land() {
 	clear(h.d.landing)
 	h.a.redraw()
+	var parked []winapi.HWND
 	for _, w := range h.arriving {
 		// Coming back from outside the desktop, a window is faded in by
 		// DWM; the flight already showed it arrive.
 		winapi.SetTransitionsDisabled(w.HWND, true)
 		switch {
 		case h.a.park.IsParked(w.HWND):
-			h.a.park.Unpark(w.HWND)
+			parked = append(parked, w.HWND)
 		case winapi.IsIconic(w.HWND) && !(h.activate && !h.early && w.HWND == h.focus):
 			winapi.ShowNoActivate(w.HWND)
 		}
 	}
+	// Together, so that they come home in the order they flew in.
+	h.a.park.Unpark(parked...)
 	if h.activate && !h.early && h.focus != 0 {
 		ok := winapi.Activate(h.focus)
 		debugf("activate late %x ok=%v fg=%x", h.focus, ok, winapi.Foreground())
