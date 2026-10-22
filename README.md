@@ -22,10 +22,6 @@
 
 https://github.com/user-attachments/assets/d7c72abf-a951-44b9-9254-7b855a17b556
 
-<p align="center">
-  <a href="docs/demo.mp4">Download the demo video (MP4, 6 MB)</a>
-</p>
-
 ## Screenshot
 
 <p align="center">
