@@ -21,11 +21,17 @@
 ## 演示
 
 <p align="center">
-  <video src="docs/demo.mp4" controls muted loop playsinline width="100%"></video>
+  <video src="docs/demo.mp4" poster="docs/screenshot.png" controls muted loop playsinline width="100%"></video>
 </p>
 
 <p align="center">
   <a href="docs/demo.mp4">下载演示视频（MP4，6 MB）</a>
+</p>
+
+## 界面截图
+
+<p align="center">
+  <img src="docs/screenshot.png" width="100%" alt="Stage Manager for Windows：一个应用留在舞台，其余收进侧边栏">
 </p>
 
 ## 项目简介
