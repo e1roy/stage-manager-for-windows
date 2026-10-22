@@ -22,10 +22,6 @@
 
 https://github.com/user-attachments/assets/d7c72abf-a951-44b9-9254-7b855a17b556
 
-<p align="center">
-  <a href="docs/demo.mp4">下载演示视频（MP4，6 MB）</a>
-</p>
-
 ## 界面截图
 
 <p align="center">
