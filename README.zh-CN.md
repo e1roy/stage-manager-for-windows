@@ -20,9 +20,7 @@
 
 ## 演示
 
-<p align="center">
-  <video src="docs/demo.mp4" poster="docs/screenshot.png" controls muted loop playsinline width="100%"></video>
-</p>
+https://github.com/user-attachments/assets/d7c72abf-a951-44b9-9254-7b855a17b556
 
 <p align="center">
   <a href="docs/demo.mp4">下载演示视频（MP4，6 MB）</a>
