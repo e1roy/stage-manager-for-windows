@@ -6,5 +6,6 @@
 *.iss text eol=crlf
 *.isl text eol=crlf
 *.png binary
+*.mp4 binary
 *.ico binary
 *.bat text eol=crlf

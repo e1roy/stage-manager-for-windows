@@ -18,6 +18,16 @@
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4" alt="Windows 10/11">
 </p>
 
+## 演示
+
+<p align="center">
+  <video src="docs/demo.mp4" controls muted loop playsinline width="100%"></video>
+</p>
+
+<p align="center">
+  <a href="docs/demo.mp4">下载演示视频（MP4，17 MB）</a>
+</p>
+
 ## 项目简介
 
 Stage Manager for Windows 是一个 Windows 上的窗口管理器。你正在用的应用留在桌面中央的“舞台”上，其他应用按应用分组、收进屏幕左侧的侧边栏。点击侧边栏里的卡片，当前应用飞进那张卡片的位置，被点的应用则从卡片里飞回原处，侧边栏其余卡片保持不动。

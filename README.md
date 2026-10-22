@@ -18,6 +18,16 @@
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4" alt="Windows 10/11">
 </p>
 
+## Demo
+
+<p align="center">
+  <video src="docs/demo.mp4" controls muted loop playsinline width="100%"></video>
+</p>
+
+<p align="center">
+  <a href="docs/demo.mp4">Download the demo video (MP4, 17 MB)</a>
+</p>
+
 ## Overview
 
 Stage Manager for Windows is a window manager for Windows. The application you are working in stays on the stage in the middle of the desktop; every other application is grouped by app and parked in a strip along the left edge. Clicking a card flies the current app into that card's slot while the picked app grows out of it, so the rest of the strip keeps its order.
