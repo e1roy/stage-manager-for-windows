@@ -5,6 +5,7 @@ package winapi
 import (
 	"image"
 	"runtime"
+	"syscall"
 	"unsafe"
 )
 
@@ -55,10 +56,9 @@ func (d *dib) free() {
 
 // Capture takes a still of a window's visible frame, at most maxHeight
 // pixels tall, by asking it to draw itself (PrintWindow with full content,
-// which includes what it draws with DirectX). It returns nil for a
-// minimized window and for one that drew nothing. The window's thread
-// draws the picture, so a hung window can hold the call up: call it off
-// the main thread.
+// which includes what it draws with DirectX); nil for a minimized window or
+// one that drew nothing. The window's own thread draws the picture, so a
+// hung window can hold the call up: call it off the main thread.
 func Capture(h HWND, maxHeight int) *image.RGBA {
 	if !IsWindow(h) || IsIconic(h) || maxHeight <= 0 {
 		return nil
@@ -159,6 +159,25 @@ func WindowIcon(h HWND) *image.NRGBA {
 	if hicon == 0 {
 		return nil
 	}
+	return iconImage(hicon)
+}
+
+// FileIcon returns the first icon a program holds, drawn from its largest
+// image at size by size pixels, or nil. The shell instead puts an icon that
+// has no image that large, small and in a faint frame, in the middle of a
+// tile of that size.
+func FileIcon(path string, size int) *image.NRGBA {
+	p, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return nil
+	}
+	var hicon, id uintptr
+	n, _, _ := procPrivateExtractIconsW.Call(uintptr(unsafe.Pointer(p)), 0, uintptr(size), uintptr(size),
+		uintptr(unsafe.Pointer(&hicon)), uintptr(unsafe.Pointer(&id)), 1, 0)
+	if uint32(n) != 1 || hicon == 0 {
+		return nil
+	}
+	defer procDestroyIcon.Call(hicon)
 	return iconImage(hicon)
 }
 

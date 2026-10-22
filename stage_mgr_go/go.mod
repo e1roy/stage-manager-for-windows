@@ -1,4 +1,4 @@
-module github.com/renkai9418/stage-bar
+module github.com/e1roy/stage_manager_for_windows
 
 go 1.27.1
 

@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="StageManager/Assets/stagebar-icon.png" width="128" height="128" alt="StageBar 图标">
+  <img src="stage_mgr_go/resources/icon.png" width="128" height="128" alt="Stage Manager for Windows 图标">
 </p>
 
-<h1 align="center">StageBar</h1>
+<h1 align="center">Stage Manager for Windows</h1>
 
 <p align="center">
-  一个受 macOS 台前调度启发、适用于 Windows 10 和 Windows 11 的实时窗口切换工具。
+  把 macOS 的台前调度带到 Windows 10 / 11：当前应用留在舞台中央，其他应用按应用分组收进屏幕左侧的侧边栏。
 </p>
 
 <p align="center">
@@ -13,169 +13,136 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/renkai9418/stage-bar/actions/workflows/build.yml"><img src="https://github.com/renkai9418/stage-bar/actions/workflows/build.yml/badge.svg" alt="构建状态"></a>
-  <a href="https://github.com/renkai9418/stage-bar/releases"><img src="https://img.shields.io/github/v/release/renkai9418/stage-bar" alt="最新版本"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/renkai9418/stage-bar" alt="MIT 许可证"></a>
+  <a href="https://github.com/e1roy/stage_manager_for_windows/releases"><img src="https://img.shields.io/github/v/release/e1roy/stage_manager_for_windows" alt="最新版本"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/e1roy/stage_manager_for_windows" alt="MIT 许可证"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4" alt="Windows 10/11">
 </p>
 
-> [!NOTE]
-> StageBar 当前处于早期预览阶段。`0.0.1` 版本重点提供稳定的 DWM 实时预览基础，以及台前调度的核心交互体验。
-
 ## 项目简介
 
-StageBar 把 macOS 的台前调度带到 Windows。当前使用的应用留在桌面中央的“舞台”上，其余应用按应用分组收进左侧条带。切换应用时，当前窗口会缩进被点卡片的位置，被选中的应用则从该卡片中展开回到原位，条带其余卡片保持不动。
+Stage Manager for Windows 是一个 Windows 上的窗口管理器。你正在用的应用留在桌面中央的“舞台”上，其他应用按应用分组、收进屏幕左侧的侧边栏。点击侧边栏里的卡片，当前应用飞进那张卡片的位置，被点的应用则从卡片里飞回原处，侧边栏其余卡片保持不动。
 
-预览使用 Windows 桌面窗口管理器（DWM）的缩略图接口，由系统直接合成，不需要反复截图或强制目标窗口重绘。
+**每台显示器都有自己的舞台和侧边栏。** 窗口按它所在的显示器归属，把窗口拖到另一台显示器时，它会加入那台显示器的舞台，而不会被当成游离窗口收走。
 
-提供两种展示模式：
+两种侧边栏模式：
 
-- **固定模式：** 通过 Windows AppBar API 预留左侧工作区，最大化窗口会使用剩余区域，不会遮挡 StageBar。
-- **悬浮模式：** 与 macOS 一致，左侧有空间时条带保持显示，被舞台上的窗口遮挡时自动让开；鼠标移到屏幕左边沿即可唤出。
+- **固定模式：** 用 Windows AppBar API 为侧边栏保留屏幕边缘，最大化的窗口不会遮住它；出现全屏应用时自动让出置顶。
+- **浮动模式：** 有空间时显示，被舞台上的窗口遮住时滑走；把指针移到显示器最左侧 2 像素即可唤出（两台显示器相接的内侧边缘需停留约 250 毫秒，避免跨屏时误触）。
 
 ## 下载安装
 
-请从 [GitHub Releases](https://github.com/renkai9418/stage-bar/releases/latest) 下载最新版：
-
-- [StageBar Windows x64 安装程序](https://github.com/renkai9418/stage-bar/releases/latest/download/StageBar-Setup-0.0.1-x64.exe)
-
-安装包采用自包含发布，目标电脑不需要单独安装 .NET。默认仅为当前用户安装，不需要管理员权限。
+请从 [GitHub Releases](https://github.com/e1roy/stage_manager_for_windows/releases/latest) 下载最新版安装程序。安装包为当前版本构建产物，仅为当前用户安装，不需要管理员权限，也不需要额外安装任何运行时。
 
 > [!WARNING]
-> `0.0.1` 版本尚未进行代码签名，Windows SmartScreen 可能显示“未知发布者”提示。运行前请核对 Release 页面提供的 SHA-256。
+> 安装包尚未进行代码签名，Windows SmartScreen 可能显示“未知发布者”提示。运行前请核对 Release 页面提供的 SHA-256。
 
 ## 主要功能
 
-- 台前调度：桌面上只保留当前应用，其余应用收进左侧条带
-- 切换动画：离开的窗口缩进条带，选中的应用从卡片展开回原位
-- 条带使用可打断的弹簧动画：卡片滑动、出现、消失和悬停反馈
-- 卡片像 macOS 条带一样带透视倾斜、柔和阴影和大号应用图标；鼠标悬停时卡片会转向你
-- 同一应用的多个窗口合并为一张叠放预览卡片
-- 离开舞台的应用替换被点卡片的位置，条带顺序保持不变；Alt+Tab、任务栏点击和新打开的应用会立即上台
-- 把卡片拖到桌面上，可将该应用加入当前舞台
-- 点击桌面壁纸，把当前舞台收进条带
-- 隐藏的窗口保持原有大小和状态并瞬间返回；StageBar 退出或崩溃后会自动还原
-- 使用系统合成器提供稳定画面，不使用 `PrintWindow` 重绘循环
-- 固定模式通过 AppBar 预留桌面工作区
-- 悬浮模式支持左侧边缘唤出、自动隐藏和过渡动画
-- 可配置展示宽度与应用图标大小
-- 应用变多时卡片自动缩小，整条条带始终放得下
-- 鼠标滚轮浏览卡片
-- 应用图标独立显示在 DWM 预览上层
-- 多显示器定位与 Per-Monitor DPI 感知
-- Windows 11 风格的设置界面，跟随系统深浅色；修改后立即生效并自动保存
-- `Ctrl + Alt + Space` 全局显示/隐藏快捷键
-- 系统托盘菜单与后台驻留
-- 自动排除桌面、任务栏、隐藏窗口、幽灵窗口和工具窗口
-- 无遥测、无网络通信
+- 只有当前应用留在舞台，其他应用收进所在显示器的侧边栏（可关闭，关闭后侧边栏只列出它们）
+- 点击卡片切换应用；Alt+Tab、任务栏点击和新打开的窗口会立即成为该显示器的舞台
+- 把卡片拖到桌面、或按住 Shift 点击，可让该应用加入当前舞台，与已有应用并排
+- 一个舞台可以放多个应用：它们作为一组离开舞台、合并成一张卡片，点击卡片或激活其中任一应用时整组一起回来；右键可拆开组合
+- 把窗口拖进侧边栏，可将该应用单独移出舞台
+- 点击桌面壁纸，把该显示器的舞台收进侧边栏（可关闭）
+- 手动最小化的窗口交给任务栏：它离开舞台，也不在侧边栏出现，从任务栏还原后重新成为舞台
+- 同一应用的多个窗口叠成一张卡片（最多显示 3 层）；应用变多时卡片自动缩小，再多则可滚轮滚动
+- 卡片带 3D 透视倾斜、阴影和大号应用图标，指针悬停时转向你
+- 不在舞台上的窗口被移到桌面之外“停放”，保持大小和状态，回来时立刻恢复
+- 退出、崩溃或注销时，所有停放的窗口都会放回桌面（崩溃靠日志恢复）
+- 托盘图标：左键打开设置，右键菜单可显示/隐藏侧边栏、暂停、退出
+- 设置：显示方式、宽度、图标大小、立体透视、隐藏舞台之外的窗口、点击桌面清空舞台、按显示器开关侧边栏、开机启动、暂停、找回屏幕外的窗口
+- `Stage Manager for Windows.exe --quit` 让正在运行的实例退出并放回所有窗口
+- 不收集任何数据，不联网
 
 ## 系统要求
 
-- Windows 10 2004（`10.0.19041`）或更高版本
-- 支持 Windows 11
+- Windows 10 / Windows 11
 - x64 处理器
-- 桌面窗口管理器已启用
+- 桌面窗口管理器（DWM）已启用
 
-StageBar 可以预览管理员权限应用，但 Windows 可能阻止普通权限运行的 StageBar 激活以管理员身份运行的窗口。
+以管理员身份运行的应用，非管理员的 Stage Manager for Windows 可能无法移动或激活它们。
 
 ## 使用方法
 
-1. 安装并启动 StageBar。
-2. 在托盘菜单中打开 **设置**，选择固定或悬浮模式、是否隐藏其他窗口，以及展示宽度和图标大小。
-3. 点击卡片，让该应用登上舞台；当前应用会收进条带。
-4. 把卡片拖到桌面上，让该应用与当前应用同时显示。
+1. 安装并启动 Stage Manager for Windows。
+2. 在托盘图标上右键打开 **设置…**：选择固定或浮动模式、是否隐藏舞台之外的窗口、侧边栏宽度和图标大小。
+3. 点击卡片，让该应用登上舞台；当前应用会收进侧边栏。
+4. 把卡片拖到桌面上（或按住 Shift 点击），让该应用与当前应用同时显示；之后它们会作为一组进出舞台。
 5. 点击桌面壁纸清空舞台；打开或激活任意应用即可开始新的舞台。
-6. 悬浮模式下条带被遮挡时，将鼠标移动到显示器最左侧 2 像素区域。
+6. 浮动模式下侧边栏被遮挡时，把指针移动到显示器最左侧 2 像素区域唤出它。
 
 其他操作：
 
 | 操作 | 控制方式 |
 | --- | --- |
-| 显示或隐藏悬浮面板 | `Ctrl + Alt + Space` |
-| 打开托盘菜单 | 右键点击 StageBar 托盘图标 |
-| 切换面板显示状态 | 双击托盘图标 |
-| 浏览应用卡片 | 鼠标滚轮 |
-| 把应用加入舞台 | 将卡片拖到桌面上 |
+| 打开设置 | 左键点击托盘图标，或右键菜单 →“设置…” |
+| 显示 / 隐藏侧边栏 | 右键菜单 →“显示 / 隐藏侧边栏”（仅浮动模式） |
+| 浏览应用卡片 | 在侧边栏上滚动鼠标滚轮 |
+| 把应用加入舞台 | 把卡片拖到桌面上，或按住 Shift 点击卡片 |
+| 把应用移出舞台 | 把它的窗口拖进侧边栏 |
+| 拆开组合 / 关闭窗口 | 右键卡片 →“拆开组合” / “关闭窗口” |
 
-设置文件保存在 `%LOCALAPPDATA%\StageManager\settings.json`。这里有意保留旧目录名称，以便从早期构建升级时继续使用原有设置。
+设置保存在 `%LOCALAPPDATA%\Stage Manager\settings.json`，停放日志保存在同一目录。
 
 ## 实现原理
 
+Stage Manager for Windows 用 Go 写成，界面由 [MyGo](https://github.com/egoist/mygo) 原生 UI（Direct3D 11）绘制，纯 Go、无 cgo、无 WebView2。
+
 | 组件 | 作用 |
 | --- | --- |
-| WPF | 侧边栏、设置界面、弹簧动画与交互 |
-| DWM 缩略图 | 由 Windows 合成的窗口预览 |
-| 过渡层 | 无重定向位图的透明穿透窗口，在条带与舞台之间播放缩略图动画 |
-| 窗口停放 | 把非活动窗口移到桌面之外、并保持所在显示器的 DPI，附带崩溃恢复记录 |
-| WinEvent 钩子 | 无需轮询即可响应激活、新窗口、最小化和关闭 |
-| 透明图标覆盖层 | 确保应用图标显示在 DWM 缩略图上方 |
-| Windows AppBar API | 固定模式下预留桌面工作区 |
-| Win32 窗口目录 | 发现、过滤、还原并激活应用窗口 |
+| MyGo 原生 UI | 侧边栏、设置界面、飞行层与静帧绘制（3D 透视、阴影、圆角） |
+| Win32 / DWM | 窗口枚举与过滤、停放与还原、AppBar、WinEvent 钩子、`PrintWindow` 静帧 |
+| 窗口停放 | 把窗口移到桌面之外，保持大小与所在显示器的 DPI，附带崩溃恢复日志 |
+| 飞行层 | 每台显示器一层透明、点击穿透的窗口，静帧在卡片与舞台之间飞行，真实窗口在其下方交接 |
+| WinEvent 钩子 | 不轮询即可响应激活、新窗口、移动、最小化和关闭 |
+| 看门狗 | 主线程 5 秒无响应时，按日志把所有停放窗口放回，并写出各 goroutine 的堆栈 |
+
+代码结构见 [`stage_mgr_go/README.md`](stage_mgr_go/README.md)。
 
 ## 从源码构建
 
-需要：
-
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- Windows 10/11
+需要 Go 1.27.1 或更高版本：
 
 ```powershell
-git clone git@github.com:renkai9418/stage-bar.git
-cd stage-bar
-dotnet build .\StageManager\StageManager.csproj -c Release
-dotnet run --project .\StageManager\StageManager.csproj
+git clone git@github.com:e1roy/stage_manager_for_windows.git
+cd stage_manager_for_windows\stage_mgr_go
+go run .              # 开发运行
+go test ./...         # 单元测试与无头界面测试
+go tool mygo vet .    # 检查 UI 生命周期问题
+go tool mygo build    # 生成 build\windows-amd64\Stage Manager for Windows.exe 和安装包
 ```
 
-Debug 构建支持两个开发用环境变量，避免测试时打乱自己的窗口：`STAGEBAR_APP_FILTER`（逗号分隔、需要管理的可执行文件名）和 `STAGEBAR_DATA_DIR`（设置与停放记录所在目录）。
+开发时可用的环境变量，避免调试时打乱自己的窗口：
 
-### 生成安装程序
-
-安装 [Inno Setup 6](https://jrsoftware.org/isdl.php)，然后执行：
-
-```powershell
-.\installer\build-installer.ps1 -Version 0.0.1
-```
-
-脚本会发布自包含的 `win-x64` 单文件程序，并生成：
-
-```text
-artifacts\installer\StageBar-Setup-0.0.1-x64.exe
-```
-
-## 发布流程
-
-推送版本标签后，会自动触发 Windows Release 工作流：
-
-```powershell
-git tag v0.0.1
-git push origin v0.0.1
-```
-
-工作流会构建安装程序并上传到 GitHub Release。如果存在 `release-notes/<版本>.md`，会将其作为 Release 说明。
+| 变量 | 作用 |
+| --- | --- |
+| `STAGEMANAGER_APP_FILTER` | 只管理这些可执行文件（逗号分隔，如 `notepad,mspaint`） |
+| `STAGEMANAGER_DATA_DIR` | 设置和停放日志的目录（默认 `%LOCALAPPDATA%\Stage Manager`） |
+| `STAGEMANAGER_DEBUG` | 输出决策日志；此时第二个实例传 `--debug-hang` 可故意卡住主线程，用来检验看门狗 |
+| `STAGEMANAGER_SNAPSHOT_DIR` | 让 `go test ./internal/app -run TestSnapshots` 把界面渲染成 PNG |
 
 ## 当前限制
 
-- DRM 保护视频、部分游戏和独占全屏应用可能不提供可用的 DWM 缩略图。
-- Windows 权限隔离可能阻止 StageBar 激活管理员权限窗口；普通权限的 StageBar 也无法隐藏这些窗口。
-- Windows 不会重绘位于桌面之外的窗口，因此隐藏应用的条带预览会停留在最后一帧，直到它重新登台。
-- 置顶窗口不受管理，始终浮在舞台之上。
-- 首个预览版本尚未进行代码签名。
+- 侧边栏里显示的是窗口离开舞台时的静帧：Windows 不绘制桌面之外的窗口，停放中的窗口本来也不会变化。
+- 用 `PrintWindow` 拍不到内容的窗口（部分游戏、受 DRM 保护的视频）显示为带图标的磨砂卡片。
+- 以管理员身份运行的应用，非管理员的 Stage Manager for Windows 可能无法移动或激活它们。
+- 置顶窗口不参与舞台，浮在最上层。
 
 ## 参与贡献
 
 欢迎提交 Issue 和 Pull Request。修改代码时建议：
 
 1. Fork 仓库并创建目标明确的分支。
-2. 保持 DWM 系统合成预览方案，避免截图或目标窗口重绘循环。
-3. 使用 Release 配置完成构建，并测试固定和悬浮两种模式。
+2. 所有状态只在 MyGo 主线程上读写；耗时的截图等放在 goroutine，再回到主线程。
+3. 运行 `go test ./...` 与 `go tool mygo vet .`，并实测固定和浮动两种模式。
 4. 在 Pull Request 中说明行为变化和手动验证结果。
 
-Bug 反馈和功能建议请提交到 [GitHub Issues](https://github.com/renkai9418/stage-bar/issues)。
+Bug 反馈和功能建议请提交到 [GitHub Issues](https://github.com/e1roy/stage_manager_for_windows/issues)。
 
 ## 隐私说明
 
-StageBar 仅在本地处理窗口句柄、标题、图标和 DWM 缩略图，不包含分析统计、遥测、账户系统或网络服务。
+Stage Manager for Windows 仅在本地处理窗口句柄、标题、图标和窗口画面，不包含分析统计、遥测、账户系统或网络服务。
 
 ## 开源许可证
 
-StageBar 使用 [MIT License](LICENSE) 开源。
+Stage Manager for Windows 使用 [MIT License](LICENSE) 开源。

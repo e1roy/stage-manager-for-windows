@@ -8,12 +8,14 @@ import (
 	"unsafe"
 )
 
-// WinEvent types StageBar listens to.
+// WinEvent types Stage Manager listens to.
 const (
 	EventSystemForeground     = 0x0003
+	EventSystemMoveSizeStart  = 0x000A
 	EventSystemMoveSizeEnd    = 0x000B
 	EventSystemMinimizeStart  = 0x0016
 	EventSystemMinimizeEnd    = 0x0017
+	EventObjectCreate         = 0x8000
 	EventObjectDestroy        = 0x8001
 	EventObjectShow           = 0x8002
 	EventObjectHide           = 0x8003
@@ -43,7 +45,7 @@ var hookCallback = syscall.NewCallback(func(hook, event, hwnd, idObject, idChild
 })
 
 // HookWinEvents installs out-of-context hooks for the given event ranges,
-// skipping StageBar's own windows. They are delivered on the calling
+// skipping Stage Manager's own windows. They are delivered on the calling
 // thread, which must pump messages: call it on MyGo's main thread. Only
 // one set of hooks exists at a time; the returned function removes it.
 func HookWinEvents(fn WinEventFunc, ranges ...[2]uint32) (unhook func()) {

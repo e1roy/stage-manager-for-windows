@@ -49,6 +49,7 @@ const (
 
 	WsCaption = 0x00C00000
 
+	dwmwaNCRenderingEnabled       = 1
 	dwmwaExtendedFrameBounds      = 9
 	dwmwaCloaked                  = 14
 	dwmwaTransitionsForceDisabled = 3
@@ -139,6 +140,21 @@ func FrameBounds(h HWND) Rect {
 		return WindowRect(h)
 	}
 	return r
+}
+
+// CastsFrameShadow reports whether DWM draws its shadow around the window.
+// It draws none where it draws no frame, nor around a window shaped by a
+// window region, as apps that draw their own rounded frame and shadow are.
+func CastsFrameShadow(h HWND) bool {
+	var enabled int32
+	if hr, _, _ := procDwmGetWindowAttribute.Call(uintptr(h), dwmwaNCRenderingEnabled, uintptr(unsafe.Pointer(&enabled)), 4); hr != 0 || enabled == 0 {
+		return false
+	}
+	const rgnError = 0
+	rgn, _, _ := procCreateRectRgn.Call(0, 0, 0, 0)
+	defer procDeleteObject.Call(rgn)
+	kind, _, _ := procGetWindowRgn.Call(uintptr(h), rgn)
+	return kind == rgnError
 }
 
 // IsCloaked reports whether DWM hides the window, as it hides windows of
@@ -265,11 +281,11 @@ func RestoredRect(h HWND) (r Rect, maximized bool, ok bool) {
 	if !boolCall(procGetWindowPlacement, uintptr(h), uintptr(unsafe.Pointer(&wp))) {
 		return Rect{}, false, false
 	}
-	const wpfRestoreToMaximized = 0x2
+	const restoreToMaximized = 0x2
 	n := wp.NormalPosition
 	mon := MonitorFromRect(n)
 	mi := monitorInfo(mon)
-	if wp.Flags&wpfRestoreToMaximized != 0 {
+	if wp.Flags&restoreToMaximized != 0 {
 		return mi.Work, true, true
 	}
 	// Placement is in workspace coordinates unless the window is a tool window.

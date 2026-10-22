@@ -14,6 +14,7 @@ const (
 	cardHoverTilt   = 6  // and a hovered one
 	cardPerspective = 640
 	maxStacked      = 3
+	maxIcons        = 3 // icons a card of several apps shows
 )
 
 // stripLayout places n cards in a strip of the given size.
@@ -82,9 +83,38 @@ func stackWindows(card ui.Rect, aspects []float64) []ui.Rect {
 	return out
 }
 
+// stack places the windows a set's card shows in card, front first.
+func (s *set) stack(card ui.Rect) []ui.Rect {
+	ws := s.stacked()
+	aspects := make([]float64, len(ws))
+	for i, w := range ws {
+		aspects[i] = w.Aspect()
+	}
+	return stackWindows(card, aspects)
+}
+
+// lifted is r, in card, scaled by lift around the card's left middle, as
+// the card scales.
+func lifted(card, r ui.Rect, lift float32) ui.Rect {
+	mid := card.Y + card.H/2
+	return ui.Rect{X: card.X + (r.X-card.X)*lift, Y: mid + (r.Y-mid)*lift, W: r.W * lift, H: r.H * lift}
+}
+
 // iconRect places an app's icon over the bottom-left corner of its front
 // window.
 func iconRect(front ui.Rect, card ui.Rect, iconScale float32) ui.Rect {
 	size := min(max(card.H*0.34, 22), 52) * iconScale
 	return ui.Rect{X: front.X - size*0.22, Y: front.Y + front.H - size*0.7, W: size, H: size}
+}
+
+// iconRow places the icons of a card's first n apps, which overlap a
+// little, from the first app's in the corner rightward.
+func iconRow(front ui.Rect, card ui.Rect, n int, iconScale float32) []ui.Rect {
+	ir := iconRect(front, card, iconScale)
+	out := make([]ui.Rect, min(n, maxIcons))
+	for i := range out {
+		out[i] = ir
+		out[i].X += float32(i) * ir.W * 0.62
+	}
+	return out
 }

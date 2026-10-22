@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 // Window is one application window as it was when listed.
@@ -70,12 +70,12 @@ type Catalog struct {
 	names  map[string]string
 }
 
-// New returns a catalog. STAGEBAR_APP_FILTER, a comma-separated list of
+// New returns a catalog. STAGEMANAGER_APP_FILTER, a comma-separated list of
 // executable names, limits it to those apps, so that a test run leaves
 // the developer's own windows alone.
 func New() *Catalog {
 	c := &Catalog{self: uint32(os.Getpid()), apps: map[uint32]identity{}, names: map[string]string{}}
-	if f := os.Getenv("STAGEBAR_APP_FILTER"); f != "" {
+	if f := os.Getenv("STAGEMANAGER_APP_FILTER"); f != "" {
 		c.filter = map[string]bool{}
 		for _, name := range strings.Split(f, ",") {
 			if name = strings.TrimSpace(strings.ToLower(strings.TrimSuffix(name, ".exe"))); name != "" {
@@ -93,7 +93,7 @@ func (c *Catalog) Windows() []Window {
 	var out []Window
 	seen := map[uint32]bool{}
 	winapi.EnumWindows(func(h winapi.HWND) bool {
-		if w, ok := c.inspect(h, fg); ok {
+		if w, ok := c.inspect(h, fg, false); ok {
 			out = append(out, w)
 			seen[w.PID] = true
 		}
@@ -117,6 +117,21 @@ func (c *Catalog) Windows() []Window {
 	return kept
 }
 
+// Movable lists the windows a person moves around: those Windows lists, the
+// always-on-top ones the stage leaves floating, and the dialogs they own,
+// but no overlays. Bringing windows lost off the desktop back looks here.
+func (c *Catalog) Movable() []winapi.HWND {
+	fg := winapi.Foreground()
+	var out []winapi.HWND
+	winapi.EnumWindows(func(h winapi.HWND) bool {
+		if _, ok := c.inspect(h, fg, true); ok {
+			out = append(out, h)
+		}
+		return true
+	})
+	return out
+}
+
 func ownedByListed(h winapi.HWND, listed map[winapi.HWND]bool) bool {
 	o := winapi.Owner(h)
 	for i := 0; o != 0 && i < 16; i++ {
@@ -128,7 +143,9 @@ func ownedByListed(h winapi.HWND, listed map[winapi.HWND]bool) bool {
 	return false
 }
 
-func (c *Catalog) inspect(h, fg winapi.HWND) (Window, bool) {
+// inspect tells whether a window is an application window, and floating
+// whether an always-on-top one counts.
+func (c *Catalog) inspect(h, fg winapi.HWND, floating bool) (Window, bool) {
 	if !winapi.IsWindowVisible(h) || winapi.Root(h) != h {
 		return Window{}, false
 	}
@@ -148,8 +165,11 @@ func (c *Catalog) inspect(h, fg winapi.HWND) (Window, bool) {
 	if ex&winapi.WsExToolWindow != 0 && !appWindow {
 		return Window{}, false
 	}
-	// Always-on-top utilities and overlays float above the stage.
-	if ex&winapi.WsExTopmost != 0 || ex&winapi.WsExNoActivate != 0 && !appWindow {
+	// Always-on-top utilities float above the stage. Overlays that take no
+	// focus never count, nor, floating, ones clicks go through: apps keep
+	// some of them off the desktop on purpose.
+	overlay := ex&winapi.WsExNoActivate != 0 && !appWindow || floating && ex&winapi.WsExTransparent != 0
+	if overlay || !floating && ex&winapi.WsExTopmost != 0 {
 		return Window{}, false
 	}
 	if winapi.IsCloaked(h) {
@@ -254,6 +274,26 @@ func OwnedWindows(owner winapi.HWND) []winapi.HWND {
 		return true
 	})
 	return out
+}
+
+// ShadowWindow finds the window an app draws owner's shadow in, as apps that
+// shape their windows with a region and so get none from DWM do: a layered
+// window owned by it, lying around its frame and reaching past each edge by
+// the margins in insets. It goes wherever owner goes, parked or not.
+func ShadowWindow(owner winapi.HWND) (h winapi.HWND, insets winapi.Rect, ok bool) {
+	const reach = 128
+	frame := winapi.FrameBounds(owner)
+	for _, w := range OwnedWindows(owner) {
+		if winapi.Owner(w) != owner || winapi.ExStyle(w)&winapi.WsExLayered == 0 {
+			continue
+		}
+		r := winapi.WindowRect(w)
+		in := winapi.Rect{Left: frame.Left - r.Left, Top: frame.Top - r.Top, Right: r.Right - frame.Right, Bottom: r.Bottom - frame.Bottom}
+		if min(in.Left, in.Top, in.Right, in.Bottom) >= 1 && max(in.Left, in.Top, in.Right, in.Bottom) <= reach {
+			return w, in, true
+		}
+	}
+	return 0, winapi.Rect{}, false
 }
 
 // RootOwner walks up visible owners to the window that stands for the app.

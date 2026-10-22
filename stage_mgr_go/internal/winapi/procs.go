@@ -1,6 +1,6 @@
 //go:build windows
 
-// Package winapi is the thin layer of Win32 that StageBar needs beyond what
+// Package winapi is the thin layer of Win32 that Stage Manager needs beyond what
 // MyGo covers: other processes' windows, monitors, the shell's app bars,
 // WinEvent hooks and window captures. It holds no state of the app.
 package winapi
@@ -60,8 +60,11 @@ var (
 	procReleaseDC                = user32.NewProc("ReleaseDC")
 	procGetIconInfo              = user32.NewProc("GetIconInfo")
 	procDestroyIcon              = user32.NewProc("DestroyIcon")
+	procPrivateExtractIconsW     = user32.NewProc("PrivateExtractIconsW")
 	procGetWindowInfo            = user32.NewProc("GetWindowInfo")
+	procGetWindowRgn             = user32.NewProc("GetWindowRgn")
 
+	procCreateRectRgn      = gdi32.NewProc("CreateRectRgn")
 	procCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
 	procCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
 	procSelectObject       = gdi32.NewProc("SelectObject")

@@ -1,6 +1,6 @@
-// StageBar brings macOS Stage Manager to Windows: the app you work in
-// stays on the stage, the others wait in a strip beside it, one strip per
-// display.
+// Stage Manager for Windows brings macOS Stage Manager to Windows: the app
+// you work in stays on the stage, the others wait in a strip beside it, one
+// strip per display.
 package main
 
 import (
@@ -12,8 +12,8 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo"
-	"github.com/renkai9418/stage-bar/internal/app"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/app"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 //go:embed resources/icon.png
@@ -23,7 +23,7 @@ var icon []byte
 var version = "0.1.0"
 
 func main() {
-	mygo.App.SetName("StageBar")
+	mygo.App.SetName("Stage Manager for Windows")
 	mygo.App.SetVersion(version)
 	if !mygo.App.RequestSingleInstanceLock() {
 		// The running instance opens its settings; let it come to the front.
@@ -64,15 +64,15 @@ func main() {
 	}
 }
 
-// dataDir holds settings and the parking journal. STAGEBAR_DATA_DIR moves
+// dataDir holds settings and the parking journal. STAGEMANAGER_DATA_DIR moves
 // it, so that a test run keeps its own.
 func dataDir() string {
-	if d := os.Getenv("STAGEBAR_DATA_DIR"); d != "" {
+	if d := os.Getenv("STAGEMANAGER_DATA_DIR"); d != "" {
 		return d
 	}
 	base, err := os.UserCacheDir() // %LOCALAPPDATA%
 	if err != nil {
 		base = os.TempDir()
 	}
-	return filepath.Join(base, "StageBar")
+	return filepath.Join(base, "Stage Manager")
 }

@@ -130,3 +130,45 @@ func OnAnyMonitor(r Rect) bool {
 	}
 	return false
 }
+
+// MostlyOffscreen reports whether the displays show less than half of a
+// rectangle.
+func MostlyOffscreen(r Rect) bool {
+	var areas []Rect
+	for _, m := range Monitors() {
+		areas = append(areas, m.Monitor)
+	}
+	return mostlyOutside(r, areas)
+}
+
+// mostlyOutside reports whether areas that do not overlap one another
+// cover less than half of r.
+func mostlyOutside(r Rect, areas []Rect) bool {
+	total := int64(r.W()) * int64(r.H())
+	if total <= 0 {
+		return false
+	}
+	var shown int64
+	for _, a := range areas {
+		w := int64(min(r.Right, a.Right) - max(r.Left, a.Left))
+		h := int64(min(r.Bottom, a.Bottom) - max(r.Top, a.Top))
+		if w > 0 && h > 0 {
+			shown += w * h
+		}
+	}
+	return 2*shown < total
+}
+
+// FitOnScreen moves a rectangle as little as it takes into the work area
+// of its nearest display.
+func FitOnScreen(r Rect) Rect {
+	return fitInto(r, MonitorInfo(MonitorFromRect(r)).Work)
+}
+
+// fitInto moves r as little as it takes into area. One larger than area
+// keeps its top left corner there, where its title bar is.
+func fitInto(r, area Rect) Rect {
+	x := max(min(r.Left, area.Right-r.W()), area.Left)
+	y := max(min(r.Top, area.Bottom-r.H()), area.Top)
+	return r.Offset(x-r.Left, y-r.Top)
+}

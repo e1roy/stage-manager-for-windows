@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/renkai9418/stage-bar/internal/settings"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 const (
@@ -36,7 +36,7 @@ type strip struct {
 	holdUntil    time.Time
 	hiddenAt     time.Time
 	dragging     bool // a card is dragged
-	dismissed    bool // hidden by the shortcut: only the edge brings it back
+	dismissed    bool // hidden from the tray menu: only the edge brings it back
 	holding      bool // the button went down on a card and is still down
 	fullScreen   bool // a full-screen app is on the display
 	lastBar      time.Time
@@ -68,7 +68,7 @@ func newStrip(a *App, d *display) *strip {
 	winapi.SetLayered(s.hwnd)
 	winapi.SetTransitionsDisabled(s.hwnd, true)
 	if appBarMessage == 0 {
-		appBarMessage = winapi.RegisterWindowMessage("StageBar.AppBar")
+		appBarMessage = winapi.RegisterWindowMessage("Stage Manager.AppBar")
 	}
 	s.bar = winapi.AppBar{Wnd: s.hwnd, Callback: appBarMessage}
 	winapi.Subclass(s.hwnd, s.message)
@@ -174,12 +174,14 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 			}
 		} else {
 			s.edgeSince = time.Time{}
-			if inside {
+			// A window dragged over a strip that is out keeps it out,
+			// for the window to be dropped in.
+			if inside || s.shown && s.a.moving.h != 0 && s.rect.Contains(cur) {
 				s.lastInside = now
 			}
 		}
 		want := now.Sub(s.lastInside) < autoHide || now.Before(s.holdUntil) || s.dragging ||
-			(!s.dismissed && !s.d.covered && len(s.d.groups) > 0 && s.a.ready)
+			(!s.dismissed && !s.d.covered && len(s.d.sets) > 0 && s.a.ready)
 		s.setShown(want, now)
 		if !s.shown && s.visible && now.Sub(s.hiddenAt) > slideOutTime {
 			s.win.Hide()
@@ -202,7 +204,7 @@ func (s *strip) setShown(v bool, now time.Time) {
 		return
 	}
 	s.shown = v
-	debugf("strip %s shown=%v groups=%d covered=%v", s.d.mon.Device, v, len(s.d.groups), s.d.covered)
+	debugf("strip %s shown=%v groups=%d covered=%v", s.d.mon.Device, v, len(s.d.sets), s.d.covered)
 	if v {
 		if !s.visible {
 			s.win.ShowInactive()
@@ -215,7 +217,7 @@ func (s *strip) setShown(v bool, now time.Time) {
 	s.win.Invalidate()
 }
 
-// toggle shows or hides a floating strip, from the shortcut.
+// toggle shows or hides a floating strip, from the tray menu.
 func (s *strip) toggle() {
 	now := time.Now()
 	if s.a.settings.Mode == settings.Fixed {
@@ -252,7 +254,7 @@ func (s *strip) setClickThrough(v bool) {
 }
 
 // setDragging keeps the strip out and taking the pointer while a card is
-// dragged; the flight layer shows the card beyond the strip's edge.
+// dragged.
 func (s *strip) setDragging(v bool) { s.dragging = v }
 
 // hardEdge reports whether no display lies left of the point, so the

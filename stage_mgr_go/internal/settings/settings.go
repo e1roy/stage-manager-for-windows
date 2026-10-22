@@ -1,4 +1,4 @@
-// Package settings loads, normalizes and saves StageBar's preferences.
+// Package settings loads, normalizes and saves Stage Manager's preferences.
 package settings
 
 import (

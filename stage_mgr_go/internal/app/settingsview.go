@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/renkai9418/stage-bar/internal/settings"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 // settingsWindow edits a copy of the settings and applies every change at
@@ -39,7 +39,7 @@ func (a *App) openSettings() {
 		sw.icon0, _ = ui.DecodeBitmap(a.trayIcon)
 	}
 	sw.win = mygo.NewWindow(mygo.WindowOptions{
-		Title:     "StageBar 设置",
+		Title:     "Stage Manager 设置",
 		Width:     620,
 		Height:    760,
 		MinWidth:  480,
@@ -48,6 +48,11 @@ func (a *App) openSettings() {
 		StateKey:  "settings",
 		Content:   ui.View(sw.view),
 	})
+	// The title bar and the taskbar show the icon the tray and the page
+	// show, whether or not the build embedded it in the program.
+	if a.trayIcon != nil {
+		sw.win.SetIcon(a.trayIcon)
+	}
 	sw.win.OnClosed(func() { a.settingsUI = nil })
 	a.settingsUI = sw
 	winapi.Activate(winapi.HWND(sw.win.NativeHandle()))
@@ -110,7 +115,7 @@ func (sw *settingsWindow) view(c *ui.Context) {
 					ui.Image(c, sw.icon0).Size(52, 52)
 				}
 				ui.Column(c).Gap(2).Children(func() {
-					ui.Text(c, "StageBar").FontSize(24).Bold()
+					ui.Text(c, "Stage Manager").FontSize(24).Bold()
 					ui.Text(c, "像 macOS 台前调度一样整理 Windows 的窗口").TextColor(t.TextMuted)
 				})
 			})
@@ -185,7 +190,7 @@ func (sw *settingsWindow) view(c *ui.Context) {
 			})
 
 			section("通用", func() {
-				row("开机时启动", "登录 Windows 后在后台启动 StageBar。", func() {
+				row("开机时启动", "登录 Windows 后在后台启动 Stage Manager。", func() {
 					if ui.Switch(c, &sw.login).Changed() {
 						on := sw.login
 						go func() {
@@ -196,24 +201,23 @@ func (sw *settingsWindow) view(c *ui.Context) {
 						}()
 					}
 				})
-				row("显示或隐藏侧边栏", "浮动模式下切换指针所在显示器的侧边栏。", func() {
-					ui.Row(c).Gap(4).Children(func() {
-						for i, k := range []string{"Ctrl", "Alt", "Space"} {
-							if i > 0 {
-								ui.Text(c, "+").TextColor(t.TextMuted)
-							}
-							ui.Text(c, k).FontSize(12).Padding(2, 8).Radius(4).Border(1, t.Border).Background(t.Background)
-						}
-					})
-				})
-				row("暂停", "暂停时所有窗口回到桌面，侧边栏隐藏。", func() {
+				row("暂停","暂停时所有窗口回到桌面，侧边栏隐藏。", func() {
 					if ui.Switch(c, &sw.s.Paused).Changed() {
 						sw.apply()
 					}
 				})
+				row("找回屏幕外的窗口", "把跑到显示器外、只露出一小部分或完全看不到的窗口移回最近的显示器。收在侧边栏里的窗口不受影响。", func() {
+					if ui.Button(c, "移回屏幕").Clicked() {
+						if n := sw.a.rescueOffscreen(); n > 0 {
+							c.Toast(fmt.Sprintf("已把 %d 个窗口移回屏幕", n))
+						} else {
+							c.Toast("没有窗口在屏幕外")
+						}
+					}
+				})
 			})
 
-			ui.Text(c, "StageBar "+mygo.App.Version()+" · 不收集任何数据，也不联网。").FontSize(12).TextColor(t.TextMuted).Margin(18, 0, 0, 2)
+			ui.Text(c, "Stage Manager "+mygo.App.Version()+" · 不收集任何数据，也不联网。").FontSize(12).TextColor(t.TextMuted).Margin(18, 0, 0, 2)
 		})
 	})
 }
