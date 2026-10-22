@@ -21,11 +21,17 @@
 ## Demo
 
 <p align="center">
-  <video src="docs/demo.mp4" controls muted loop playsinline width="100%"></video>
+  <video src="docs/demo.mp4" poster="docs/screenshot.png" controls muted loop playsinline width="100%"></video>
 </p>
 
 <p align="center">
   <a href="docs/demo.mp4">Download the demo video (MP4, 6 MB)</a>
+</p>
+
+## Screenshot
+
+<p align="center">
+  <img src="docs/screenshot.png" width="100%" alt="Stage Manager for Windows: one app on the stage, the rest parked in the strip">
 </p>
 
 ## Overview
