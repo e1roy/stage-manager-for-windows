@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
@@ -88,18 +90,32 @@ func (s *Service) Park(h winapi.HWND) bool {
 	return true
 }
 
-// Unpark brings a window and its parked dialogs home, above other windows.
-func (s *Service) Unpark(h winapi.HWND) {
+// Unpark brings windows and their parked dialogs home, above other
+// windows, the first in front.
+func (s *Service) Unpark(hs ...winapi.HWND) {
+	var home []winapi.HWND
+	for _, h := range hs {
+		if s.unpark(h) {
+			home = append(home, h)
+		}
+	}
+	if len(home) > 0 {
+		s.save()
+		raise(home)
+	}
+}
+
+func (s *Service) unpark(h winapi.HWND) bool {
 	root, ok := s.parked[h]
 	if !ok {
-		return
+		return false
 	}
 	home := onDesktop(root.Home)
 	shiftX, shiftY := home.Left-root.Home.Left, home.Top-root.Home.Top
 	for w, p := range s.parked {
 		if w == h || p.Owner == h {
 			delete(s.parked, w)
-			move(w, winapi.Point{X: p.Home.Left + shiftX, Y: p.Home.Top + shiftY}, true)
+			move(w, winapi.Point{X: p.Home.Left + shiftX, Y: p.Home.Top + shiftY})
 		}
 	}
 	// A dialog opened while its owner was parked was placed next to the
@@ -107,10 +123,36 @@ func (s *Service) Unpark(h winapi.HWND) {
 	dx, dy := home.Left-root.Spot.X, home.Top-root.Spot.Y
 	for _, o := range catalog.OwnedWindows(h) {
 		if r := winapi.WindowRect(o); winapi.MostlyOffscreen(r) {
-			move(o, winapi.Point{X: r.Left + dx, Y: r.Top + dy}, false)
+			move(o, winapi.Point{X: r.Left + dx, Y: r.Top + dy})
 		}
 	}
-	s.save()
+	return true
+}
+
+// raising counts the calls to raise, for one held up by an app to give way
+// to those after it.
+var raising atomic.Uint64
+
+// raise puts windows above the others, the first in front, their dialogs
+// coming along. Moves sent off without waiting are taken by each app when
+// it gets to them, so windows of different apps raised that way end up in
+// whatever order the apps happen to answer in, and swap places a moment
+// after they land. These wait for each app in turn instead, on a goroutine
+// of their own so that a slow app cannot hold the main thread; an app
+// that hangs gets its move sent off, not to hold up the windows after it.
+func raise(hs []winapi.HWND) {
+	const flags = winapi.SwpNoMove | winapi.SwpNoSize | winapi.SwpNoActivate | winapi.SwpNoRedraw
+	gen := raising.Add(1)
+	go func() {
+		for _, h := range slices.Backward(hs) {
+			if raising.Load() != gen {
+				return
+			}
+			if winapi.IsHung(h) || !winapi.SetWindowPos(h, winapi.HwndTop, 0, 0, 0, 0, flags) {
+				winapi.SetWindowPos(h, winapi.HwndTop, 0, 0, 0, 0, flags|winapi.SwpAsyncWindowPos)
+			}
+		}
+	}()
 }
 
 // Rehome changes where a parked window goes back to, and moves the homes
@@ -144,7 +186,7 @@ func (s *Service) Lift(h winapi.HWND) {
 	dx, dy := home.Left-root.Home.Left, home.Top-root.Home.Top
 	for w, p := range s.parked {
 		if (w == h || p.Owner == h) && !s.lifted[w] {
-			move(w, winapi.Point{X: p.Home.Left + dx, Y: p.Home.Top + dy}, false)
+			move(w, winapi.Point{X: p.Home.Left + dx, Y: p.Home.Top + dy})
 			p.At = time.Now()
 			s.parked[w] = p
 			s.lifted[w] = true
@@ -156,7 +198,7 @@ func (s *Service) Lift(h winapi.HWND) {
 func (s *Service) Lower() {
 	for w := range s.lifted {
 		if p, ok := s.parked[w]; ok {
-			move(w, p.Spot, false)
+			move(w, p.Spot)
 			p.At = time.Now()
 			s.parked[w] = p
 		}
@@ -169,7 +211,7 @@ func (s *Service) RestoreAll() {
 	for h, p := range s.parked {
 		if winapi.IsWindow(h) {
 			home := onDesktop(p.Home)
-			move(h, winapi.Point{X: home.Left, Y: home.Top}, false)
+			move(h, winapi.Point{X: home.Left, Y: home.Top})
 			winapi.Redraw(h)
 		}
 	}
@@ -256,7 +298,7 @@ func restoreJournal(path string) int {
 			continue
 		}
 		home := onDesktop(winapi.Rect{Left: e.HomeX, Top: e.HomeY, Right: e.HomeX + r.W(), Bottom: e.HomeY + r.H()})
-		move(h, winapi.Point{X: home.Left, Y: home.Top}, false)
+		move(h, winapi.Point{X: home.Left, Y: home.Top})
 		winapi.Redraw(h)
 		n++
 	}
@@ -300,7 +342,7 @@ func (s *Service) parkOne(h, owner winapi.HWND, place func(r winapi.Rect) (home 
 		return false
 	}
 	home, spot := place(r)
-	if !move(h, spot, false) {
+	if !move(h, spot) {
 		return false
 	}
 	s.parked[h] = parked{Home: home, Spot: spot, Owner: owner, At: time.Now()}
@@ -334,12 +376,9 @@ func spotFor(home winapi.Rect) winapi.Point {
 	return candidates[0]
 }
 
-func move(h winapi.HWND, p winapi.Point, front bool) bool {
-	flags := uint32(moveFlags)
-	if front {
-		flags &^= winapi.SwpNoZOrder
-	}
-	return winapi.SetWindowPos(h, winapi.HwndTop, p.X, p.Y, 0, 0, flags)
+// move takes a window to p, keeping its place in the z-order.
+func move(h winapi.HWND, p winapi.Point) bool {
+	return winapi.SetWindowPos(h, 0, p.X, p.Y, 0, 0, moveFlags)
 }
 
 func (s *Service) save() {

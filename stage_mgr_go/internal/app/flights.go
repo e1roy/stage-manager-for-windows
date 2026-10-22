@@ -421,8 +421,11 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		want = append(want, set.front())
 	}
 	to := f.cardPoses(d, want, false)
+	// The flights are drawn in turn, the last on top: the windows, given
+	// front first, go in from the back so that they overlap as on the
+	// desktop and in the cards.
 	var list []flight
-	for _, w := range departing {
+	for _, w := range slices.Backward(departing) {
 		st := f.a.media.still(w.HWND)
 		if st == nil {
 			continue
@@ -445,7 +448,7 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 	}
 	// The arriving windows are added last so that they fly above.
 	fg := winapi.Foreground()
-	for _, w := range arriving {
+	for _, w := range slices.Backward(arriving) {
 		st := f.a.media.still(w.HWND)
 		if st == nil {
 			continue

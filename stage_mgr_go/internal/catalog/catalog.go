@@ -25,6 +25,9 @@ type Window struct {
 	// and Frame the visible frame DWM draws.
 	Rect, Frame winapi.Rect
 	Foreground  bool
+	// Z is where the window is in the z-order among those listed with it,
+	// 0 in front.
+	Z int
 }
 
 // Aspect is the window's width over its height.
@@ -111,6 +114,7 @@ func (c *Catalog) Windows() []Window {
 	kept := out[:0]
 	for _, w := range out {
 		if !ownedByListed(w.HWND, listed) {
+			w.Z = len(kept)
 			kept = append(kept, w)
 		}
 	}

@@ -22,6 +22,7 @@ var (
 	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
 	procIsIconic                 = user32.NewProc("IsIconic")
 	procIsZoomed                 = user32.NewProc("IsZoomed")
+	procIsHungAppWindow          = user32.NewProc("IsHungAppWindow")
 	procGetWindowRect            = user32.NewProc("GetWindowRect")
 	procGetWindowTextLengthW     = user32.NewProc("GetWindowTextLengthW")
 	procGetWindowTextW           = user32.NewProc("GetWindowTextW")
