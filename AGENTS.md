@@ -15,7 +15,7 @@ Stage Manager for Windows：在 Windows 10/11 上复刻 macOS“台前调度”�
 | `README.md`、`README.zh-CN.md`（根目录） | 部分内容仍在描述 C# 版（.NET 构建、Inno Setup、`%LOCALAPPDATA%\StageManager`）。**构建与架构以 `stage_mgr_go/README.md` 为准。** |
 | `其他项目参考代码/` | 第三方参考项目（StageManagerForWindows，C#），只读参考，**未纳入版本控制，不要 `git add`**。 |
 | `.codebuddy/plans/` | 之前做过的问题分析（如阴影跳变），排查同类问题前值得一读。 |
-| `start-stage-manager.bat` | 本地一键：先 `--quit` 旧实例，再编译并启动 `build/windows-amd64/Stage Manager for Windows.exe`。 |
+| `start-stage-manager.bat` | 本地一键：先 `--quit` 旧实例，再编译并启动 `build/windows-amd64/StageManagerForWindows.exe`。 |
 
 ## 常用命令
 
@@ -28,7 +28,7 @@ go test ./...                 # 单元测试 + 无头界面测试，几秒内跑
 go tool mygo vet .            # MyGo 的 UI 生命周期检查，改 UI 后必须跑
 go run .                      # 开发运行
 go tool mygo dev              # 改代码自动重编译重启
-go tool mygo build            # 产出 build/windows-amd64/Stage Manager for Windows.exe 和安装包
+go tool mygo build            # 产出 build/windows-amd64/StageManagerForWindows.exe 和安装包
 ```
 
 提交前至少保证 `go build ./... && go vet ./... && go test ./... && go tool mygo vet .` 全部通过。
@@ -44,7 +44,7 @@ $env:STAGEMANAGER_DEBUG      = "1"                 # 打印决策日志（debugf
 go run .
 ```
 
-- 结束实例用 `Stage Manager for Windows.exe --quit` 或 Ctrl+C，这样会把所有停放的窗口放回。**不要直接 kill 进程**；万一 kill 了，下次启动会按 `parked-windows.json` 日志恢复。
+- 结束实例用 `StageManagerForWindows.exe --quit` 或 Ctrl+C，这样会把所有停放的窗口放回。**不要直接 kill 进程**；万一 kill 了，下次启动会按 `parked-windows.json` 日志恢复。
 - `STAGEMANAGER_DEBUG` 开启时，第二个实例传 `--debug-hang` 会故意卡住主线程 12 秒，用来验证看门狗。
 - `STAGEMANAGER_SNAPSHOT_DIR=<目录> go test ./internal/app -run TestSnapshots` 把侧边栏和设置窗口渲染成 PNG，不用启动应用就能看界面效果。
 - 默认数据目录：`%LOCALAPPDATA%\Stage Manager`（`settings.json`、`parked-windows.json`、看门狗写的 `hang-*.log`）。

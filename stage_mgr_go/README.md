@@ -26,7 +26,7 @@
 - 浮动模式：有空间时显示，被舞台窗口遮住时滑走；指针移到左边缘唤出
 - 停放的窗口保持大小与状态，退出、崩溃、注销时全部放回（崩溃靠日志恢复）
 - 托盘图标：左键打开设置，右键菜单（显示/隐藏、设置、暂停、退出）
-- `Stage Manager for Windows.exe --quit` 让正在运行的实例退出并放回所有窗口（安装/卸载时使用）
+- `StageManagerForWindows.exe --quit` 让正在运行的实例退出并放回所有窗口（安装/卸载时使用）
 - 不收集任何数据，不联网
 
 ## 架构
@@ -71,7 +71,7 @@ go run .                      # 开发运行
 go tool mygo dev              # 改代码自动重编译重启
 go test ./...                 # 单元测试与无头界面测试
 go tool mygo vet .            # 检查 UI 生命周期问题
-go tool mygo build            # build/windows-amd64/Stage Manager for Windows.exe 和安装包
+go tool mygo build            # build/windows-amd64/StageManagerForWindows.exe 和安装包
 ```
 
 开发时可用的环境变量：
