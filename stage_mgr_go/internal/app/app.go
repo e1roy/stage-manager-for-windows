@@ -122,6 +122,7 @@ type App struct {
 	displays []*display // primary first
 	windows  []catalog.Window
 	seen     map[winapi.HWND]time.Time // when a window was first listed
+	lost     map[winapi.HWND]time.Time // when a window was first seen off every display, unparked
 
 	ready    bool           // the first stage is set
 	busy     bool           // a switch is running
@@ -176,11 +177,14 @@ func Start(o Options) *App {
 		park:      parking.New(o.DataDir),
 		media:     newMedia(),
 		seen:      map[winapi.HWND]time.Time{},
+		lost:      map[winapi.HWND]time.Time{},
 		dropHomes: map[winapi.HWND]winapi.Rect{},
 		trayIcon:  o.TrayIcon,
 	}
 	a.settings = a.store.Load()
 	// Windows a crashed run left off the desktop come back first.
+	logToFile(o.DataDir)
+	a.park.Logf = debugf
 	a.park.Recover()
 	watchMainThread(o.DataDir)
 	a.setUpTray()
@@ -357,11 +361,7 @@ func (a *App) rescueOffscreen() int {
 		if !winapi.MostlyOffscreen(frame) {
 			continue
 		}
-		// Fit the visible frame, not the invisible borders around it.
-		to, r := winapi.FitOnScreen(frame), winapi.WindowRect(h)
-		debugf("rescue %x %q from %v to %v", h, winapi.Title(h), frame, to)
-		if winapi.SetWindowPos(h, 0, r.Left+to.Left-frame.Left, r.Top+to.Top-frame.Top, 0, 0,
-			winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate) {
+		if bringOnScreen(h, frame) {
 			n++
 		}
 	}
@@ -369,6 +369,48 @@ func (a *App) rescueOffscreen() int {
 		a.refreshSoon()
 	}
 	return n
+}
+
+// lostGrace is how long a window may stay off every display, unparked,
+// before it is brought back: longer than a window coming home takes to get
+// there, as its app may answer the move late.
+const lostGrace = 3 * time.Second
+
+// rescueLost brings back onto the nearest display the windows that stay
+// wholly off every display without being parked. No app means to leave a
+// window where nobody can reach it: it is one Stage Manager lost track of,
+// as one a journal could not bring home after a run that ended
+// unexpectedly, or one its app put back where it was parked.
+func (a *App) rescueLost(now time.Time) {
+	lost := map[winapi.HWND]time.Time{}
+	for _, w := range a.windows {
+		h := w.HWND
+		if a.park.IsParked(h) || a.park.IsParked(catalog.RootOwner(h)) || winapi.IsZoomed(h) || winapi.OnAnyMonitor(w.Frame) {
+			continue
+		}
+		since, ok := a.lost[h]
+		if !ok {
+			since = now
+			debugf("lost %x %q at %v, unparked", h, w.Title, w.Frame)
+		}
+		if now.Sub(since) < lostGrace {
+			lost[h] = since
+			continue
+		}
+		debugf("lost %x %q off every display", h, w.Title)
+		bringOnScreen(h, w.Frame)
+	}
+	a.lost = lost
+}
+
+// bringOnScreen moves window h, whose visible frame is frame, as little as
+// it takes onto the nearest display. It fits the frame, not the invisible
+// borders around it.
+func bringOnScreen(h winapi.HWND, frame winapi.Rect) bool {
+	to, r := winapi.FitOnScreen(frame), winapi.WindowRect(h)
+	debugf("rescue %x %q from %v to %v", h, winapi.Title(h), frame, to)
+	return winapi.SetWindowPos(h, 0, r.Left+to.Left-frame.Left, r.Top+to.Top-frame.Top, 0, 0,
+		winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
 }
 
 func (a *App) displaysChanged() {
@@ -447,6 +489,11 @@ func (a *App) refresh() {
 		// The end of the peek went unseen.
 		a.peekEnd()
 	}
+	// Windows sent home are followed until they get there, whatever else
+	// goes on.
+	if !a.quitting {
+		a.park.Chase()
+	}
 	// While a peek shows, the parked windows are home on purpose and must
 	// not be taken for strays.
 	if !a.ready || a.busy || a.quitting || a.peek != 0 {
@@ -468,6 +515,7 @@ func (a *App) refresh() {
 		}
 	}
 	a.media.forget(alive)
+	a.rescueLost(now)
 	var want []winapi.HWND
 	for _, d := range a.displays {
 		if !a.managed(d) {
@@ -618,7 +666,6 @@ func (a *App) applySettings(s settings.Settings) {
 		after(300*time.Millisecond, a.initStage)
 	}
 	a.refresh()
-	a.updateTrayMenu()
 }
 
 // shutdown puts every window back and gives the work area back. It runs
@@ -636,6 +683,8 @@ func (a *App) shutdown() {
 		close(a.stopPoll)
 	}
 	a.park.RestoreAll()
+	// Nothing will follow the windows home after this: wait for them.
+	a.park.Settle(600 * time.Millisecond)
 	for _, d := range a.displays {
 		if d.strip != nil {
 			d.strip.bar.Remove()

@@ -114,7 +114,7 @@ func (a *App) sendToStrip(d *display, w catalog.Window, from winapi.Rect) {
 		winapi.SetWindowPos(w.HWND, 0, from.Left, from.Top, 0, 0,
 			winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
 	}
-	a.switchStage(d, next, 0, true)
+	a.switchStage(d, next, 0, true, false)
 }
 
 func (a *App) isListed(h winapi.HWND) bool {
@@ -146,14 +146,14 @@ func (a *App) onForeground(h winapi.HWND) {
 		}
 	}
 	a.fg.prev = catalog.RootOwner(h)
-	debugf("foreground %x %q", h, winapi.ClassName(h))
+	debugf("foreground %x %q at %v iconic=%v parked=%v", h, winapi.ClassName(h), winapi.WindowRect(h), winapi.IsIconic(h), a.park.IsParked(catalog.RootOwner(h)))
 	if catalog.IsDesktop(h) {
 		// Clicking the wallpaper sends the stage to the strip, as on macOS.
 		// The button check keeps Win+D and the like out of it.
 		d := a.desktopClick()
 		debugf("desktop clicked, clears %v", d != nil)
 		if d != nil {
-			a.switchStage(d, nil, 0, false)
+			a.switchStage(d, nil, 0, false, false)
 		}
 		return
 	}
@@ -229,8 +229,9 @@ func (a *App) settleForeground() {
 		}
 		return
 	}
-	// The app comes with the apps of its set, as on macOS.
-	a.switchStage(d, d.model.SetOf(w.App), w.HWND, false)
+	// The app comes with the apps of its set, as on macOS. The system
+	// already brought its window up: the stage it leaves fades under it.
+	a.switchStage(d, d.model.SetOf(w.App), w.HWND, false, true)
 }
 
 // startPolling follows the pointer for the strips: revealing a floating

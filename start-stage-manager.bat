@@ -2,6 +2,10 @@
 setlocal
 cd /d "%~dp0stage_mgr_go"
 
+rem Log what Stage Manager for Windows decides to
+rem %LOCALAPPDATA%\Stage Manager\debug.log (debug.prev.log for the run before).
+set "STAGEMANAGER_DEBUG=1"
+
 set "OUT=build\windows-amd64\StageManagerForWindows.exe"
 set "TASKLIST=%SystemRoot%\System32\tasklist.exe"
 set "FIND=%SystemRoot%\System32\find.exe"

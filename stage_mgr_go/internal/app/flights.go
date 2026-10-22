@@ -13,6 +13,10 @@ import (
 
 const (
 	flightTime = 520 * time.Millisecond
+	// A window the user left by way of the system fades where it is: as
+	// quickly as the system's own animation of the window they went to,
+	// so that the two do not linger over each other.
+	fadeTime = 200 * time.Millisecond
 	// The flights and the real windows overlap for a moment at each end:
 	// both show the same picture, so the overlap cannot be seen, while
 	// swapping them within one frame can. Their shadows differ, so a flight
@@ -109,6 +113,9 @@ type flight struct {
 	// faded as it was.
 	fromOp, toOp float32
 	fadeIn       bool // comes from nowhere: it fades in early on the way
+	// It fades where it is, done pace times as fast as the trip.
+	fadeOut bool
+	pace    float64
 	// It starts over its real window, which casts its own shadow until the
 	// flight takes off.
 	holdsShadow bool
@@ -141,8 +148,13 @@ func (f *flight) toward(fg winapi.HWND) shade {
 
 // opacity is how opaque f shows p of its flight time in, e of the way.
 func (f *flight) opacity(p, e float64) float32 {
-	if f.fadeIn {
+	switch {
+	case f.fadeIn:
 		e = min(p*3, 1)
+	case f.fadeOut:
+		// Eased out, with no tail to linger.
+		q := min(p*f.pace, 1)
+		e = 1 - (1-q)*(1-q)
 	}
 	return f.fromOp + (f.toOp-f.fromOp)*float32(e)
 }
@@ -160,6 +172,7 @@ type trip struct {
 	// the way until it flies them on.
 	stopped   bool
 	stoppedAt float64
+	span      time.Duration // flightTime, or fadeTime with nothing but fades
 
 	takeOff, land, stop func()
 }
@@ -172,7 +185,7 @@ func (t *trip) progress(now time.Time) float64 {
 	case !t.flying || t.start.IsZero():
 		return 0
 	}
-	return min(float64(now.Sub(t.start))/float64(flightTime), 1)
+	return min(float64(now.Sub(t.start))/float64(t.span), 1)
 }
 
 // aloft is where a flight stopped mid-way shows, the shadow it casts and
@@ -205,6 +218,7 @@ type layer struct {
 	rect    winapi.Rect
 	scale   float64
 	shown   bool
+	low     bool // under a window rather than above all
 	list    []flight // flying, from their from to their to
 	badges  []badge  // the icons of the cards they land in, over them
 	trip    *trip
@@ -251,6 +265,17 @@ func (l *layer) raise() {
 	const flags = winapi.SwpNoActivate | winapi.SwpNoMove | winapi.SwpNoSize
 	winapi.SetWindowPos(l.hwnd, winapi.HwndTopmost, 0, 0, 0, 0, flags)
 	winapi.SetWindowPos(l.uhwnd, l.hwnd, 0, 0, 0, 0, flags)
+	l.low = false
+}
+
+// lower puts the layer right under window h, and its under window beneath
+// it. Ordered after a window that is not topmost, it is no longer topmost
+// either, until raised.
+func (l *layer) lower(h winapi.HWND) {
+	const flags = winapi.SwpNoActivate | winapi.SwpNoMove | winapi.SwpNoSize
+	winapi.SetWindowPos(l.hwnd, h, 0, 0, 0, 0, flags)
+	winapi.SetWindowPos(l.uhwnd, l.hwnd, 0, 0, 0, 0, flags)
+	l.low = true
 }
 
 // release lets go of the shadows the flights show of their apps' own.
@@ -405,8 +430,11 @@ func (f *flights) landingIcons(d *display) []badge {
 // cover the real windows, land as they are drawn where they land, and done
 // once they are gone. Should another switch take over mid-way, stop runs
 // instead of land and done and its flights carry on from where they are.
-// With nothing to fly, or with reduced motion, it all runs at once.
-func (f *flights) run(d *display, departing, arriving []catalog.Window, from map[winapi.HWND]pose, takeOff, land, stop, done func()) {
+// With fade, the departing windows fade where they are instead of flying
+// into their cards; with below, the layer shows right under that window
+// rather than above all. With nothing to fly, or with reduced motion, it
+// all runs at once.
+func (f *flights) run(d *display, departing, arriving []catalog.Window, from map[winapi.HWND]pose, fade bool, below winapi.HWND, takeOff, land, stop, done func()) {
 	scale := d.mon.Scale()
 	cardShadeAt := func(p pose) shade { return cardShade(float32(p.h / scale)) }
 	air := f.airborne(d)
@@ -444,6 +472,10 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 			// Turned back on its way home: its real window is long gone.
 			fl.from, fl.shade, fl.fromOp, fl.holdsShadow = a.at, a.shade, a.op, false
 		}
+		if fade {
+			// Its shadow goes with it.
+			fl.to, fl.toOp, fl.toShade, fl.fadeOut = fl.from, 0, fl.shade, true
+		}
 		list = append(list, fl)
 	}
 	// The arriving windows are added last so that they fly above.
@@ -475,8 +507,12 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		return
 	}
 	l := f.show(d)
-	// Above the strip, which a floating strip that just came out may be.
-	l.raise()
+	if below != 0 && winapi.IsWindow(below) {
+		l.lower(below)
+	} else {
+		// Above the strip, which a floating strip that just came out may be.
+		l.raise()
+	}
 	l.release()
 	for i := range list {
 		// Without a shadow from DWM, a window may have one its app draws.
@@ -484,7 +520,13 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 			fl.own = newOwnShadow(l.uhwnd, fl.hwnd)
 		}
 	}
-	t := &trip{hold: takeOffDelay}
+	t := &trip{hold: takeOffDelay, span: flightTime}
+	if !slices.ContainsFunc(list, func(fl flight) bool { return !fl.fadeOut }) {
+		t.span = fadeTime
+	}
+	for i := range list {
+		list[i].pace = float64(t.span) / float64(fadeTime)
+	}
 	if len(air) > 0 && !slices.ContainsFunc(list, func(fl flight) bool { return fl.holdsShadow }) {
 		// Turned back mid-way, they cover no real windows: they fly on
 		// at once rather than stop in the air.
@@ -618,7 +660,7 @@ func (f *flights) show(d *display) *layer {
 	// One pixel short of the display, so that Windows never takes the
 	// layer for an app in full screen.
 	area.Bottom--
-	l.rect, l.scale, l.shown = area, d.mon.Scale(), true
+	l.rect, l.scale, l.shown, l.low = area, d.mon.Scale(), true, false
 	l.win.ShowInactive()
 	l.under.ShowInactive()
 	winapi.SetWindowPos(l.hwnd, winapi.HwndTopmost, area.Left, area.Top, area.W(), area.H(), winapi.SwpNoActivate)
@@ -641,6 +683,9 @@ func (f *flights) hideLater(l *layer) {
 // dragged shows the windows of a card being dragged where they are now.
 func (f *flights) dragged(d *display, list []flight) {
 	l := f.show(d)
+	if l.low {
+		l.raise()
+	}
 	l.drag = list
 	l.dragGen++
 	l.win.Invalidate()

@@ -36,7 +36,6 @@ type strip struct {
 	holdUntil    time.Time
 	hiddenAt     time.Time
 	dragging     bool // a card is dragged
-	dismissed    bool // hidden from the tray menu: only the edge brings it back
 	holding      bool // the button went down on a card and is still down
 	fullScreen   bool // a full-screen app is on the display
 	lastBar      time.Time
@@ -170,7 +169,6 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 			}
 			if s.hardEdge(cur) || now.Sub(s.edgeSince) > 250*time.Millisecond {
 				s.lastInside = now
-				s.dismissed = false
 			}
 		} else {
 			s.edgeSince = time.Time{}
@@ -181,7 +179,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 			}
 		}
 		want := now.Sub(s.lastInside) < autoHide || now.Before(s.holdUntil) || s.dragging ||
-			(!s.dismissed && !s.d.covered && len(s.d.sets) > 0 && s.a.ready)
+			(!s.d.covered && len(s.d.sets) > 0 && s.a.ready)
 		s.setShown(want, now)
 		if !s.shown && s.visible && now.Sub(s.hiddenAt) > slideOutTime {
 			s.win.Hide()
@@ -215,22 +213,6 @@ func (s *strip) setShown(v bool, now time.Time) {
 		s.hiddenAt = now
 	}
 	s.win.Invalidate()
-}
-
-// toggle shows or hides a floating strip, from the tray menu.
-func (s *strip) toggle() {
-	now := time.Now()
-	if s.a.settings.Mode == settings.Fixed {
-		return
-	}
-	if s.shown {
-		s.lastInside, s.holdUntil = time.Time{}, time.Time{}
-		s.dismissed = true
-		s.setShown(false, now)
-		return
-	}
-	s.dismissed = false
-	s.holdOpen(3 * time.Second)
 }
 
 func (s *strip) holdOpen(d time.Duration) {

@@ -38,6 +38,7 @@ var (
 	procShowWindowAsync          = user32.NewProc("ShowWindowAsync")
 	procShowWindow               = user32.NewProc("ShowWindow")
 	procGetWindowPlacement       = user32.NewProc("GetWindowPlacement")
+	procSetWindowPlacement       = user32.NewProc("SetWindowPlacement")
 	procRedrawWindow             = user32.NewProc("RedrawWindow")
 	procPostMessageW             = user32.NewProc("PostMessageW")
 	procSendMessageTimeoutW      = user32.NewProc("SendMessageTimeoutW")

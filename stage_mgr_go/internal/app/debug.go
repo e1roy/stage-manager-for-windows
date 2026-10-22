@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,6 +20,26 @@ func debugf(format string, args ...any) {
 	if debugOn {
 		log.Printf(format, args...)
 	}
+}
+
+// logToFile keeps the debug log in the data directory too, as debug.log,
+// the previous run's as debug.prev.log: the app has no console to print to
+// once started from Explorer or a script.
+func logToFile(dataDir string) {
+	if !debugOn {
+		return
+	}
+	name := filepath.Join(dataDir, "debug.log")
+	os.MkdirAll(dataDir, 0o755)
+	os.Rename(name, filepath.Join(dataDir, "debug.prev.log"))
+	f, err := os.Create(name)
+	if err != nil {
+		return
+	}
+	// The file first: with no console, writing to stderr fails, and a
+	// MultiWriter stops at the first writer that fails.
+	log.SetOutput(io.MultiWriter(f, os.Stderr))
+	log.SetFlags(log.Ltime | log.Lmicroseconds)
 }
 
 // hangTimeout is how long the main thread may not answer before the

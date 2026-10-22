@@ -27,6 +27,10 @@ const (
 	moveFlags = winapi.SwpNoRedraw | winapi.SwpNoSize | winapi.SwpNoZOrder | winapi.SwpNoActivate |
 		winapi.SwpNoOwnerZOrder | winapi.SwpAsyncWindowPos
 	settle = time.Second
+	// A window sent home that is not there after chaseAfter is sent again,
+	// up to chaseTries times, and then fitted onto the nearest display.
+	chaseAfter = 300 * time.Millisecond
+	chaseTries = 3
 )
 
 type parked struct {
@@ -41,11 +45,27 @@ type Service struct {
 	parked  map[winapi.HWND]parked
 	journal string
 	lifted  map[winapi.HWND]bool // parked windows home for a moment, see Lift
+	homing  map[winapi.HWND]homing
+	// Logf, when set, is told where windows go, for debug runs.
+	Logf func(format string, args ...any)
+}
+
+func (s *Service) logf(format string, args ...any) {
+	if s.Logf != nil {
+		s.Logf(format, args...)
+	}
+}
+
+// homing is a window sent home, until it gets there.
+type homing struct {
+	to    winapi.Point
+	at    time.Time // when it was last sent
+	tries int
 }
 
 // New keeps the journal in dir.
 func New(dir string) *Service {
-	return &Service{parked: map[winapi.HWND]parked{}, lifted: map[winapi.HWND]bool{}, journal: filepath.Join(dir, "parked-windows.json")}
+	return &Service{parked: map[winapi.HWND]parked{}, lifted: map[winapi.HWND]bool{}, homing: map[winapi.HWND]homing{}, journal: filepath.Join(dir, "parked-windows.json")}
 }
 
 // IsParked reports whether a window is parked.
@@ -115,7 +135,7 @@ func (s *Service) unpark(h winapi.HWND) bool {
 	for w, p := range s.parked {
 		if w == h || p.Owner == h {
 			delete(s.parked, w)
-			move(w, winapi.Point{X: p.Home.Left + shiftX, Y: p.Home.Top + shiftY})
+			s.sendHome(w, reachable(p.Home.Offset(shiftX, shiftY)))
 		}
 	}
 	// A dialog opened while its owner was parked was placed next to the
@@ -123,10 +143,118 @@ func (s *Service) unpark(h winapi.HWND) bool {
 	dx, dy := home.Left-root.Spot.X, home.Top-root.Spot.Y
 	for _, o := range catalog.OwnedWindows(h) {
 		if r := winapi.WindowRect(o); winapi.MostlyOffscreen(r) {
-			move(o, winapi.Point{X: r.Left + dx, Y: r.Top + dy})
+			s.sendHome(o, reachable(r.Offset(dx, dy)))
 		}
 	}
 	return true
+}
+
+// reachable is where a window that comes along with another goes: where
+// it was, unless no display shows any of it there. It is not fitted whole,
+// as the shadow some apps draw a window in may reach past the display.
+func reachable(r winapi.Rect) winapi.Point {
+	if !winapi.OnAnyMonitor(r) {
+		r = winapi.FitOnScreen(r)
+	}
+	return winapi.Point{X: r.Left, Y: r.Top}
+}
+
+// sendHome moves a window back onto the desktop and follows it until it
+// gets there (Chase).
+func (s *Service) sendHome(h winapi.HWND, p winapi.Point) {
+	s.logf("home %x %q from %v to %v", h, winapi.Title(h), at(h), p)
+	place(h, p)
+	s.homing[h] = homing{to: p, at: time.Now()}
+}
+
+// Chase sends once more the windows sent home that are not there yet, as
+// an app busy at the time, or one that puts its window back where it
+// was, leaves them. One that will not go is fitted onto the nearest
+// display instead: a window off the desktop that is not parked is one
+// nobody can find. Call it now and then.
+func (s *Service) Chase() {
+	now := time.Now()
+	for h, g := range s.homing {
+		switch {
+		case !winapi.IsWindow(h) || s.IsParked(h) || arrived(h, g.to):
+			delete(s.homing, h)
+		case now.Sub(g.at) < chaseAfter:
+		case g.tries < chaseTries:
+			s.logf("chase %x %q at %v, not home at %v yet", h, winapi.Title(h), at(h), g.to)
+			place(h, g.to)
+			g.at, g.tries = now, g.tries+1
+			s.homing[h] = g
+		default:
+			s.logf("chase %x %q gave up on %v at %v: fitted on screen", h, winapi.Title(h), g.to, at(h))
+			fit(h)
+			delete(s.homing, h)
+		}
+	}
+}
+
+// Settle waits up to d for the windows sent home to get there, sending
+// them once more halfway, and fits those that do not onto the nearest
+// display: for when nothing will chase them later, as Stage Manager quits.
+func (s *Service) Settle(d time.Duration) {
+	start := time.Now()
+	resent := false
+	for {
+		for h, g := range s.homing {
+			if !winapi.IsWindow(h) || s.IsParked(h) || arrived(h, g.to) {
+				delete(s.homing, h)
+			}
+		}
+		if len(s.homing) == 0 {
+			return
+		}
+		el := time.Since(start)
+		if el >= d {
+			break
+		}
+		if !resent && el >= d/2 {
+			resent = true
+			for h, g := range s.homing {
+				place(h, g.to)
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	for h := range s.homing {
+		fit(h)
+	}
+	clear(s.homing)
+}
+
+// at is where a window shows, or for a minimized one where it comes back.
+func at(h winapi.HWND) winapi.Rect {
+	if winapi.IsIconic(h) {
+		if r, _, ok := winapi.RestoredRect(h); ok {
+			return r
+		}
+	}
+	return winapi.WindowRect(h)
+}
+
+// arrived reports whether a window sent to p got there, or at least is
+// where the displays show it.
+func arrived(h winapi.HWND, p winapi.Point) bool {
+	r := at(h)
+	return r.Left == p.X && r.Top == p.Y || !winapi.MostlyOffscreen(r)
+}
+
+// fit moves a window as little as it takes onto the nearest display.
+func fit(h winapi.HWND) {
+	r := winapi.FitOnScreen(at(h))
+	place(h, winapi.Point{X: r.Left, Y: r.Top})
+}
+
+// place moves a window to p, or a minimized one to come back there.
+func place(h winapi.HWND, p winapi.Point) {
+	if winapi.IsIconic(h) {
+		winapi.MoveRestored(h, p)
+		return
+	}
+	move(h, p)
 }
 
 // raising counts the calls to raise, for one held up by an app to give way
@@ -211,7 +339,7 @@ func (s *Service) RestoreAll() {
 	for h, p := range s.parked {
 		if winapi.IsWindow(h) {
 			home := onDesktop(p.Home)
-			move(h, winapi.Point{X: home.Left, Y: home.Top})
+			s.sendHome(h, winapi.Point{X: home.Left, Y: home.Top})
 			winapi.Redraw(h)
 		}
 	}
@@ -243,11 +371,13 @@ func (s *Service) CollectEscaped() []winapi.HWND {
 			// Some apps, QQ Music among them, will not leave the desktop and
 			// stop at its edge. The window is as parked as it gets: where it
 			// stopped is its spot, and its home stays.
+			s.logf("parked %x %q moved itself from %v to %v", h, winapi.Title(h), p.Spot, r)
 			p.Spot = winapi.Point{X: r.Left, Y: r.Top}
 			s.parked[h] = p
 			changed = true
 			continue
 		}
+		s.logf("parked %x %q escaped to %v", h, winapi.Title(h), r)
 		delete(s.parked, h)
 		changed = true
 		if p.Owner == 0 && winapi.OnAnyMonitor(r) {
@@ -280,7 +410,9 @@ func Rescue(dir string) int {
 }
 
 // restoreJournal moves the windows a journal lists home, those that are
-// still where they were parked, and returns how many it moved.
+// still where they were parked or, moved by their app since, still off the
+// desktop, and returns how many it moved. Skipping one of those would leave
+// it where nobody can reach it: the journal is all that knows its home.
 func restoreJournal(path string) int {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -293,12 +425,12 @@ func restoreJournal(path string) int {
 	n := 0
 	for _, e := range entries {
 		h := winapi.HWND(e.Handle)
-		r := winapi.WindowRect(h)
-		if !winapi.IsWindow(h) || r.Left != e.SpotX || r.Top != e.SpotY {
+		r := at(h)
+		if !winapi.IsWindow(h) || (r.Left != e.SpotX || r.Top != e.SpotY) && !winapi.MostlyOffscreen(r) {
 			continue
 		}
 		home := onDesktop(winapi.Rect{Left: e.HomeX, Top: e.HomeY, Right: e.HomeX + r.W(), Bottom: e.HomeY + r.H()})
-		move(h, winapi.Point{X: home.Left, Y: home.Top})
+		place(h, winapi.Point{X: home.Left, Y: home.Top})
 		winapi.Redraw(h)
 		n++
 	}
@@ -333,12 +465,14 @@ func centerOnPrimary(r winapi.Rect) winapi.Rect {
 // to come back to the home place picks.
 func (s *Service) parkOne(h, owner winapi.HWND, place func(r winapi.Rect) (home winapi.Rect, spot winapi.Point)) bool {
 	if !winapi.IsWindow(h) || winapi.IsIconic(h) {
+		s.logf("park %x %q refused: minimized or gone", h, winapi.Title(h))
 		return false
 	}
 	r := winapi.WindowRect(h)
 	// Parking a window that is already off the desktop would make the
 	// parking spot its home, and it could never come back.
 	if r.Empty() || !winapi.OnAnyMonitor(r) {
+		s.logf("park %x %q refused: off the desktop at %v", h, winapi.Title(h), r)
 		return false
 	}
 	home, spot := place(r)
@@ -346,6 +480,7 @@ func (s *Service) parkOne(h, owner winapi.HWND, place func(r winapi.Rect) (home 
 		return false
 	}
 	s.parked[h] = parked{Home: home, Spot: spot, Owner: owner, At: time.Now()}
+	s.logf("park %x %q from %v home %v spot %v owner %x", h, winapi.Title(h), r, home, spot, owner)
 	return true
 }
 
