@@ -9,20 +9,20 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/renkai9418/stage-bar/internal/catalog"
-	"github.com/renkai9418/stage-bar/internal/settings"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 // TestSnapshots draws the strip and the settings window to PNG files in
-// STAGEBAR_SNAPSHOT_DIR, to look at the design without running the app.
+// STAGEMANAGER_SNAPSHOT_DIR, to look at the design without running the app.
 func TestSnapshots(t *testing.T) {
-	dir := os.Getenv("STAGEBAR_SNAPSHOT_DIR")
+	dir := os.Getenv("STAGEMANAGER_SNAPSHOT_DIR")
 	if dir == "" {
-		t.Skip("STAGEBAR_SNAPSHOT_DIR is not set")
+		t.Skip("STAGEMANAGER_SNAPSHOT_DIR is not set")
 	}
 	a := &App{settings: settings.Default(), media: newMedia(), ready: true}
-	a.act = func(action, *display, *group) {}
+	a.act = func(action, *display, *set) {}
 	d := &display{cards: map[string]*cardState{}, landing: map[string]bool{}}
 	d.mon = winapi.Monitor{Device: `\\.\DISPLAY1`, Monitor: winapi.Rect{Right: 2560, Bottom: 1440}, Work: winapi.Rect{Right: 2560, Bottom: 1392}, DPI: 96, Primary: true}
 	apps := []struct {
@@ -38,19 +38,25 @@ func TestSnapshots(t *testing.T) {
 		{"音乐", 1, 1.4, color.RGBA{220, 60, 80, 255}},
 	}
 	h := winapi.HWND(1)
+	var groups []*group
 	for i, ap := range apps {
-		g := &group{app: ap.name, name: ap.name}
+		g := &group{app: ap.name, name: ap.name, z: i}
 		for j := 0; j < ap.windows; j++ {
 			w := catalog.Window{HWND: h, Title: ap.name, App: ap.name, Frame: winapi.Rect{Right: int32(1000 * ap.aspect), Bottom: 1000}}
 			if i != 4 { // the last app shows how a window without a still looks
 				bmp := ui.NewBitmap(fakeWindow(int(400*ap.aspect), 400, ap.hue, j))
-			a.media.stills[h] = &still{card: bmp, fly: bmp}
+				a.media.stills[h] = &still{card: bmp, fly: bmp}
 			}
 			g.windows = append(g.windows, w)
 			h++
 		}
 		a.media.icons[ap.name] = ui.NewBitmap(fakeIcon(i))
-		d.groups = append(d.groups, g)
+		groups = append(groups, g)
+	}
+	// Code and Chrome were on the stage together, and left it as one card.
+	d.sets = append(d.sets, newSet(groups[:2]))
+	for _, g := range groups[2:] {
+		d.sets = append(d.sets, newSet([]*group{g}))
 	}
 	s := &strip{a: a, d: d, shown: true, scale: 1, rect: winapi.Rect{Right: 200, Bottom: 1000}}
 	d.strip = s

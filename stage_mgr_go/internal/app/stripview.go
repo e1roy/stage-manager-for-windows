@@ -4,8 +4,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/renkai9418/stage-bar/internal/settings"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 // cardState is what a card remembers between frames.
@@ -22,13 +22,23 @@ type cardState struct {
 	tilt, lift float32
 }
 
-func (d *display) card(app string) *cardState {
-	st := d.cards[app]
+func (d *display) card(key string) *cardState {
+	st := d.cards[key]
 	if st == nil {
 		st = &cardState{}
-		d.cards[app] = st
+		d.cards[key] = st
 	}
 	return st
+}
+
+// landingOf reports whether windows are flying into a card.
+func (d *display) landingOf(s *set) bool {
+	for _, g := range s.apps {
+		if d.landing[g.app] {
+			return true
+		}
+	}
+	return false
 }
 
 var (
@@ -51,10 +61,10 @@ func (s *strip) view(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	w, h := c.Size()
 	d.viewW, d.viewH = w, h
-	l := layoutStrip(len(d.groups), w, h, d.scroll)
+	l := layoutStrip(len(d.sets), w, h, d.scroll)
 	if d.scroll > l.maxScroll(h) {
 		d.scroll = l.maxScroll(h)
-		l = layoutStrip(len(d.groups), w, h, d.scroll)
+		l = layoutStrip(len(d.sets), w, h, d.scroll)
 	}
 	d.layout = l
 
@@ -73,11 +83,11 @@ func (s *strip) view(c *ui.Context) {
 	})
 	hits := s.hits[:0]
 	root.Children(func() {
-		if len(d.groups) == 0 && a.ready {
+		if len(d.sets) == 0 && a.ready {
 			emptyHint(c, w, h)
 		}
-		for i, g := range d.groups {
-			if b := s.card(c, g, l.cards[i]); b.W > 0 {
+		for i, set := range d.sets {
+			if b := s.card(c, set, l.cards[i]); b.W > 0 {
 				hits = append(hits, b)
 			}
 		}
@@ -92,26 +102,25 @@ func emptyHint(c *ui.Context, w, h float32) {
 	})
 }
 
-// card draws one app's card and handles its input. It returns where the
-// card showed, in DIPs of the window, for hit testing.
-func (s *strip) card(c *ui.Context, g *group, box ui.Rect) ui.Rect {
+// card draws the card of a set of apps and handles its input. It returns
+// where the card showed, in DIPs of the window, for hit testing.
+func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	a, d := s.a, s.d
-	st := d.card(g.app)
-	// A card that windows are flying into shows nothing until they land,
-	// but its icon, which comes in on the way. It enters where it lands
-	// rather than sliding in, so that it is in place when they get there.
-	iconIn, landing := d.landing[g.app]
+	st := d.card(g.key)
+	// A card that windows are flying into shows nothing until they land.
+	// It enters where it lands rather than sliding in, so that it is in
+	// place when they get there.
+	landing := d.landingOf(g)
 	motion := cardMotion
 	if landing {
 		motion.Enter = nil
 	}
-	el := ui.Box(c.Key(g.app)).Absolute().Left(box.X).Top(box.Y).Size(box.W, box.H).
+	el := ui.Box(c.Key(g.key)).Absolute().Left(box.X).Top(box.Y).Size(box.W, box.H).
 		Cursor(ui.CursorPointer).Transition(motion)
 
 	// Dragging a card out onto the desktop puts its app on the stage too.
-	// A press becomes a drag once the pointer moved a few DIPs. Dragged
-	// tells whether the card is held, wherever the pointer is; Pressed
-	// only while it is over the card.
+	// Dragged tells whether the card is held, wherever the pointer is;
+	// Pressed only while it is over the card.
 	dx, dy, held := el.Dragged()
 	if held {
 		st.dx += dx
@@ -137,14 +146,21 @@ func (s *strip) card(c *ui.Context, g *group, box ui.Rect) ui.Rect {
 		s.setDragging(false)
 	}
 	if el.Clicked() && !st.moved {
-		debugf("card %q clicked", g.name)
-		a.request(actPick, d, g)
+		debugf("card %q clicked", g.title())
+		// Shift-click adds the card to the stage, as on macOS.
+		if el.ClickModifiers()&ui.Shift != 0 && !d.model.Empty() {
+			a.request(actJoin, d, g)
+		} else {
+			a.request(actPick, d, g)
+		}
 	}
 	if !held {
 		st.moved = false
 	}
 
-	hovered := (el.Hovered() || st.dragging) && !a.busy
+	// A card being landed in holds still for its flights, but takes clicks:
+	// one turns them back.
+	hovered := (el.Hovered() || st.dragging) && !landing
 	if hovered && !st.dragging {
 		// A switch may follow: take the pictures its flights need now, at
 		// the size the card cannot show.
@@ -176,16 +192,11 @@ func (s *strip) card(c *ui.Context, g *group, box ui.Rect) ui.Rect {
 		ox, oy = el.AnimateTo("dx", 0, ui.Smooth), el.AnimateTo("dy", 0, ui.Smooth)
 	}
 	// The flight covers the card as it lands, so the card shows at once
-	// underneath; fading in after the flight is gone would blink.
-	shown := float32(1)
+	// underneath; fading it in once the flight is gone would blink. The
+	// icons come in on the flight layer, above the flights.
+	shown, iconOp := float32(1), float32(1)
 	if landing {
-		shown = 0
-	}
-	var iconOp float32
-	if landing && !iconIn {
-		iconOp = el.Jump("icon", 0)
-	} else {
-		iconOp = el.AnimateTo("icon", 1, fadeQuick)
+		shown, iconOp = 0, 0
 	}
 	op := float32(1)
 	if st.dragging && a.flights != nil {
@@ -207,6 +218,9 @@ func (s *strip) card(c *ui.Context, g *group, box ui.Rect) ui.Rect {
 		if !d.model.Empty() && m.Item("加入当前舞台").Chosen() {
 			a.request(actJoin, d, g)
 		}
+		if len(g.apps) > 1 && m.Item("拆开组合").Chosen() {
+			a.request(actSplit, d, g)
+		}
 		m.Separator()
 		label := "关闭窗口"
 		if len(g.windows) > 1 {
@@ -218,11 +232,7 @@ func (s *strip) card(c *ui.Context, g *group, box ui.Rect) ui.Rect {
 	})
 
 	local := ui.Rect{W: box.W, H: box.H}
-	aspects := make([]float64, min(len(g.windows), maxStacked))
-	for i := range aspects {
-		aspects[i] = g.windows[i].Aspect()
-	}
-	stack := stackWindows(local, aspects)
+	stack := g.stack(local)
 	el.Children(func() {
 		windows := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).
 			TransformOrigin(0, 0.5).Scale(lift, lift).RotateY(tilt).Perspective(cardPerspective).Opacity(shown)
@@ -231,15 +241,20 @@ func (s *strip) card(c *ui.Context, g *group, box ui.Rect) ui.Rect {
 				s.windowStill(c, g, i, stack[i])
 			}
 		})
-		front := stack[0]
-		ir := iconRect(front, local, float32(a.settings.IconScale))
+		// The icons of a set's apps overlap a little, the first on top.
+		row := iconRow(stack[0], local, len(g.apps), float32(a.settings.IconScale))
+		ir := row[len(row)-1]
 		overlay := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).TransformOrigin(0, 0.5).Scale(lift, lift).Opacity(iconOp)
 		overlay.Children(func() {
-			if icon := a.media.icons[g.app]; icon != nil {
-				ui.Image(c, icon).Absolute().Left(ir.X).Top(ir.Y).Size(ir.W, ir.H)
+			for i := len(row) - 1; i >= 0; i-- {
+				if icon := a.media.icons[g.apps[i].app]; icon != nil {
+					r := row[i]
+					ui.Image(c.Key(g.apps[i].app), icon).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H)
+				}
 			}
-			label := ui.Text(c, g.name).FontSize(12).Bold().TextColor(white).MaxLines(1).
-				Absolute().Left(ir.X+ir.W+4).Top(ir.Y+ir.H-24).MaxWidth(max(box.W-ir.W, 60)).
+			right := ir.X + ir.W
+			label := ui.Text(c, g.title()).FontSize(12).Bold().TextColor(white).MaxLines(1).
+				Absolute().Left(right+4).Top(ir.Y+ir.H-24).MaxWidth(max(box.W-right, 60)).
 				Background(pillColor).Padding(3, 9).Radius(11)
 			op := float32(0)
 			if hovered && !st.dragging {
@@ -248,7 +263,7 @@ func (s *strip) card(c *ui.Context, g *group, box ui.Rect) ui.Rect {
 			label.Opacity(label.AnimateTo("label", op, fadeQuick))
 		})
 	})
-	if !s.shown || landing {
+	if !s.shown {
 		return ui.Rect{}
 	}
 	return el.Bounds()
@@ -256,12 +271,9 @@ func (s *strip) card(c *ui.Context, g *group, box ui.Rect) ui.Rect {
 
 // dragPoses puts the stills of a dragged card's windows on the flight
 // layer where the card shows, offset by the drag, and returns where.
-func (s *strip) dragPoses(g *group, box ui.Rect, ox, oy, lift, tilt float32) map[winapi.HWND]pose {
-	aspects := make([]float64, min(len(g.windows), maxStacked))
-	for i := range aspects {
-		aspects[i] = g.windows[i].Aspect()
-	}
-	stack := stackWindows(ui.Rect{W: box.W, H: box.H}, aspects)
+func (s *strip) dragPoses(g *set, box ui.Rect, ox, oy, lift, tilt float32) map[winapi.HWND]pose {
+	card := ui.Rect{X: box.X + ox, Y: box.Y + oy, W: box.W, H: box.H}
+	stack := g.stack(card)
 	poses := map[winapi.HWND]pose{}
 	var list []flight
 	for i := len(stack) - 1; i >= 0; i-- {
@@ -270,14 +282,7 @@ func (s *strip) dragPoses(g *group, box ui.Rect, ox, oy, lift, tilt float32) map
 		if st == nil {
 			continue
 		}
-		r := stack[i]
-		// Scaled around the card's left middle, as the card scales.
-		r = ui.Rect{
-			X: box.X + ox + r.X*lift,
-			Y: box.Y + oy + box.H/2 + (r.Y-box.H/2)*lift,
-			W: r.W * lift, H: r.H * lift,
-		}
-		x, y, pw, ph := s.toScreen(r)
+		x, y, pw, ph := s.toScreen(lifted(card, stack[i], lift))
 		p := pose{x: x, y: y, w: pw, h: ph, tilt: tilt}
 		poses[w.HWND] = p
 		list = append(list, flight{still: st.fly, from: p})
@@ -289,8 +294,8 @@ func (s *strip) dragPoses(g *group, box ui.Rect, ox, oy, lift, tilt float32) map
 }
 
 // windowStill draws the i-th window of a card: its still, or while it has
-// none, a frosted pane with the app's icon.
-func (s *strip) windowStill(c *ui.Context, g *group, i int, r ui.Rect) {
+// none, a frosted pane with its app's icon.
+func (s *strip) windowStill(c *ui.Context, g *set, i int, r ui.Rect) {
 	w := g.windows[i]
 	radius := max(r.H*0.045, 3)
 	if st := s.a.media.still(w.HWND); st != nil {
@@ -302,11 +307,11 @@ func (s *strip) windowStill(c *ui.Context, g *group, i int, r ui.Rect) {
 		Background(ui.RGBA(250, 250, 252, 0.2)).Border(1, ui.RGBA(255, 255, 255, 0.3)).
 		Shadow(0, r.H*0.05, r.H*0.16, 0, shadowSoft).Center().Gap(4).Padding(6)
 	pane.Children(func() {
-		if icon := s.a.media.icons[g.app]; icon != nil && i == 0 {
+		if icon := s.a.media.icons[w.App]; icon != nil && i < len(g.apps) {
 			sz := min(r.H*0.38, 48)
 			ui.Image(c, icon).Size(sz, sz).Opacity(0.85)
 		}
-		if i == 0 && r.H > 60 {
+		if i < len(g.apps) && r.H > 60 {
 			ui.Text(c, w.Title).FontSize(10).TextColor(ui.RGBA(255, 255, 255, 0.8)).MaxLines(1).TextAlign(ui.Center)
 		}
 	})

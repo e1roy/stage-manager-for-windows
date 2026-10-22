@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/renkai9418/stage-bar/internal/catalog"
-	"github.com/renkai9418/stage-bar/internal/settings"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 // hookEvents listens to the system's window events, so that the stage
@@ -16,9 +16,9 @@ import (
 func (a *App) hookEvents() {
 	a.unhook = winapi.HookWinEvents(a.onWinEvent,
 		[2]uint32{winapi.EventSystemForeground, winapi.EventSystemForeground},
-		[2]uint32{winapi.EventSystemMoveSizeEnd, winapi.EventSystemMoveSizeEnd},
+		[2]uint32{winapi.EventSystemMoveSizeStart, winapi.EventSystemMoveSizeEnd},
 		[2]uint32{winapi.EventSystemMinimizeEnd, winapi.EventSystemMinimizeEnd},
-		[2]uint32{winapi.EventObjectDestroy, winapi.EventObjectHide},
+		[2]uint32{winapi.EventObjectCreate, winapi.EventObjectHide},
 		[2]uint32{winapi.EventObjectLocationChange, winapi.EventObjectNameChange},
 		[2]uint32{winapi.EventObjectCloaked, winapi.EventObjectUncloaked},
 	)
@@ -32,8 +32,22 @@ func (a *App) onWinEvent(event uint32, h winapi.HWND) {
 	case winapi.EventSystemForeground:
 		a.onForeground(h)
 		return
+	case winapi.EventSystemMoveSizeStart:
+		a.moving.h, a.moving.from = h, winapi.WindowRect(h)
+		return
+	case winapi.EventObjectCreate:
+		if winapi.ClassName(h) == peekClass {
+			a.peekStart(h)
+		}
+		return
+	case winapi.EventObjectDestroy:
+		if h == a.peek {
+			a.peekEnd()
+			return
+		}
 	case winapi.EventSystemMoveSizeEnd:
-		// A window the user moved to another display joins the stage there.
+		// A window the user moved to another display joins the stage
+		// there; one dragged into the strip leaves the stage.
 		a.windowMoved(h)
 	case winapi.EventObjectLocationChange:
 		// Moves of parked windows are ours. Others only matter for whether
@@ -50,10 +64,13 @@ func (a *App) onWinEvent(event uint32, h winapi.HWND) {
 	a.refreshSoon()
 }
 
-// windowMoved puts the app of a window that was moved to another display on
-// that display's stage, beside what is there: the user put it there to use
-// it, and it must not be taken for a stray and parked.
+// windowMoved puts the app of a window moved to another display on that
+// display's stage: the user put it there to use it, so it must not be taken
+// for a stray and parked. A window dragged into the strip takes its app off
+// the stage instead.
 func (a *App) windowMoved(h winapi.HWND) {
+	from, moved := a.moving.from, a.moving.h == h
+	a.moving.h = 0
 	if a.busy || !a.ready || a.park.IsParked(h) {
 		return
 	}
@@ -63,9 +80,41 @@ func (a *App) windowMoved(h winapi.HWND) {
 		return
 	}
 	w := a.windows[i]
+	// A resize that ends over the strip is no drag into it.
+	if r := winapi.WindowRect(h); moved && r.W() == from.W() && r.H() == from.H() {
+		if d := a.stripUnder(winapi.Cursor()); d != nil && d.model.OnStage(w.App) {
+			a.sendToStrip(d, w, from)
+			return
+		}
+	}
 	if d := a.displayOf(w); d != nil && a.managed(d) && !d.model.OnStage(w.App) {
 		d.model.Join(w.App, time.Now())
 	}
+}
+
+// stripUnder returns the display whose strip shows under a point.
+func (a *App) stripUnder(p winapi.Point) *display {
+	d := a.displayByHandle(winapi.MonitorFromPoint(p))
+	if d == nil || !a.managed(d) || d.strip == nil || !d.strip.shown || !d.strip.rect.Contains(p) {
+		return nil
+	}
+	return d
+}
+
+// sendToStrip takes the app of a window dragged into a display's strip off
+// the stage, into a card of its own; the others stay. The window goes back
+// to where the drag began, for when its app returns.
+func (a *App) sendToStrip(d *display, w catalog.Window, from winapi.Rect) {
+	debugf("%q dragged into the strip", w.Title)
+	next := slices.DeleteFunc(d.model.Stage(), func(app string) bool { return app == w.App })
+	if a.settings.HideInactive {
+		a.dropHomes[w.HWND] = from
+	} else {
+		// Nothing is parked: the window goes back at once.
+		winapi.SetWindowPos(w.HWND, 0, from.Left, from.Top, 0, 0,
+			winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
+	}
+	a.switchStage(d, next, 0, true)
 }
 
 func (a *App) isListed(h winapi.HWND) bool {
@@ -137,6 +186,13 @@ func (a *App) desktopClick() *display {
 func (a *App) settleForeground() {
 	a.fg.timer = nil
 	h := a.fg.h
+	// The events come late and out of order: Alt+Tab's switcher reports
+	// itself in front once more after the window it switched to. The window
+	// in front now is the one to follow.
+	if fg := winapi.Foreground(); h != 0 && fg != 0 && fg != h {
+		debugf("foreground %x is %x now", h, fg)
+		h, a.fg.h = fg, fg
+	}
 	if h == 0 || a.busy {
 		debugf("foreground %x waits: busy=%v", h, a.busy)
 		return
@@ -173,7 +229,8 @@ func (a *App) settleForeground() {
 		}
 		return
 	}
-	a.switchStage(d, []string{w.App}, w.HWND, false)
+	// The app comes with the apps of its set, as on macOS.
+	a.switchStage(d, d.model.SetOf(w.App), w.HWND, false)
 }
 
 // startPolling follows the pointer for the strips: revealing a floating
@@ -202,6 +259,7 @@ func (a *App) poll() {
 	}
 	cur := winapi.Cursor()
 	now := time.Now()
+	a.watchTaskbar(cur)
 	for _, d := range a.displays {
 		if d.strip != nil {
 			d.strip.poll(cur, now)

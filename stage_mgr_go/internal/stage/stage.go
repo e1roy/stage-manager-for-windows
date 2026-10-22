@@ -1,6 +1,7 @@
 // Package stage models what Stage Manager keeps per display: the apps on
-// the stage, and the order of the others in the strip. It knows nothing of
-// windows, so the rules are easy to test.
+// the stage, and the sets of apps in the strip. As on macOS, apps put on
+// the stage together stay together: they leave it as one card and come
+// back as one. It knows nothing of windows, so the rules are easy to test.
 package stage
 
 import (
@@ -12,10 +13,11 @@ import (
 // visible yet, as when it is being restored or its windows are moving.
 const SettleTime = time.Second
 
-// Display is the stage of one display.
+// Display is the stage of one display. An app is on the stage, in one
+// set of the strip, or nowhere.
 type Display struct {
-	stage     []string // apps on the stage, in the order they came
-	order     []string // the strip, top first
+	stage     []string   // apps on the stage, in the order they came
+	sets      [][]string // the strip, top first: the apps of each card
 	changedAt time.Time
 }
 
@@ -35,76 +37,107 @@ func (d *Display) ChangedAt() time.Time { return d.changedAt }
 // windows to mean anything.
 func (d *Display) Settling(now time.Time) bool { return now.Sub(d.changedAt) < SettleTime }
 
-// Strip returns the apps of present that are not on the stage, in strip
-// order. present lists the apps that have windows on the display, front
-// first. Apps the strip has not seen enter at the top in that order, so
-// the very first strip follows the windows' z-order; apps that are gone
-// leave it.
-func (d *Display) Strip(present []string) []string {
-	d.order = slices.DeleteFunc(d.order, func(a string) bool { return !slices.Contains(present, a) })
-	var newcomers []string
+// SetOf returns the apps that go on the stage with app: the stage if it
+// is there, its set if it is in the strip, else app alone.
+func (d *Display) SetOf(app string) []string {
+	if d.OnStage(app) {
+		return d.Stage()
+	}
+	if i := d.setIndex(app); i >= 0 {
+		return slices.Clone(d.sets[i])
+	}
+	return []string{app}
+}
+
+func (d *Display) setIndex(app string) int {
+	return slices.IndexFunc(d.sets, func(s []string) bool { return slices.Contains(s, app) })
+}
+
+// drop takes the apps gone tells of out of the sets of the strip; sets
+// left empty go.
+func (d *Display) drop(gone func(app string) bool) {
+	for i := range d.sets {
+		d.sets[i] = slices.DeleteFunc(d.sets[i], gone)
+	}
+	d.sets = slices.DeleteFunc(d.sets, func(s []string) bool { return len(s) == 0 })
+}
+
+// without takes app out of its set in the strip.
+func (d *Display) without(app string) {
+	d.drop(func(a string) bool { return a == app })
+}
+
+// Strip returns the sets of the strip, top first. present lists the apps
+// that have windows on the display, front first. Apps the strip has not
+// seen enter at the top on their own, in that order, so the very first
+// strip follows the windows' z-order; apps that are gone leave their set.
+func (d *Display) Strip(present []string) [][]string {
+	d.drop(func(a string) bool { return !slices.Contains(present, a) })
+	var newcomers [][]string
 	for _, a := range present {
-		if !d.OnStage(a) && !slices.Contains(d.order, a) && !slices.Contains(newcomers, a) {
-			newcomers = append(newcomers, a)
+		if !d.OnStage(a) && d.setIndex(a) < 0 && !slices.ContainsFunc(newcomers, func(s []string) bool { return s[0] == a }) {
+			newcomers = append(newcomers, []string{a})
 		}
 	}
-	d.order = append(newcomers, d.order...)
-	out := make([]string, 0, len(d.order))
-	for _, a := range d.order {
-		if !d.OnStage(a) {
-			out = append(out, a)
-		}
+	d.sets = append(newcomers, d.sets...)
+	out := make([][]string, len(d.sets))
+	for i, s := range d.sets {
+		out[i] = slices.Clone(s)
 	}
 	return out
 }
 
-// Switch makes next the apps on the stage. The apps leaving it take the
-// strip slot of the first app coming in, as on macOS, so the rest of the
-// strip stays where it was; with no slot to take they enter at the top.
-func (d *Display) Switch(next, leaving []string, now time.Time) {
-	slot := -1
-	for i, a := range d.order {
-		if slices.Contains(next, a) {
-			slot = i
-			break
-		}
+// Switch makes next the apps on the stage. The apps leaving it go to the
+// strip together, as one set, in the slot of the first set coming in, as
+// on macOS, so the rest of the strip stays where it was; with no slot to
+// take they enter at the top. What is left of a set some of whose apps
+// came in stays a set.
+func (d *Display) Switch(next []string, now time.Time) {
+	coming := func(a string) bool { return slices.Contains(next, a) }
+	leaving := slices.DeleteFunc(slices.Clone(d.stage), coming)
+	if len(leaving) > 0 {
+		slot := slices.IndexFunc(d.sets, func(s []string) bool { return slices.ContainsFunc(s, coming) })
+		d.sets = slices.Insert(d.sets, max(slot, 0), leaving)
 	}
-	gone := func(a string) bool { return slices.Contains(next, a) || slices.Contains(leaving, a) }
-	// The slot is counted among the apps that stay.
-	kept := 0
-	for i := 0; i < slot; i++ {
-		if !gone(d.order[i]) {
-			kept++
-		}
-	}
-	d.order = slices.DeleteFunc(d.order, gone)
-	at := min(kept, len(d.order))
-	if slot < 0 {
-		at = 0
-	}
-	d.order = slices.Insert(d.order, at, leaving...)
+	d.drop(coming)
 	d.stage = slices.Clone(next)
 	d.changedAt = now
 }
 
-// Join adds an app to the stage beside those already there.
+// Join adds an app to the stage beside those already there. It leaves its
+// set; the others of the set stay in the strip.
 func (d *Display) Join(app string, now time.Time) {
 	if d.OnStage(app) {
 		return
 	}
 	d.stage = append(d.stage, app)
-	d.order = slices.DeleteFunc(d.order, func(a string) bool { return a == app })
+	d.without(app)
 	d.changedAt = now
 }
 
-// Leave takes an app off the stage into the top of the strip, as when all
-// its windows are closed.
+// Leave takes an app off the stage into a set of its own at the top of
+// the strip, as when all its windows are closed.
 func (d *Display) Leave(app string) {
 	if !d.OnStage(app) {
 		return
 	}
 	d.stage = slices.DeleteFunc(d.stage, func(a string) bool { return a == app })
-	d.order = slices.Insert(slices.DeleteFunc(d.order, func(a string) bool { return a == app }), 0, app)
+	d.without(app)
+	d.sets = slices.Insert(d.sets, 0, []string{app})
+}
+
+// Split breaks the set of app in the strip into sets of one app each, in
+// its place.
+func (d *Display) Split(app string) {
+	i := d.setIndex(app)
+	if i < 0 || len(d.sets[i]) < 2 {
+		return
+	}
+	apart := make([][]string, len(d.sets[i]))
+	for j, a := range d.sets[i] {
+		apart[j] = []string{a}
+	}
+	d.sets = slices.Replace(d.sets, i, i+1, apart...)
 }
 
 // Prune takes the apps that no longer show a window off the stage, once
@@ -131,6 +164,7 @@ func (d *Display) Init(app string, now time.Time) {
 	d.stage = nil
 	if app != "" {
 		d.stage = []string{app}
+		d.without(app)
 	}
 	d.changedAt = now
 }

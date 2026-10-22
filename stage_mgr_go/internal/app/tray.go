@@ -4,17 +4,14 @@ import (
 	"log"
 
 	"github.com/egoist/mygo"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
-
-// Shortcut toggles the floating strip of the display under the pointer.
-const Shortcut = "Ctrl+Alt+Space"
 
 func (a *App) setUpTray() {
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		ID:      "stagebar",
 		Icon:    a.trayIcon,
-		ToolTip: "StageBar",
+		ToolTip: "Stage Manager",
 		Menu:    a.trayMenu(),
 	})
 	if err != nil {
@@ -22,18 +19,15 @@ func (a *App) setUpTray() {
 	}
 	a.tray = tray
 	tray.OnClick(a.openSettings)
-	if err := mygo.GlobalShortcut.Register(Shortcut, a.toggleStrip); err != nil {
-		log.Println("stagebar: shortcut:", err)
-	}
 }
 
 func (a *App) trayMenu() *mygo.Menu {
-	pause := "暂停 StageBar"
+	pause := "暂停 Stage Manager"
 	if a.settings.Paused {
-		pause = "恢复 StageBar"
+		pause = "恢复 Stage Manager"
 	}
 	return mygo.NewMenu([]*mygo.MenuItem{
-		{Label: "显示 / 隐藏侧边栏\t" + Shortcut, Click: func(*mygo.MenuItem, *mygo.Window) { a.toggleStrip() }},
+		{Label: "显示 / 隐藏侧边栏", Click: func(*mygo.MenuItem, *mygo.Window) { a.toggleStrip() }},
 		{Label: "设置…", Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
 		mygo.Separator(),
 		{Label: pause, Click: func(*mygo.MenuItem, *mygo.Window) {

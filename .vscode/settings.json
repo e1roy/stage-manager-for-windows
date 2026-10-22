@@ -1,0 +1,28 @@
+// Place your settings in this file to overwrite default and user settings.
+{
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/CVS": true,
+        "**/.DS_Store": true,
+        "stage_mgr_go/build": true,
+        ".vscode": true
+    },
+    "search.exclude": {
+        "stage_mgr_go/build": true
+    },
+    // The Go module lives in stage_mgr_go, not at the workspace root.
+    "go.testEnvVars": {
+        "STAGEMANAGER_DATA_DIR": "${workspaceFolder}/stage_mgr_go/build/testdata",
+        "STAGEMANAGER_APP_FILTER": "notepad,mspaint"
+    },
+    "go.lintTool": "gofmt",
+    "go.formatTool": "gofmt",
+    "gopls": {
+        "build.directoryFilters": ["-build"]
+    },
+    "files.eol": "\n",
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true
+}

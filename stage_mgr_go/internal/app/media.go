@@ -1,24 +1,26 @@
 package app
 
 import (
+	"bytes"
 	"image"
+	"image/png"
 	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	xdraw "golang.org/x/image/draw"
-	"github.com/renkai9418/stage-bar/internal/catalog"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 const (
 	// cardStillHeight is the most pixels a card needs of a window's height.
 	cardStillHeight = 640
-	// flyBudget bounds the memory the stills flights draw take: a window on
-	// a 5K display is some 59 MB at the size it shows, and keeping one of
-	// those for every app would add up. The stills used longest ago fall
-	// back to their card's, and fly to the stage less sharp.
+// flyBudget bounds the memory the stills flights draw take: a window on a
+// 5K display is some 59 MB at the size it shows, and one of those per app
+// would add up. The stills used longest ago fall back to their card's and
+// fly to the stage less sharp.
 	flyBudget = 128 << 20
 )
 
@@ -105,11 +107,11 @@ type shot struct {
 }
 
 // capture takes stills of windows on goroutines and calls done on the main
-// thread once all are in, or after timeout, whichever comes first, so that a
-// window that does not answer cannot hold up a switch. Stills that come in
-// later still reach the strip. A full capture is the size the window shows
-// at, for a flight into the stage; every other one is a card's size, which
-// a window flying out shrinks into and a flight back in grows from.
+// thread once all are in, or after timeout, so that a window that does not
+// answer cannot hold up a switch; stills arriving later still reach the
+// strip. A full capture is the size the window shows at, for a flight into
+// the stage; the others are a card's size, which a window flying out shrinks
+// into and a flight back in grows from.
 func (m *media) capture(hs []winapi.HWND, full bool, timeout time.Duration, done func()) {
 	if len(hs) == 0 {
 		if done != nil {
@@ -265,16 +267,26 @@ func (m *media) icon(w catalog.Window) *ui.Bitmap {
 	if b, ok := m.icons[w.App]; ok {
 		return b
 	}
-	var b *ui.Bitmap
+	var img *image.NRGBA
 	if w.Exe != "" {
-		if png, err := mygo.Shell.FileIcon(w.Exe, 256); err == nil {
-			b, _ = ui.DecodeBitmap(png)
+		// The program's own icon, drawn from its largest image: the shell
+		// would put that of an app with no large one, as Q-Dir, small in
+		// the middle of a tile.
+		img = winapi.FileIcon(w.Exe, 256)
+		if img == nil {
+			if data, err := mygo.Shell.FileIcon(w.Exe, 256); err == nil {
+				if d, err := png.Decode(bytes.NewReader(data)); err == nil {
+					img = toNRGBA(d)
+				}
+			}
 		}
 	}
-	if b == nil {
-		if img := winapi.WindowIcon(w.HWND); img != nil {
-			b = ui.NewBitmap(img)
-		}
+	if img == nil {
+		img = winapi.WindowIcon(w.HWND)
+	}
+	var b *ui.Bitmap
+	if img != nil {
+		b = ui.NewBitmap(trimIcon(img))
 	}
 	m.icons[w.App] = b
 	return b

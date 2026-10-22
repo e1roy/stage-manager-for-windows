@@ -1,17 +1,38 @@
-# Visual Studio / .NET
-.vs/
-**/bin/
-**/obj/
-*.user
-*.suo
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# Build and release output
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+*.prof
+coverage.html
+coverage.txt
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build output (`go tool mygo build` writes build/<platform>/)
+build/
 artifacts/
+dist/
 
-# Generated source artwork; keep the processed PNG and ICO
-StageManager/Assets/stagebar-icon-source.png
+# Windows resource object files
+*.syso
 
-# OS files
+# Editor and OS files
+.vs/
+.idea/
+*.swp
 Thumbs.db
 Desktop.ini
 .DS_Store

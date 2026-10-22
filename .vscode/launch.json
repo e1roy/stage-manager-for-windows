@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Stage Manager for Windows",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/stage_mgr_go",
+            "cwd": "${workspaceFolder}/stage_mgr_go",
+            // Keep the debugger from fighting over the real windows: only
+            // these apps are managed while debugging.
+            "env": {
+                "STAGEMANAGER_APP_FILTER": "notepad,mspaint",
+                "STAGEMANAGER_DATA_DIR": "${workspaceFolder}/stage_mgr_go/build/testdata"
+            },
+            "preLaunchTask": "Stage Manager for Windows: quit running instance"
+        },
+        {
+            "name": "Test current package",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${fileDirname}",
+            "cwd": "${workspaceFolder}/stage_mgr_go"
+        },
+        {
+            "name": "Attach to Stage Manager for Windows",
+            "type": "go",
+            "request": "attach",
+            "mode": "local",
+            "processId": "${command:pickProcess}"
+        }
+    ]
+}

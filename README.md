@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="StageManager/Assets/stagebar-icon.png" width="128" height="128" alt="StageBar icon">
+  <img src="stage_mgr_go/resources/icon.png" width="128" height="128" alt="Stage Manager for Windows icon">
 </p>
 
-<h1 align="center">StageBar</h1>
+<h1 align="center">Stage Manager for Windows</h1>
 
 <p align="center">
-  A macOS Stage Manager-inspired live window switcher for Windows 10 and Windows 11.
+  macOS Stage Manager, on Windows 10 / 11: the app you work in stays on the stage, every other app is grouped and parked in a strip along the left edge.
 </p>
 
 <p align="center">
@@ -13,169 +13,136 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/renkai9418/stage-bar/actions/workflows/build.yml"><img src="https://github.com/renkai9418/stage-bar/actions/workflows/build.yml/badge.svg" alt="Build"></a>
-  <a href="https://github.com/renkai9418/stage-bar/releases"><img src="https://img.shields.io/github/v/release/renkai9418/stage-bar" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/renkai9418/stage-bar" alt="MIT License"></a>
+  <a href="https://github.com/e1roy/stage_manager_for_windows/releases"><img src="https://img.shields.io/github/v/release/e1roy/stage_manager_for_windows" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/e1roy/stage_manager_for_windows" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4" alt="Windows 10/11">
 </p>
 
-> [!NOTE]
-> StageBar is currently an early preview. Version `0.0.1` focuses on a stable DWM live-preview foundation and the core Stage Manager interaction model.
-
 ## Overview
 
-StageBar brings macOS Stage Manager to Windows. The application you are working in stays on the stage in the middle of the desktop; every other application waits in a strip along the left edge, grouped by app. Switching apps animates the current windows into the slot of the card you picked while the chosen app grows out of that card into place, so the rest of the strip stays put.
+Stage Manager for Windows is a window manager for Windows. The application you are working in stays on the stage in the middle of the desktop; every other application is grouped by app and parked in a strip along the left edge. Clicking a card flies the current app into that card's slot while the picked app grows out of it, so the rest of the strip keeps its order.
 
-Previews use the Windows Desktop Window Manager (DWM) thumbnail API, so they are composed by Windows without repeatedly capturing or repainting target windows.
+**Every display has its own stage and strip.** A window belongs to the display it sits on: drag it to another display and it joins that display's stage instead of being parked as a stray window.
 
-Two display modes are available:
+Two strip modes are available:
 
-- **Fixed:** reserves a strip of desktop work area through the Windows AppBar API. Maximized applications use the remaining area and do not cover StageBar.
-- **Floating:** like macOS, the strip stays visible while it has room and steps aside when a window on the stage covers it. Move the pointer to the left screen edge to bring it back.
+- **Fixed:** reserves a strip of desktop work area through the Windows AppBar API, so maximized windows never cover it; it yields its topmost position while a full-screen app is running.
+- **Floating:** shows the strip while there is room and slides away when a window on the stage covers it; move the pointer to the leftmost 2 pixels of a display to bring it back (the inner edge where two displays meet needs about 250 ms, so crossing displays does not trigger it by accident).
 
 ## Download
 
-Download the latest installer from [GitHub Releases](https://github.com/renkai9418/stage-bar/releases/latest):
-
-- [StageBar installer for Windows x64](https://github.com/renkai9418/stage-bar/releases/latest/download/StageBar-Setup-0.0.1-x64.exe)
-
-The installer is self-contained; the target computer does not need a separate .NET installation. It installs for the current user and does not require administrator privileges.
+Download the latest installer from [GitHub Releases](https://github.com/e1roy/stage_manager_for_windows/releases/latest). The installer is built from the current source, installs for the current user only, needs no administrator privileges, and needs no separate runtime.
 
 > [!WARNING]
-> Release `0.0.1` is not code-signed. Windows SmartScreen may show an unknown publisher warning. Verify the SHA-256 value shown on the release page before running the installer.
+> The installer is not code-signed. Windows SmartScreen may show an unknown publisher warning. Verify the SHA-256 value shown on the release page before running it.
 
 ## Features
 
-- Stage Manager behavior: only the current app stays on the desktop, other apps are hidden into the strip
-- Animated hand-over: leaving windows shrink into the strip while the chosen app grows out of its card
-- Interruptible spring animations for the strip: cards glide, appear, disappear and react to hover
-- Cards are turned in perspective like the macOS strip, with soft shadows and large app icons; hovering turns a card toward you
-- Windows of the same app are grouped into one card with stacked previews
-- The app leaving the stage takes the picked card's slot, so the strip keeps its order; Alt+Tab, taskbar clicks and newly opened apps take the stage immediately
-- Drag a card onto the desktop to add its app to the current stage
-- Click the wallpaper to send the stage to the strip
-- Hidden windows keep their size and state and return instantly; they are restored if StageBar exits or crashes
-- Stable compositor-based previews without `PrintWindow` repaint loops
-- Fixed AppBar mode that reserves desktop workspace
-- Animated floating mode with left-edge activation and automatic hiding
-- Configurable panel width and app icon size
-- Cards shrink as apps are added so the whole strip fits the screen height
-- Mouse-wheel card navigation
-- Application icon badges rendered above DWM thumbnails
-- Multi-monitor positioning and per-monitor DPI awareness
-- Windows 11-style settings window that follows the system theme; changes apply and save immediately
-- Global `Ctrl + Alt + Space` panel toggle
-- System tray menu and background operation
-- Automatic exclusion of desktop, taskbar, hidden, cloaked, and tool windows
+- Only the current app stays on the stage; the others are parked in the strip of their display (this can be turned off, leaving the strip as a plain list)
+- Click a card to switch apps; Alt+Tab, taskbar clicks and newly opened windows take the stage of that display right away
+- Drag a card onto the desktop, or Shift-click it, to add its app to the current stage, side by side with the apps already there
+- A stage can hold several apps: they leave it together as one card, and clicking the card — or activating any of them — brings the whole set back; right-click a set's card to split it
+- Drag a window into the strip to take its app off the stage on its own
+- Click the wallpaper to send that display's stage into the strip (can be turned off)
+- Windows you minimize yourself go to the taskbar: they leave the stage without appearing in the strip, and take the stage again when you restore them
+- Windows of the same app stack into one card (up to three layers); cards shrink as apps are added, and the strip scrolls with the mouse wheel when there are more
+- Cards are drawn in perspective with soft shadows and large app icons, and turn toward you on hover
+- Windows that leave the stage are parked just outside the desktop, keeping their size and state, and come back instantly
+- Every parked window is returned to the desktop on exit, crash or sign-out (a journal covers crashes)
+- Tray icon: left click opens the settings, right click shows or hides the strip, pauses, or quits
+- Settings: display mode, width, icon size, perspective, hiding the windows off stage, clearing the stage by clicking the wallpaper, per-display strips, launch at login, pause, and bringing back windows that ended up off screen
+- `Stage Manager for Windows.exe --quit` ends the running instance and brings every window back
 - No telemetry and no network communication
 
 ## Requirements
 
-- Windows 10 version 2004 (`10.0.19041`) or newer
-- Windows 11 is supported
+- Windows 10 / Windows 11
 - x64 processor
-- Desktop Window Manager enabled
+- Desktop Window Manager (DWM) enabled
 
-StageBar can preview elevated applications, but Windows may prevent a non-elevated StageBar process from activating a window running as administrator.
+Applications running as administrator may not be movable or activatable by a non-elevated Stage Manager for Windows process.
 
 ## Usage
 
-1. Install and launch StageBar.
-2. Open the tray menu and choose **Settings** to select Fixed or Floating mode, whether other windows are hidden, the panel width, and the icon size.
-3. Click a card to bring that app onto the stage. The current app moves into the strip.
-4. Drag a card onto the desktop to show its app next to the current one.
+1. Install and launch Stage Manager for Windows.
+2. Right-click the tray icon and choose **Settings…** to pick Fixed or Floating mode, whether windows off stage are hidden, and the strip width and icon size.
+3. Click a card to bring that app onto the stage; the current app is parked in the strip.
+4. Drag a card onto the desktop (or Shift-click it) to show its app next to the current one; from then on they come and go as a set.
 5. Click the wallpaper to clear the stage; open or activate any app to start a new one.
-6. In Floating mode, move the pointer to the leftmost 2 pixels of a monitor when the strip is covered.
+6. In Floating mode, move the pointer to the leftmost 2 pixels of a display when the strip is covered.
 
 Additional controls:
 
 | Action | Control |
 | --- | --- |
-| Show or hide the floating panel | `Ctrl + Alt + Space` |
-| Open the tray menu | Right-click the StageBar tray icon |
-| Toggle the panel | Double-click the tray icon |
-| Browse app cards | Mouse wheel |
-| Add an app to the stage | Drag its card onto the desktop |
+| Open settings | Left-click the tray icon, or right-click → **Settings…** |
+| Show / hide the strip | Right-click → **Show / hide strip** (Floating mode only) |
+| Browse app cards | Mouse wheel over the strip |
+| Add an app to the stage | Drag its card onto the desktop, or Shift-click it |
+| Take an app off the stage | Drag its window into the strip |
+| Split a set / close a window | Right-click its card → **Split set** / **Close window** |
 
-Settings are stored at `%LOCALAPPDATA%\StageManager\settings.json`. The legacy directory name is intentionally retained so upgrades preserve settings from earlier builds.
+Settings are stored at `%LOCALAPPDATA%\Stage Manager\settings.json`; the parking journal lives in the same directory.
 
 ## How it works
 
+Stage Manager for Windows is written in Go. The interface is drawn by [MyGo](https://github.com/egoist/mygo) as native UI (Direct3D 11): pure Go, no cgo, no WebView2.
+
 | Component | Responsibility |
 | --- | --- |
-| WPF | Panel, settings interface, spring animations, and interaction |
-| DWM thumbnails | Window previews composed by Windows |
-| Transition layer | A click-through window without a redirection bitmap that animates thumbnails between the strip and the stage |
-| Window parking | Hides inactive windows just outside the desktop, on a side that keeps their monitor DPI, with a crash-recovery journal |
-| WinEvent hooks | React to activation, new windows, minimizing and closing without polling |
-| Transparent icon overlay | Keeps application badges above compositor-owned thumbnails |
-| Windows AppBar API | Reserves desktop work area in Fixed mode |
-| Win32 window catalog | Discovers, filters, restores, and activates application windows |
+| MyGo native UI | Strip, settings window, flight layer and still frames (perspective, shadows, rounded corners) |
+| Win32 / DWM | Window enumeration and filtering, parking and restoring, AppBar, WinEvent hooks, `PrintWindow` still frames |
+| Window parking | Moves windows just outside the desktop, keeping their size and their display's DPI, with a crash-recovery journal |
+| Flight layer | One transparent, click-through window per display: still frames fly between the strip and the stage while the real windows are handed over beneath them |
+| WinEvent hooks | React to activation, new windows, moves, minimizing and closing without polling |
+| Watchdog | If the main thread stops answering for 5 seconds, returns every parked window using the journal and writes out the stack of each goroutine |
+
+See [`stage_mgr_go/README.md`](stage_mgr_go/README.md) for the code layout.
 
 ## Build from source
 
-Prerequisites:
-
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- Windows 10/11
+Go 1.27.1 or newer is required:
 
 ```powershell
-git clone git@github.com:renkai9418/stage-bar.git
-cd stage-bar
-dotnet build .\StageManager\StageManager.csproj -c Release
-dotnet run --project .\StageManager\StageManager.csproj
+git clone git@github.com:e1roy/stage_manager_for_windows.git
+cd stage_manager_for_windows\stage_mgr_go
+go run .              # run for development
+go test ./...         # unit tests and headless UI tests
+go tool mygo vet .    # check UI lifecycle issues
+go tool mygo build    # build/windows-amd64/Stage Manager for Windows.exe and the installer
 ```
 
-Debug builds honour two development variables so a test run cannot rearrange your own windows: `STAGEBAR_APP_FILTER` (comma-separated executable names to manage) and `STAGEBAR_DATA_DIR` (directory for settings and the parking journal).
+Environment variables that keep a test run from rearranging your own windows:
 
-### Build the installer
-
-Install [Inno Setup 6](https://jrsoftware.org/isdl.php), then run:
-
-```powershell
-.\installer\build-installer.ps1 -Version 0.0.1
-```
-
-The script publishes a self-contained single-file `win-x64` executable and creates:
-
-```text
-artifacts\installer\StageBar-Setup-0.0.1-x64.exe
-```
-
-## Release process
-
-Pushing a version tag triggers the Windows release workflow:
-
-```powershell
-git tag v0.0.1
-git push origin v0.0.1
-```
-
-The workflow builds the installer and attaches it to a GitHub Release. If `release-notes/<version>.md` exists, it is used as the release description.
+| Variable | Effect |
+| --- | --- |
+| `STAGEMANAGER_APP_FILTER` | Only manage these executables (comma-separated, e.g. `notepad,mspaint`) |
+| `STAGEMANAGER_DATA_DIR` | Directory for settings and the parking journal (default `%LOCALAPPDATA%\Stage Manager`) |
+| `STAGEMANAGER_DEBUG` | Log decisions; a second instance then takes `--debug-hang` to block the main thread on purpose, to exercise the watchdog |
+| `STAGEMANAGER_SNAPSHOT_DIR` | Makes `go test ./internal/app -run TestSnapshots` render the UI to PNGs |
 
 ## Known limitations
 
-- DRM-protected video, some games, and exclusive full-screen applications may not expose usable DWM thumbnails.
-- Windows privilege isolation may prevent activation of elevated applications, and a non-elevated StageBar cannot hide them.
-- Windows does not repaint windows that are outside the desktop, so strip previews of hidden apps show their last frame until they return.
-- Always-on-top windows are left alone and float above the stage.
-- The first preview release is unsigned.
+- The strip shows the still frame taken when a window left the stage: Windows does not paint windows outside the desktop, and a parked window is not changing anyway.
+- Windows whose content `PrintWindow` cannot capture (some games, DRM-protected video) appear as frosted cards with their icon.
+- Windows privilege isolation may keep Stage Manager for Windows from moving or activating applications running as administrator.
+- Always-on-top windows stay out of the stage and float above it.
 
 ## Contributing
 
-Issues and pull requests are welcome. For code changes:
+Issues and pull requests are welcome. When changing code:
 
 1. Fork the repository and create a focused branch.
-2. Keep the DWM preview path compositor-based; avoid capture/repaint loops.
-3. Build the project in Release configuration and test both display modes.
-4. Describe behavior changes and manual verification in the pull request.
+2. Read and write all state on the MyGo main thread; do slow work such as captures in a goroutine and come back to the main thread.
+3. Run `go test ./...` and `go tool mygo vet .`, and try both Fixed and Floating modes by hand.
+4. Describe the behaviour change and your manual verification in the pull request.
 
-Please use [GitHub Issues](https://github.com/renkai9418/stage-bar/issues) for bug reports and feature proposals.
+Please use [GitHub Issues](https://github.com/e1roy/stage_manager_for_windows/issues) for bug reports and feature proposals.
 
 ## Privacy
 
-StageBar processes window handles, titles, icons, and DWM thumbnails locally. It has no analytics, telemetry, account system, or network service.
+Stage Manager for Windows processes window handles, titles, icons and window frames locally. It has no analytics, telemetry, account system, or network service.
 
 ## License
 
-StageBar is released under the [MIT License](LICENSE).
+Stage Manager for Windows is released under the [MIT License](LICENSE).

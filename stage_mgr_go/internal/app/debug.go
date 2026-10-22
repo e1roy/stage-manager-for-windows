@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/renkai9418/stage-bar/internal/parking"
+	"github.com/e1roy/stage_manager_for_windows/internal/parking"
 )
 
-// debug logs what StageBar decides when STAGEBAR_DEBUG is set.
-var debugOn = os.Getenv("STAGEBAR_DEBUG") != ""
+// debug logs what Stage Manager decides when STAGEMANAGER_DEBUG is set.
+var debugOn = os.Getenv("STAGEMANAGER_DEBUG") != ""
 
 func debugf(format string, args ...any) {
 	if debugOn {
@@ -25,12 +25,11 @@ func debugf(format string, args ...any) {
 // watchdog steps in.
 const hangTimeout = 5 * time.Second
 
-// watchMainThread guards against the main thread hanging, which would
-// leave windows parked off the desktop with nothing to bring them back:
-// after hangTimeout it brings every parked window home from the journal,
-// on its own goroutine, and writes every goroutine's stack to a file in the
-// data directory, to find out why. When the main thread answers again,
-// StageBar parks again what should be parked.
+// watchMainThread guards against the main thread hanging, which would leave
+// windows parked off the desktop with nothing to bring them back: after
+// hangTimeout it brings every parked window home from the journal, on its
+// own goroutine, and writes every goroutine's stack to the data directory.
+// Stage Manager parks again what should be parked once the thread answers.
 func watchMainThread(dataDir string) {
 	go func() {
 		for {
@@ -45,7 +44,7 @@ func watchMainThread(dataDir string) {
 			n := parking.Rescue(dataDir)
 			name := filepath.Join(dataDir, fmt.Sprintf("hang-%s.log", time.Now().Format("20060102-150405")))
 			if f, err := os.Create(name); err == nil {
-				fmt.Fprintf(f, "StageBar's main thread did not answer for %v; %d parked windows were brought home.\n\n", hangTimeout, n)
+				fmt.Fprintf(f, "Stage Manager's main thread did not answer for %v; %d parked windows were brought home.\n\n", hangTimeout, n)
 				pprof.Lookup("goroutine").WriteTo(f, 2)
 				f.Close()
 			}

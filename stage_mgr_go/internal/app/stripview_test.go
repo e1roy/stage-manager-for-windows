@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/renkai9418/stage-bar/internal/catalog"
-	"github.com/renkai9418/stage-bar/internal/settings"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 type request struct {
@@ -21,12 +21,12 @@ func testStrip(t *testing.T) (*strip, *[]request, *ui.Tester) {
 	t.Helper()
 	var got []request
 	a := &App{settings: settings.Default(), media: newMedia(), ready: true}
-	a.act = func(act action, _ *display, g *group) { got = append(got, request{act, g.app}) }
+	a.act = func(act action, _ *display, s *set) { got = append(got, request{act, s.key}) }
 	d := &display{cards: map[string]*cardState{}, landing: map[string]bool{}}
 	d.mon.Work = winapi.Rect{Right: 2000, Bottom: 900}
 	for i, app := range []string{"mail", "notes"} {
 		w := catalog.Window{HWND: winapi.HWND(i + 1), Title: app, App: app, Frame: winapi.Rect{Right: 1600, Bottom: 1000}}
-		d.groups = append(d.groups, &group{app: app, name: app, windows: []catalog.Window{w}})
+		d.sets = append(d.sets, newSet([]*group{{app: app, name: app, windows: []catalog.Window{w}, z: i}}))
 	}
 	s := &strip{a: a, d: d, shown: true, scale: 1, rect: winapi.Rect{Right: 200, Bottom: 900}}
 	d.strip = s
@@ -119,5 +119,38 @@ func TestHiddenStripHasNoHits(t *testing.T) {
 	tt.Frame()
 	if len(s.hits) != 0 {
 		t.Fatalf("a hidden strip keeps hits %v", s.hits)
+	}
+}
+
+func TestShiftClickJoinsStage(t *testing.T) {
+	s, got, tt := testStrip(t)
+	s.d.model.Init("code", time.Now())
+	x, y := center(s.d.layout.cards[1])
+	tt.ClickAtWith(ui.Shift, x, y)
+	tt.Frame()
+	if len(*got) != 1 || (*got)[0] != (request{actJoin, "notes"}) {
+		t.Fatalf("requests %v", *got)
+	}
+}
+
+func TestSetCardSplits(t *testing.T) {
+	s, got, tt := testStrip(t)
+	s.d.sets = []*set{newSet([]*group{s.d.sets[0].apps[0], s.d.sets[1].apps[0]})}
+	tt.Frame()
+	// The card slides to its new place first.
+	tt.Advance(time.Second)
+	tt.Frame()
+	if len(s.d.layout.cards) != 1 {
+		t.Fatalf("%d cards for one set", len(s.d.layout.cards))
+	}
+	x, y := center(s.d.layout.cards[0])
+	tt.RightClickAt(x, y)
+	tt.Frame()
+	if err := tt.ChooseMenuItem("拆开组合"); err != nil {
+		t.Fatalf("%v; menu %v", err, tt.Menu())
+	}
+	tt.Frame()
+	if len(*got) != 1 || (*got)[0] != (request{actSplit, "mail"}) {
+		t.Fatalf("requests %v", *got)
 	}
 }

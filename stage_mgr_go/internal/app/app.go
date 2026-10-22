@@ -1,4 +1,4 @@
-// Package app is StageBar: the stage of each display, the strip beside it,
+// Package app is Stage Manager: the stage of each display, the strip beside it,
 // and the hand-over of apps between the two. Everything here runs on
 // MyGo's main thread; captures and timers come back to it through post.
 package app
@@ -6,14 +6,15 @@ package app
 import (
 	"log"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/renkai9418/stage-bar/internal/catalog"
-	"github.com/renkai9418/stage-bar/internal/parking"
-	"github.com/renkai9418/stage-bar/internal/settings"
-	"github.com/renkai9418/stage-bar/internal/stage"
-	"github.com/renkai9418/stage-bar/internal/winapi"
+	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
+	"github.com/e1roy/stage_manager_for_windows/internal/parking"
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/stage"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 // post runs fn on the main thread without waiting for it.
@@ -29,33 +30,81 @@ type group struct {
 	app     string
 	name    string
 	windows []catalog.Window
+	z       int // where its front window is among the display's apps, 0 in front
 }
 
 func (g *group) front() catalog.Window { return g.windows[0] }
+
+// set is a card of the strip: the apps that go on and off the stage
+// together, one or more.
+type set struct {
+	key  string   // the card's identity: its first app
+	apps []*group // in the order they came on the stage
+	// windows are what the card shows, front first: the front window of
+	// each app, so that every app shows, then the others.
+	windows []catalog.Window
+}
+
+// newSet makes the card of apps, given in the order they came.
+func newSet(apps []*group) *set {
+	s := &set{key: apps[0].app, apps: apps}
+	byZ := slices.Clone(apps)
+	slices.SortStableFunc(byZ, func(x, y *group) int { return x.z - y.z })
+	for _, g := range byZ {
+		s.windows = append(s.windows, g.windows[0])
+	}
+	for _, g := range byZ {
+		s.windows = append(s.windows, g.windows[1:]...)
+	}
+	return s
+}
+
+func (s *set) front() catalog.Window { return s.windows[0] }
+
+// stacked are the windows the card shows, front first.
+func (s *set) stacked() []catalog.Window { return s.windows[:min(len(s.windows), maxStacked)] }
+
+// names are the apps of a set, as it goes on the stage.
+func (s *set) names() []string {
+	out := make([]string, len(s.apps))
+	for i, g := range s.apps {
+		out[i] = g.app
+	}
+	return out
+}
+
+// title is what a card's label says.
+func (s *set) title() string {
+	out := make([]string, len(s.apps))
+	for i, g := range s.apps {
+		out[i] = g.name
+	}
+	return strings.Join(out, " + ")
+}
 
 // display is one monitor, its stage and its strip.
 type display struct {
 	mon     winapi.Monitor
 	model   stage.Display
 	strip   *strip
-	groups  []*group // the strip's cards, top first
+	sets    []*set // the strip's cards, top first
 	onStage []*group
 	covered bool // a window on the stage covers the cards (floating mode)
 
-	cards   map[string]*cardState // per app, what a card remembers between frames
-	scroll  float32
-	layout  stripLayout // as the view last laid the cards out
-	viewW   float32
-	viewH   float32
-	// landing lists the cards whose windows are still flying in, and
-	// whether their icons show yet.
+	cards  map[string]*cardState // per set key, what a card remembers between frames
+	scroll float32
+	layout stripLayout // as the view last laid the cards out
+	viewW  float32
+	viewH  float32
+	// landing lists the apps whose windows are still flying into their
+	// cards.
 	landing map[string]bool
 	// dropPoses is where the windows of a card dropped on the stage were
 	// let go, for their flight home.
 	dropPoses map[winapi.HWND]pose
 }
 
-// App is StageBar.
+// App is Stage Manager.
 type App struct {
 	settings settings.Settings
 	store    settings.Store
@@ -67,8 +116,10 @@ type App struct {
 	windows  []catalog.Window
 	seen     map[winapi.HWND]time.Time // when a window was first listed
 
-	ready    bool // the first stage is set
-	busy     bool // a switch is running
+	ready    bool           // the first stage is set
+	busy     bool           // a switch is running
+	running  *switchRequest // the switch running, while busy
+	queued   *switchRequest // a switch asked for while one runs, to take over from it
 	quitting bool
 
 	refreshTimer *time.Timer
@@ -82,8 +133,21 @@ type App struct {
 	unhook   func()
 	stopPoll chan struct{}
 
+	// moving is the window the user is moving, and where it was when
+	// the move began.
+	moving struct {
+		h    winapi.HWND
+		from winapi.Rect
+	}
+	// dropHomes is where the windows dragged into a strip go back to.
+	dropHomes map[winapi.HWND]winapi.Rect
+	// peek is the shell's window for a peek at a taskbar thumbnail, while
+	// it shows one, and taskbar where the pointer was last over a taskbar.
+	peek    winapi.HWND
+	taskbar taskbarPoint
+
 	// act, when set, receives what the cards ask for instead of App.
-	act func(action, *display, *group)
+	act func(action, *display, *set)
 
 	tray       *mygo.Tray
 	trayIcon   []byte
@@ -97,15 +161,16 @@ type Options struct {
 	TrayIcon []byte // PNG
 }
 
-// Start sets StageBar up. Call it once the app is ready, on the main thread.
+// Start sets Stage Manager up. Call it once the app is ready, on the main thread.
 func Start(o Options) *App {
 	a := &App{
-		store:    settings.NewStore(o.DataDir),
-		cat:      catalog.New(),
-		park:     parking.New(o.DataDir),
-		media:    newMedia(),
-		seen:     map[winapi.HWND]time.Time{},
-		trayIcon: o.TrayIcon,
+		store:     settings.NewStore(o.DataDir),
+		cat:       catalog.New(),
+		park:      parking.New(o.DataDir),
+		media:     newMedia(),
+		seen:      map[winapi.HWND]time.Time{},
+		dropHomes: map[winapi.HWND]winapi.Rect{},
+		trayIcon:  o.TrayIcon,
 	}
 	a.settings = a.store.Load()
 	// Windows a crashed run left off the desktop come back first.
@@ -133,7 +198,7 @@ func Start(o Options) *App {
 	return a
 }
 
-// managed reports whether StageBar arranges the windows of a display.
+// managed reports whether Stage Manager arranges the windows of a display.
 func (a *App) managed(d *display) bool {
 	return !a.settings.Paused && a.settings.DisplayEnabled(d.mon.Device)
 }
@@ -184,7 +249,7 @@ func (a *App) groupsOf(d *display) []*group {
 		}
 		g := by[w.App]
 		if g == nil {
-			g = &group{app: w.App, name: a.cat.Name(w)}
+			g = &group{app: w.App, name: a.cat.Name(w), z: len(out)}
 			by[w.App] = g
 			out = append(out, g)
 		}
@@ -223,7 +288,7 @@ func (a *App) syncDisplays() {
 		if a.managed(d) {
 			if d.strip == nil {
 				if a.ready {
-					// A display StageBar starts arranging while it runs keeps
+					// A display Stage Manager starts arranging while it runs keeps
 					// the app in front there on its stage.
 					d.model.Init(a.frontApp(d), time.Now())
 				}
@@ -256,7 +321,7 @@ func (a *App) frontApp(d *display) string {
 	return ""
 }
 
-// release brings back the parked windows of a display StageBar stops
+// release brings back the parked windows of a display Stage Manager stops
 // arranging, and forgets its stage.
 func (a *App) release(d *display) {
 	for _, w := range a.windows {
@@ -265,7 +330,35 @@ func (a *App) release(d *display) {
 		}
 	}
 	d.model.Init("", time.Now())
-	d.groups, d.onStage = nil, nil
+	d.sets, d.onStage = nil, nil
+}
+
+// rescueOffscreen brings the windows the displays hardly show back onto the
+// nearest one, as an app that placed itself wrong leaves them, and returns
+// how many it moved. Parked windows, and their dialogs, are off the desktop
+// on purpose and stay.
+func (a *App) rescueOffscreen() int {
+	n := 0
+	for _, h := range a.cat.Movable() {
+		if a.park.IsParked(h) || a.park.IsParked(catalog.RootOwner(h)) || winapi.IsZoomed(h) {
+			continue
+		}
+		frame := winapi.FrameBounds(h)
+		if !winapi.MostlyOffscreen(frame) {
+			continue
+		}
+		// Fit the visible frame, not the invisible borders around it.
+		to, r := winapi.FitOnScreen(frame), winapi.WindowRect(h)
+		debugf("rescue %x %q from %v to %v", h, winapi.Title(h), frame, to)
+		if winapi.SetWindowPos(h, 0, r.Left+to.Left-frame.Left, r.Top+to.Top-frame.Top, 0, 0,
+			winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate) {
+			n++
+		}
+	}
+	if n > 0 {
+		a.refreshSoon()
+	}
+	return n
 }
 
 func (a *App) displaysChanged() {
@@ -340,7 +433,13 @@ func (a *App) refresh() {
 		a.refreshTimer.Stop()
 		a.refreshTimer = nil
 	}
-	if !a.ready || a.busy || a.quitting {
+	if a.peek != 0 && !winapi.IsWindow(a.peek) {
+		// The end of the peek went unseen.
+		a.peekEnd()
+	}
+	// While a peek shows, the parked windows are home on purpose and must
+	// not be taken for strays.
+	if !a.ready || a.busy || a.quitting || a.peek != 0 {
 		return
 	}
 	a.reparkEscaped()
@@ -362,7 +461,7 @@ func (a *App) refresh() {
 	var want []winapi.HWND
 	for _, d := range a.displays {
 		if !a.managed(d) {
-			d.groups, d.onStage = nil, nil
+			d.sets, d.onStage = nil, nil
 			continue
 		}
 		groups := a.groupsOf(d)
@@ -375,19 +474,21 @@ func (a *App) refresh() {
 		d.model.Prune(func(app string) bool { return visible[app] }, now)
 		a.parkStrays(d, groups, now)
 		a.arrange(d, groups, now)
-		for _, g := range d.groups {
-			for _, w := range g.windows[:min(len(g.windows), maxStacked)] {
+		for _, s := range d.sets {
+			for _, w := range s.stacked() {
 				// Windows on the desktop change; refresh their stills now and then.
-				s := a.media.still(w.HWND)
-				stale := s == nil || (!a.hidden(w) && time.Since(s.at) > 5*time.Second)
+				st := a.media.still(w.HWND)
+				stale := st == nil || (!a.hidden(w) && time.Since(st.at) > 5*time.Second)
 				if stale && !a.media.pending[w.HWND] && time.Since(a.media.tried[w.HWND]) > 3*time.Second {
 					want = append(want, w.HWND)
 				}
 			}
-			a.media.icon(g.front())
+			for _, g := range s.apps {
+				a.media.icon(g.front())
+			}
 		}
 		d.covered = a.covered(d)
-		debugf("display %s stage=%v strip=%d covered=%v", d.mon.Device, d.model.Stage(), len(d.groups), d.covered)
+		debugf("display %s stage=%v strip=%d covered=%v", d.mon.Device, d.model.Stage(), len(d.sets), d.covered)
 	}
 	if len(want) > 0 {
 		a.media.capture(want, false, 3*time.Second, a.redraw)
@@ -404,7 +505,7 @@ func (a *App) refreshSoon() {
 
 // parkStrays parks the windows of apps that are not on the stage but show
 // on the desktop, as windows opened in the background do, once they have
-// had a moment to take the foreground instead.
+// had a moment to take the foreground instead of it.
 func (a *App) parkStrays(d *display, groups []*group, now time.Time) {
 	if !a.settings.HideInactive || d.model.Settling(now) {
 		return

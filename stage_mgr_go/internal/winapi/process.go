@@ -42,10 +42,10 @@ func LeftButtonDown() bool {
 }
 
 // Activate brings a window to the foreground. Windows grants that only to
-// the process that owns the foreground or received the last input, so two
-// workarounds are tried in turn: an empty mouse input, which makes StageBar
-// the process with the last input without a key or a move reaching any
-// app, then borrowing the foreground thread's input state.
+// the process that owns the foreground or got the last input, so two
+// workarounds are tried in turn: an empty mouse input, which makes Stage Manager
+// the process with the last input without a key or a move reaching an app,
+// then borrowing the foreground thread's input state.
 func Activate(h HWND) bool {
 	if !IsWindow(h) {
 		return false

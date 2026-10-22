@@ -1,0 +1,124 @@
+# AGENTS.md
+
+给接手这个仓库的 agent 的上手说明。先读完这一页，再动代码。
+
+## 一句话
+
+Stage Manager for Windows：在 Windows 10/11 上复刻 macOS“台前调度”。当前应用留在舞台（桌面中央），其他应用按应用分组收进左侧侧边栏；**每台显示器各有一个舞台和侧边栏**。
+
+## 先搞清楚哪些代码是活的
+
+| 路径 | 状态 |
+| --- | --- |
+| `stage_mgr_go/` | **唯一在维护的实现**。纯 Go + [MyGo](https://github.com/egoist/mygo)，无 cgo、无 WebView。 |
+| `StageManager/`、`installer/`、`.github/workflows/`、`start-stagebar.bat` | 旧的 C# WPF 版，已从工作区删除（git 中为 staged deletion）。不要复活，也不要照着它改。 |
+| `README.md`、`README.zh-CN.md`（根目录） | 部分内容仍在描述 C# 版（.NET 构建、Inno Setup、`%LOCALAPPDATA%\StageManager`）。**构建与架构以 `stage_mgr_go/README.md` 为准。** |
+| `其他项目参考代码/` | 第三方参考项目（StageManagerForWindows，C#），只读参考，**未纳入版本控制，不要 `git add`**。 |
+| `.codebuddy/plans/` | 之前做过的问题分析（如阴影跳变），排查同类问题前值得一读。 |
+| `start-stage-manager.bat` | 本地一键：先 `--quit` 旧实例，再编译并启动 `build/windows-amd64/Stage Manager for Windows.exe`。 |
+
+## 常用命令
+
+都在 `stage_mgr_go/` 下执行（需要 Go 1.27.1+，`GOTOOLCHAIN=auto` 会自动下载）：
+
+```powershell
+go build ./...                # 编译
+go vet ./...
+go test ./...                 # 单元测试 + 无头界面测试，几秒内跑完
+go tool mygo vet .            # MyGo 的 UI 生命周期检查，改 UI 后必须跑
+go run .                      # 开发运行
+go tool mygo dev              # 改代码自动重编译重启
+go tool mygo build            # 产出 build/windows-amd64/Stage Manager for Windows.exe 和安装包
+```
+
+提交前至少保证 `go build ./... && go vet ./... && go test ./... && go tool mygo vet .` 全部通过。
+
+## 安全地运行它（重要）
+
+Stage Manager for Windows 会把**真实窗口**移到桌面外（“停放”）。开发调试时务必隔离：
+
+```powershell
+$env:STAGEMANAGER_APP_FILTER = "notepad,mspaint"   # 只管理这些 exe，不碰你自己的窗口
+$env:STAGEMANAGER_DATA_DIR   = "$env:TEMP\stagebar-dev"  # 独立的设置和停放日志
+$env:STAGEMANAGER_DEBUG      = "1"                 # 打印决策日志（debugf）
+go run .
+```
+
+- 结束实例用 `Stage Manager for Windows.exe --quit` 或 Ctrl+C，这样会把所有停放的窗口放回。**不要直接 kill 进程**；万一 kill 了，下次启动会按 `parked-windows.json` 日志恢复。
+- `STAGEMANAGER_DEBUG` 开启时，第二个实例传 `--debug-hang` 会故意卡住主线程 12 秒，用来验证看门狗。
+- `STAGEMANAGER_SNAPSHOT_DIR=<目录> go test ./internal/app -run TestSnapshots` 把侧边栏和设置窗口渲染成 PNG，不用启动应用就能看界面效果。
+- 默认数据目录：`%LOCALAPPDATA%\Stage Manager`（`settings.json`、`parked-windows.json`、看门狗写的 `hang-*.log`）。
+
+## 代码地图
+
+```
+stage_mgr_go/
+  main.go            入口：单实例锁、--quit / --debug-hang、Ctrl+C、数据目录
+  mygo.json          应用名、版本、图标、输出目录
+  internal/
+    winapi/    Win32 薄封装（syscall），无状态。新的系统调用加在这里；通用 DLL/proc 在 procs.go，专用的（COM、version.dll、DWM 缩略图）就近声明在各自文件里
+    catalog/   枚举/过滤应用窗口，识别所属应用（含 UWP 宿主），应用显示名；STAGEMANAGER_APP_FILTER 在这里生效
+    parking/   停放/放回窗口 + 崩溃恢复日志
+    stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）
+    settings/  设置读取、归一化、原子保存（有单测）
+    app/       Stage Manager for Windows 本体，全部运行在 MyGo 主线程
+      app.go          App/display/group/set 结构、显示器同步、refresh、初始舞台、游离/逃逸窗口
+      events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询
+      switch.go       舞台切换、真实窗口交接（handover）、切换排队/打断、卡片动作
+      flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
+      strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透
+      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单
+      layout.go       纯几何：卡片布局、窗口叠放、图标位置（有单测）
+      media.go        静帧（PrintWindow）与图标缓存、内存预算
+      iconfit.go      裁掉图标四周透明边
+      peek.go         任务栏缩略图 peek 时临时放回被停放的窗口
+      settingsview.go 设置窗口；tray.go 托盘；debug.go 调试日志与看门狗
+```
+
+## 核心流程：一次舞台切换
+
+1. 触发：点卡片 → `stripview` 调 `a.request(actPick…)`；Alt+Tab/任务栏 → `events.onWinEvent` → `onForeground` → `settleForeground`；点壁纸 → `switchStage(d, nil, …)`。
+2. `switch.go: switchStage` 算出 departing / arriving 窗口。若已有切换在跑（`a.busy`），新请求放进 `a.queued` 并 `flights.interrupt`，空中的窗口原地掉头，不等待。
+3. `media.capture` 在 goroutine 里给离场窗口拍静帧（带超时，卡死的应用不会拖住切换），完成后回主线程。
+4. 更新模型 `d.model.Switch` → `arrange` 重建 `d.sets` / `d.onStage` → `flights.run` 开始飞行。
+5. `handover` 的回调在飞行中交接真实窗口：`takeOff`（停放离场窗口、激活到场窗口）→ `land`（放回到场窗口）→ `stop`/`done`（收尾，`runQueued` 执行排队的切换）。
+
+另外每 1.5s 有一次兜底 `refresh`，事件驱动的 `refreshSoon` 负责即时响应。
+
+## 必须遵守的约束
+
+- **线程模型**：`App` 的所有状态只在 MyGo 主线程读写。后台 goroutine 的结果必须用 `post(fn)` / `after(d, fn)`（内部是 `mygo.RunOnMain`）回到主线程。WinEvent 钩子在主线程安装和回调。不要加锁来“修”并发，正确做法是回到主线程。
+- **不要在主线程做可能阻塞的事**：`PrintWindow` 会等目标应用自己绘制，只能在 goroutine 里做并带超时。看门狗在主线程 5 秒无响应时会直接按日志放回所有窗口。
+- **坐标**：与系统打交道一律是物理像素（进程是 Per-Monitor V2，`winapi.Rect`）；MyGo 在窗口内按 DIP 绘制（`ui.Rect`）。两者之间的换算集中在 `strip.toScreen`、`display.mon.Scale()` 一类地方，别在别处随手乘 DPI。
+- **停放而不是最小化**：隐藏窗口一律走 `parking.Service`（移到同一显示器旁的桌面外，保持 DPI），每次变动写日志。绕过它直接 `SetWindowPos` 移走窗口，崩溃后窗口就回不来了。用户手动最小化的窗口交给任务栏，不进侧边栏。
+- **分层**：`winapi` 不持有应用状态；`stage` 不认识 HWND（规则改动先在 `stage` 里写测试）；纯几何放 `layout.go`。新逻辑放进对应层，别把 Win32 调用塞进 `stage`/`settings`。
+- **依赖**：除 MyGo 外不引入第三方依赖，不用 cgo。Windows 专用文件加 `//go:build windows`。
+- **设置**：新增设置项要同时改 `Settings`、`Default()`、`Normalize()`（如有范围）、`Equal/Clone`（如是引用类型）、`settingsview.go` 和 `applySettings`。
+
+## 代码风格
+
+- 注释用英文完整句子，说明“为什么”和与 macOS/Windows 行为的对应关系，而不是复述代码。参考 `switch.go`、`flights.go` 的写法。
+- 命名短而具体（`park`、`fg`、`air`、`landing`），常量旁注明取值理由（如 `takeOffDelay`）。
+- 文档（README、本文件）用中文。
+
+## 测试
+
+- 有单测的：`stage`、`settings`、`app/layout`、`app/stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`app/iconfit`、`app/peek`、`winapi/monitor`。
+- `catalog`、`parking`、飞行动画、窗口交接**没有自动化测试**，改动后需要手动验证：
+  - 固定模式和浮动模式各切换几次，包括快速连点打断正在进行的切换；
+  - 多显示器（不同 DPI）下切换、把窗口拖到另一台显示器、把窗口拖进侧边栏；
+  - 拖卡片到桌面 / Shift+点击合并舞台，右键拆开组合；
+  - `--quit` 和强杀后重启，确认所有窗口都回到桌面。
+- 动画类问题（闪烁、阴影跳变）靠录屏逐帧看，参考 `.codebuddy/plans/阴影嘭跳变分析_*.md` 的方法。
+
+## 当前进行中 / 已知问题
+
+- 飞行起飞与落地时窗口阴影“嘭”一下跳变：飞行代理的假阴影与真实 DWM 阴影在交接帧叠加。相关代码在 `flights.go`（`takeOffDelay`、`landingDelay`、`ownShadow`、`shade`）和 `switch.go` 的 `handover`。最近一次提交 `wip: checkpoint before shadow handover fixes` 就是为此做的检查点。
+- 侧边栏显示的是离场时的静帧（Windows 不绘制桌面外的窗口）；`PrintWindow` 拍不到内容的窗口显示为带图标的磨砂卡片。
+- 以管理员权限运行的窗口，非管理员的 Stage Manager for Windows 可能无法移动或激活。
+
+## Git
+
+- 主分支 `main`，提交信息用 `feat:` / `fix:` / `chore:` / `wip:` 前缀。
+- 不要提交 `stage_mgr_go/build/`、`*.exe`、`其他项目参考代码/`、`.codebuddy/`、`.claude/`。
+- `.bat` 文件保持 CRLF（见 `.gitattributes`），且 bat 里有中文，开头需要 `chcp 65001`。
