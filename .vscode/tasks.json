@@ -54,10 +54,10 @@
         {
             "label": "Stage Manager for Windows: quit running instance",
             "type": "process",
-            "command": "${workspaceFolder}/stage_mgr_go/build/windows-amd64/Stage Manager for Windows.exe",
+            "command": "${workspaceFolder}/stage_mgr_go/build/windows-amd64/StageManagerForWindows.exe",
             "args": ["--quit"],
             "windows": {
-                "command": "${workspaceFolder}/stage_mgr_go/build/windows-amd64/Stage Manager for Windows.exe"
+                "command": "${workspaceFolder}/stage_mgr_go/build/windows-amd64/StageManagerForWindows.exe"
             },
             "problemMatcher": []
         }

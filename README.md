@@ -51,7 +51,7 @@ Download the latest installer from [GitHub Releases](https://github.com/e1roy/st
 - Every parked window is returned to the desktop on exit, crash or sign-out (a journal covers crashes)
 - Tray icon: left click opens the settings, right click shows or hides the strip, pauses, or quits
 - Settings: display mode, width, icon size, perspective, hiding the windows off stage, clearing the stage by clicking the wallpaper, per-display strips, launch at login, pause, and bringing back windows that ended up off screen
-- `Stage Manager for Windows.exe --quit` ends the running instance and brings every window back
+- `StageManagerForWindows.exe --quit` ends the running instance and brings every window back
 - No telemetry and no network communication
 
 ## Requirements
@@ -109,7 +109,7 @@ cd stage_manager_for_windows\stage_mgr_go
 go run .              # run for development
 go test ./...         # unit tests and headless UI tests
 go tool mygo vet .    # check UI lifecycle issues
-go tool mygo build    # build/windows-amd64/Stage Manager for Windows.exe and the installer
+go tool mygo build    # build/windows-amd64/StageManagerForWindows.exe and the installer
 ```
 
 Environment variables that keep a test run from rearranging your own windows:

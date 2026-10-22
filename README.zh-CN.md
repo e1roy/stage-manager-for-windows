@@ -51,7 +51,7 @@ Stage Manager for Windows 是一个 Windows 上的窗口管理器。你正在用
 - 退出、崩溃或注销时，所有停放的窗口都会放回桌面（崩溃靠日志恢复）
 - 托盘图标：左键打开设置，右键菜单可显示/隐藏侧边栏、暂停、退出
 - 设置：显示方式、宽度、图标大小、立体透视、隐藏舞台之外的窗口、点击桌面清空舞台、按显示器开关侧边栏、开机启动、暂停、找回屏幕外的窗口
-- `Stage Manager for Windows.exe --quit` 让正在运行的实例退出并放回所有窗口
+- `StageManagerForWindows.exe --quit` 让正在运行的实例退出并放回所有窗口
 - 不收集任何数据，不联网
 
 ## 系统要求
@@ -109,7 +109,7 @@ cd stage_manager_for_windows\stage_mgr_go
 go run .              # 开发运行
 go test ./...         # 单元测试与无头界面测试
 go tool mygo vet .    # 检查 UI 生命周期问题
-go tool mygo build    # 生成 build\windows-amd64\Stage Manager for Windows.exe 和安装包
+go tool mygo build    # 生成 build\windows-amd64\StageManagerForWindows.exe 和安装包
 ```
 
 开发时可用的环境变量，避免调试时打乱自己的窗口：
