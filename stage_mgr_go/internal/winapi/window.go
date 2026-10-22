@@ -69,10 +69,12 @@ const (
 	HwndTopmost   HWND = ^HWND(0)     // -1
 	HwndNoTopmost HWND = ^HWND(0) - 1 // -2
 
-	swRestore        = 9
-	swShowNoActivate = 4
-	swMinimize       = 6
-	swHide           = 0
+	swRestore         = 9
+	swShowNoActivate  = 4
+	swMinimize        = 6
+	swShowMinimized   = 2
+	swShowMinNoActive = 7
+	swHide            = 0
 
 	wsActiveCaption = 0x0001
 )
@@ -297,6 +299,28 @@ func RestoredRect(h HWND) (r Rect, maximized bool, ok bool) {
 		n = n.Offset(mi.Work.Left-mi.Monitor.Left, mi.Work.Top-mi.Monitor.Top)
 	}
 	return n, false, true
+}
+
+// MoveRestored changes where a minimized window goes back to, p in screen
+// coordinates, leaving it minimized and inactive. Moving a minimized window
+// only moves its icon, so it would come back where it was.
+func MoveRestored(h HWND, p Point) bool {
+	wp := windowPlacement{Length: uint32(unsafe.Sizeof(windowPlacement{}))}
+	if IsHung(h) || !boolCall(procGetWindowPlacement, uintptr(h), uintptr(unsafe.Pointer(&wp))) {
+		return false
+	}
+	n := wp.NormalPosition
+	at := n.Offset(p.X-n.Left, p.Y-n.Top)
+	// Placement is in workspace coordinates unless the window is a tool window.
+	if ExStyle(h)&WsExToolWindow == 0 {
+		mi := monitorInfo(MonitorFromRect(at))
+		at = at.Offset(mi.Monitor.Left-mi.Work.Left, mi.Monitor.Top-mi.Work.Top)
+	}
+	wp.NormalPosition = at
+	if wp.ShowCmd == swShowMinimized {
+		wp.ShowCmd = swShowMinNoActive
+	}
+	return boolCall(procSetWindowPlacement, uintptr(h), uintptr(unsafe.Pointer(&wp)))
 }
 
 type windowInfo struct {

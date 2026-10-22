@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"slices"
 	"time"
 
@@ -10,15 +11,19 @@ import (
 
 // switchStage makes next the apps on a display's stage. The windows
 // leaving shrink into their cards while the arriving ones grow out of
-// theirs; then the real windows take over.
-func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate bool) {
+// theirs; then the real windows take over. A switch that follows the user
+// elsewhere (followed), as the taskbar, Alt+Tab or a new app take them,
+// has the system already showing the window they went to, often with an
+// animation of its own: the leaving windows fade where they are, under
+// it, rather than fly over it, and their cards slide into the strip.
+func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate, followed bool) {
 	if !a.managed(d) {
 		return
 	}
 	if a.busy {
 		// A click does not wait for the switch running to end: it takes
 		// over, and the windows in the air turn where they are, as on macOS.
-		a.queued = &switchRequest{d: d, next: next, focus: focus, activate: activate}
+		a.queued = &switchRequest{d: d, next: next, focus: focus, activate: activate, followed: followed}
 		a.flights.interrupt(d)
 		return
 	}
@@ -77,7 +82,9 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 		return
 	}
 	a.busy = true
-	a.running = &switchRequest{d: d, next: next, focus: focus, activate: activate}
+	debugf("switch %s to %v: departing %v arriving %v focus %x activate=%v followed=%v",
+		d.mon.Device, next, hwnds(departing), hwnds(arriving), focus, activate, followed)
+	a.running = &switchRequest{d: d, next: next, focus: focus, activate: activate, followed: followed}
 	// Stills taken as the pointer came to the strip are fresh enough, and
 	// the windows in the air have theirs; the rest make do with what they
 	// have rather than hold the flights still, unless they have no still.
@@ -98,8 +105,10 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 		// still turned and lifted by the pointer over them.
 		from := a.flights.cardPoses(d, arriving, true)
 		d.model.Switch(next, time.Now())
+		// Fading where they are, the windows land in no card: theirs
+		// come in as new cards do.
 		for _, app := range leaving {
-			d.landing[app] = true
+			d.landing[app] = !followed
 		}
 		a.arrange(d, groups, time.Now())
 		if d.strip != nil && len(departing) > 0 {
@@ -107,9 +116,23 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 			d.strip.holdOpen(1200 * time.Millisecond)
 		}
 		a.redraw()
+		// The windows fade under the one the user went to, unless that
+		// one has yet to come in from its card itself.
+		var below winapi.HWND
+		if followed && focus != 0 && !a.park.IsParked(focus) {
+			below = focus
+		}
 		h := handover{a: a, d: d, departing: departing, arriving: arriving, focus: focus, activate: activate}
-		a.flights.run(d, departing, arriving, from, h.takeOff, h.land, h.stop, h.done)
+		a.flights.run(d, departing, arriving, from, followed, below, h.takeOff, h.land, h.stop, h.done)
 	})
+}
+
+func hwnds(ws []catalog.Window) []string {
+	out := make([]string, len(ws))
+	for i, w := range ws {
+		out[i] = fmt.Sprintf("%x", w.HWND)
+	}
+	return out
 }
 
 // handover swaps the real windows in under the flights.
@@ -203,6 +226,7 @@ type switchRequest struct {
 	next     []string
 	focus    winapi.HWND
 	activate bool
+	followed bool
 }
 
 // runQueued starts the switch asked for while one ran, if any.
@@ -212,7 +236,7 @@ func (a *App) runQueued() bool {
 		return false
 	}
 	a.queued = nil
-	a.switchStage(q.d, q.next, q.focus, q.activate)
+	a.switchStage(q.d, q.next, q.focus, q.activate, q.followed)
 	return true
 }
 
@@ -279,7 +303,7 @@ func (a *App) request(act action, d *display, s *set) {
 
 // pick puts the apps of a card on the stage, in place of those there.
 func (a *App) pick(d *display, s *set) {
-	a.switchStage(d, s.names(), s.front().HWND, true)
+	a.switchStage(d, s.names(), s.front().HWND, true, false)
 }
 
 // join adds the apps of a card to the stage, as dragging it there or
@@ -287,7 +311,7 @@ func (a *App) pick(d *display, s *set) {
 // running is done.
 func (a *App) join(d *display, s *set) {
 	next := append(a.heading(d), s.names()...)
-	a.switchStage(d, next, s.front().HWND, true)
+	a.switchStage(d, next, s.front().HWND, true, false)
 }
 
 // closeApps asks every window of a card's apps to close.

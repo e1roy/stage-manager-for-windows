@@ -4,7 +4,6 @@ import (
 	"log"
 
 	"github.com/egoist/mygo"
-	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
 func (a *App) setUpTray() {
@@ -22,35 +21,12 @@ func (a *App) setUpTray() {
 }
 
 func (a *App) trayMenu() *mygo.Menu {
-	pause := "暂停 Stage Manager"
-	if a.settings.Paused {
-		pause = "恢复 Stage Manager"
-	}
 	return mygo.NewMenu([]*mygo.MenuItem{
-		{Label: "显示 / 隐藏侧边栏", Click: func(*mygo.MenuItem, *mygo.Window) { a.toggleStrip() }},
+		{Label: "找回屏幕外的窗口", Click: func(*mygo.MenuItem, *mygo.Window) { a.rescueOffscreen() }},
 		{Label: "设置…", Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
 		mygo.Separator(),
-		{Label: pause, Click: func(*mygo.MenuItem, *mygo.Window) {
-			s := a.settings.Clone()
-			s.Paused = !s.Paused
-			a.applySettings(s)
-		}},
 		{Label: "退出", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
 	})
-}
-
-func (a *App) updateTrayMenu() {
-	if a.tray != nil {
-		a.tray.SetMenu(a.trayMenu())
-	}
-}
-
-// toggleStrip shows or hides the floating strip of the display under the pointer.
-func (a *App) toggleStrip() {
-	d := a.displayByHandle(winapi.MonitorFromPoint(winapi.Cursor()))
-	if d != nil && d.strip != nil {
-		d.strip.toggle()
-	}
 }
 
 // OpenSettings shows the settings window, as a second launch does.
