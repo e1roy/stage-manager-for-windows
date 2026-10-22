@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/demo.mp4">Download the demo video (MP4, 17 MB)</a>
+  <a href="docs/demo.mp4">Download the demo video (MP4, 6 MB)</a>
 </p>
 
 ## Overview
@@ -60,7 +60,7 @@ Download the latest installer from [GitHub Releases](https://github.com/e1roy/st
 - Windows that leave the stage are parked just outside the desktop, keeping their size and state, and come back instantly
 - Every parked window is returned to the desktop on exit, crash or sign-out (a journal covers crashes)
 - Tray icon: left click opens the settings, right click shows or hides the strip, pauses, or quits
-- Settings: display mode, width, icon size, perspective, hiding the windows off stage, clearing the stage by clicking the wallpaper, per-display strips, launch at login, pause, and bringing back windows that ended up off screen
+- Settings: display mode, width, icon size, perspective, animation speed, hiding the windows off stage, clearing the stage by clicking the wallpaper, per-display strips, launch at login, pause, and bringing back windows that ended up off screen
 - `StageManagerForWindows.exe --quit` ends the running instance and brings every window back
 - No telemetry and no network communication
 
