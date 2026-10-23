@@ -1,7 +1,7 @@
 {
   "name": "StageManagerForWindows",
   "identifier": "io.github.e1roy.stagemanagerforwindows",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "copyright": "Copyright (c) 2026 Stage Manager for Windows contributors",
   "icon": "resources/icon.png",
   "out": "build"
