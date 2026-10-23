@@ -149,13 +149,6 @@ func (d *Display) cameFrom() int {
 	return d.setIndex(d.above) + 1
 }
 
-func (d *Display) Dropped(app string, companion bool) []string {
-	if companion {
-		return append(d.Stage(), app)
-	}
-	return []string{app}
-}
-
 // Leave takes an app off the stage into a set of its own at the top of
 // the strip, as when all its windows are closed.
 func (d *Display) Leave(app string) {

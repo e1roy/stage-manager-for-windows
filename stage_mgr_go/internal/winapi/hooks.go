@@ -70,6 +70,19 @@ func HookWinEvents(fn WinEventFunc, ranges ...[2]uint32) (unhook func()) {
 	}
 }
 
+// AddWinEventHook installs one more hook, for one event range, delivered to
+// the function HookWinEvents set, on the calling thread. The returned
+// function removes this hook alone.
+func AddWinEventHook(min, max uint32) (remove func()) {
+	h, _, _ := procSetWinEventHook.Call(uintptr(min), uintptr(max), 0, hookCallback, 0, 0,
+		winEventOutOfContext|winEventSkipOwnProcess)
+	return func() {
+		if h != 0 {
+			procUnhookWinEvent.Call(h)
+		}
+	}
+}
+
 // MessageFunc sees the messages of a subclassed window. It returns the
 // result and true when it handled the message.
 type MessageFunc func(msg uint32, wParam, lParam uintptr) (uintptr, bool)

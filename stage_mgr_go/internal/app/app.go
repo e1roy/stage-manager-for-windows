@@ -131,8 +131,10 @@ type App struct {
 	ready    bool           // the first stage is set
 	busy     bool           // a switch is running
 	running  *switchRequest // the switch running, while busy
-	queued   *switchRequest // a switch asked for while one runs, to take over from it
 	quitting bool
+	// queued is, per display, a switch asked for while one runs, to take
+	// over from it.
+	queued map[*display]*switchRequest
 
 	refreshTimer *time.Timer
 	coverTimer   *time.Timer
@@ -144,12 +146,21 @@ type App struct {
 	}
 	unhook   func()
 	stopPoll chan struct{}
+	// unhookMoves removes the hook of the events of windows moving, which
+	// is off during a drag.
+	unhookMoves func()
 
-	// moving is the window the user is moving, and where it was when
-	// the move began.
+	// moving is the window the user is moving, where it was when the move
+	// began and on which display; at is the display it is over and since
+	// when, over the one whose stage made way for it, and stage what was
+	// on that stage.
 	moving struct {
-		h    winapi.HWND
-		from winapi.Rect
+		h              winapi.HWND
+		from           winapi.Rect
+		home, at, over *display
+		since          time.Time
+		dwell          *time.Timer
+		stage          []string
 	}
 	// dropHomes is where the windows dragged into a strip go back to.
 	dropHomes map[winapi.HWND]winapi.Rect
@@ -184,6 +195,7 @@ func Start(o Options) *App {
 		seen:      map[winapi.HWND]time.Time{},
 		lost:      map[winapi.HWND]time.Time{},
 		dropHomes: map[winapi.HWND]winapi.Rect{},
+		queued:    map[*display]*switchRequest{},
 		trayIcon:  o.TrayIcon,
 		sysLang:   i18n.FromLANGID(winapi.UILanguage()),
 	}
@@ -508,6 +520,9 @@ func (a *App) refresh() {
 	}
 	a.reparkEscaped()
 	a.windows = a.cat.Windows()
+	if a.followMoved() {
+		return
+	}
 	now := time.Now()
 	alive := map[winapi.HWND]bool{}
 	for _, w := range a.windows {
@@ -524,6 +539,12 @@ func (a *App) refresh() {
 	a.media.forget(alive)
 	a.rescueLost(now)
 	var want []winapi.HWND
+	if a.moving.h != 0 && !winapi.IsWindow(a.moving.h) {
+		// Closed mid-drag, with no end of the move to tell.
+		a.moving.h = 0
+		a.watchMoves(true)
+	}
+	dragging := a.moving.h != 0
 	for _, d := range a.displays {
 		if !a.managed(d) {
 			d.sets, d.onStage = nil, nil
@@ -536,8 +557,12 @@ func (a *App) refresh() {
 				visible[g.app] = true
 			}
 		}
-		if gone := d.model.Prune(func(app string) bool { return visible[app] }, now); len(gone) > 0 && d.model.Empty() {
-			d.refill = true
+		// While a window is dragged, the display it left keeps its app:
+		// the user may bring it back.
+		if !dragging {
+			if gone := d.model.Prune(func(app string) bool { return visible[app] }, now); len(gone) > 0 && d.model.Empty() {
+				d.refill = true
+			}
 		}
 		a.parkStrays(d, groups, now)
 		a.arrange(d, groups, now)
@@ -692,12 +717,17 @@ func (a *App) redraw() {
 // them always is, and the strips would not draw again until it stops, their
 // cards frozen mid-slide and then jumping into place as the flights land.
 func (a *App) paintStrips() {
+	t0 := time.Now()
 	for _, d := range a.displays {
 		if d.strip != nil && d.strip.visible {
 			winapi.PaintNow(d.strip.hwnd)
 		}
 	}
+	stripPaint += time.Since(t0)
 }
+
+// stripPaint sums the time paintStrips took, for the debug log.
+var stripPaint time.Duration
 
 // tr returns the words of the language the settings choose.
 func (a *App) tr() *i18n.Strings {
@@ -763,6 +793,7 @@ func (a *App) shutdown() {
 	if a.unhook != nil {
 		a.unhook()
 	}
+	a.watchMoves(false)
 	if a.stopPoll != nil {
 		close(a.stopPoll)
 	}

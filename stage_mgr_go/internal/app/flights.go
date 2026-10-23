@@ -173,6 +173,12 @@ type trip struct {
 	stopped   bool
 	stoppedAt float64
 	span      time.Duration // flightTime, or fadeTime with nothing but fades
+	// For the debug log: the frames drawn while flying, the longest wait
+	// between two and the strips' paint time.
+	frames  int
+	last    time.Time
+	gap     time.Duration
+	painted time.Duration
 
 	takeOff, land, stop func()
 }
@@ -227,6 +233,9 @@ type layer struct {
 	// framed runs after each frame the layer draws, for the strips below
 	// it to draw theirs (App.paintStrips).
 	framed func()
+	// hole is the window the flights stay clear of, rather than show
+	// over, while the layer is above all.
+	hole winapi.HWND
 }
 
 // flights runs the flights of switches, on a layer per display.
@@ -432,9 +441,10 @@ func (f *flights) landingIcons(d *display) []badge {
 // instead of land and done and its flights carry on from where they are.
 // With fade, the departing windows fade where they are instead of flying
 // into their cards; with below, the layer shows right under that window
-// rather than above all. With nothing to fly, or with reduced motion, it
-// all runs at once.
-func (f *flights) run(d *display, departing, arriving []catalog.Window, from map[winapi.HWND]pose, fade bool, below winapi.HWND, takeOff, land, stop, done func()) {
+// rather than above all. With hole, the layer stays above all and the
+// flights show nowhere over that window, as if they flew under it. With
+// nothing to fly, or with reduced motion, it all runs at once.
+func (f *flights) run(d *display, departing, arriving []catalog.Window, from map[winapi.HWND]pose, fade bool, below, hole winapi.HWND, takeOff, land, stop, done func()) {
 	scale := d.mon.Scale()
 	cardShadeAt := func(p pose) shade { return cardShade(float32(p.h / scale)) }
 	air := f.airborne(d)
@@ -507,6 +517,7 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		return
 	}
 	l := f.show(d)
+	l.hole = hole
 	if below != 0 && winapi.IsWindow(below) {
 		l.lower(below)
 	} else {
@@ -562,7 +573,7 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		l.win.Invalidate()
 		// A switch asked for meanwhile takes over now that every window
 		// is on the layer.
-		if q := f.a.queued; q != nil && q.d == d {
+		if f.a.queued[d] != nil {
 			t.stop()
 		}
 	}
@@ -686,6 +697,7 @@ func (f *flights) dragged(d *display, list []flight) {
 	if l.low {
 		l.raise()
 	}
+	l.hole = 0
 	l.drag = list
 	l.dragGen++
 	l.win.Invalidate()
@@ -725,7 +737,7 @@ func (l *layer) view(c *ui.Context) {
 		post(l.framed)
 	}
 	for i, f := range l.drag {
-		l.draw(c, i+len(l.list), f.still, f.from, 1, cardShade(float32(f.from.h/l.scale)))
+		l.draw(c, i+len(l.list), f.still, f.from, 1, cardShade(float32(f.from.h/l.scale)), 0, 0)
 	}
 	if len(l.list) == 0 || l.trip == nil {
 		return
@@ -748,15 +760,33 @@ func (l *layer) view(c *ui.Context) {
 			t.start = now
 		}
 		p = t.progress(now)
+		t.frames++
+		if !t.last.IsZero() {
+			t.gap = max(t.gap, now.Sub(t.last))
+		}
+		t.last = now
+		if t.frames == 1 {
+			t.painted = stripPaint
+		}
 		if p < 1 {
 			c.AnimationFrame()
 		} else if !t.arrived {
 			t.arrived = true
+			debugf("flights: %d frames in %v, longest gap %v, strips painted for %v, low=%v hole=%v",
+				t.frames, now.Sub(t.start).Round(time.Millisecond), t.gap.Round(100*time.Microsecond),
+				(stripPaint - t.painted).Round(100*time.Microsecond), l.low, l.hole != 0)
 			post(t.land)
 		}
 	}
 	e := flightEase(p)
 	fg := winapi.Foreground()
+	hole, cut := l.holeRect()
+	type still struct {
+		at pose
+		op float32
+		sh shade
+	}
+	stills := make([]still, len(l.list))
 	for i, f := range l.list {
 		at := f.at(e)
 		op := f.opacity(p, e)
@@ -767,10 +797,11 @@ func (l *layer) view(c *ui.Context) {
 		}
 		if f.own != nil {
 			// The app's own shadow shows the more, the nearer the flight
-			// is to the window's size and place.
+			// is to the window's size and place. Its window is under the
+			// layer, above the hole's: none shows while there is one.
 			near := 0.0
 			switch {
-			case !casting:
+			case !casting || cut:
 			case f.lands:
 				near = e
 			default:
@@ -778,7 +809,22 @@ func (l *layer) view(c *ui.Context) {
 			}
 			f.own.show(l.rect, at, near*float64(op))
 		}
-		l.draw(c, i, f.still, at, op, sh)
+		stills[i] = still{at, op, sh}
+	}
+	if !cut {
+		for i, s := range stills {
+			l.draw(c, i, l.list[i].still, s.at, s.op, s.sh, 0, 0)
+		}
+	} else {
+		// The flights show in the bands around the hole, each clipping
+		// them to itself.
+		for b, r := range around(ui.Rect{W: float32(float64(l.rect.W()) / l.scale), H: float32(float64(l.rect.H()) / l.scale)}, hole) {
+			ui.Box(c.Key(-1-b)).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).Clip().Children(func() {
+				for i, s := range stills {
+					l.draw(c, i, l.list[i].still, s.at, s.op, s.sh, r.X, r.Y)
+				}
+			})
+		}
 	}
 	// The icons fade in part of the way and hold until the strip draws its own.
 	iconOp := float32(min(max((p-iconRevealPoint)*float64(flightTime)/float64(fadeQuick.Duration), 0), 1))
@@ -791,11 +837,44 @@ func (l *layer) view(c *ui.Context) {
 	}
 }
 
+// holeRect is where the hole's window shows on the layer, in its DIPs, and
+// whether the flights must stay clear of it now. It follows the window as
+// it is dragged, frame by frame.
+func (l *layer) holeRect() (ui.Rect, bool) {
+	if l.hole == 0 || !winapi.IsWindow(l.hole) {
+		return ui.Rect{}, false
+	}
+	r := winapi.FrameBounds(l.hole)
+	if r.Empty() || !r.Intersects(l.rect) {
+		return ui.Rect{}, false
+	}
+	k := float32(l.scale)
+	return ui.Rect{
+		X: float32(r.Left-l.rect.Left) / k, Y: float32(r.Top-l.rect.Top) / k,
+		W: float32(r.W()) / k, H: float32(r.H()) / k,
+	}, true
+}
+
+// around splits area less hole into the bands above and below the hole,
+// full width, and those left and right of it; empty ones are left out.
+func around(area, hole ui.Rect) []ui.Rect {
+	x0, y0 := max(hole.X, area.X), max(hole.Y, area.Y)
+	x1, y1 := min(hole.X+hole.W, area.X+area.W), min(hole.Y+hole.H, area.Y+area.H)
+	bands := []ui.Rect{
+		{X: area.X, Y: area.Y, W: area.W, H: y0 - area.Y},
+		{X: area.X, Y: y1, W: area.W, H: area.Y + area.H - y1},
+		{X: area.X, Y: y0, W: x0 - area.X, H: y1 - y0},
+		{X: x1, Y: y0, W: area.X + area.W - x1, H: y1 - y0},
+	}
+	return slices.DeleteFunc(bands, func(r ui.Rect) bool { return r.W <= 0 || r.H <= 0 })
+}
+
 // draw shows a window's still at a pose given in screen pixels, casting
-// sh; the zero shade casts none.
-func (l *layer) draw(c *ui.Context, key int, still *ui.Bitmap, at pose, op float32, sh shade) {
-	x := float32((at.x - float64(l.rect.Left)) / l.scale)
-	y := float32((at.y - float64(l.rect.Top)) / l.scale)
+// sh; the zero shade casts none. ox and oy are where the element it is
+// drawn in sits on the layer.
+func (l *layer) draw(c *ui.Context, key int, still *ui.Bitmap, at pose, op float32, sh shade, ox, oy float32) {
+	x := float32((at.x-float64(l.rect.Left))/l.scale) - ox
+	y := float32((at.y-float64(l.rect.Top))/l.scale) - oy
 	w, h := float32(at.w/l.scale), float32(at.h/l.scale)
 	radius := max(min(h*0.045, 8), 3)
 	img := ui.Image(c.Key(key), still).Absolute().Left(x).Top(y).Size(w, h).Fit(ui.FillBox).Radius(radius)

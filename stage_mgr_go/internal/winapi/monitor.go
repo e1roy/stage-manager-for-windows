@@ -165,6 +165,12 @@ func FitOnScreen(r Rect) Rect {
 	return fitInto(r, MonitorInfo(MonitorFromRect(r)).Work)
 }
 
+// FitInto moves a rectangle as little as it takes into the work area of
+// display m.
+func FitInto(r Rect, m HMONITOR) Rect {
+	return fitInto(r, MonitorInfo(m).Work)
+}
+
 // fitInto moves r as little as it takes into area. One larger than area
 // keeps its top left corner there, where its title bar is.
 func fitInto(r, area Rect) Rect {

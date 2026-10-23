@@ -200,21 +200,13 @@ func TestDroppingPartOfASetLeavesTheRest(t *testing.T) {
 	d.Strip([]string{"code", "chrome", "mail", "music"})
 	d.Switch(append(d.Stage(), "chrome"), t0)
 	d.Switch([]string{"music"}, t0)
-	d.Switch(d.Dropped("chrome", false), t0)
+	d.Switch([]string{"chrome"}, t0)
 	if got, want := d.Stage(), []string{"chrome"}; !slices.Equal(got, want) {
 		t.Fatalf("stage %v, want %v", got, want)
 	}
 	got := d.Strip([]string{"music", "code", "chrome", "mail"})
 	if want := [][]string{{"mail"}, {"music"}, {"code"}}; !equalSets(got, want) {
 		t.Fatalf("strip %v, want %v", got, want)
-	}
-}
-
-func TestDroppedCompanionJoinsTheStage(t *testing.T) {
-	var d Display
-	d.Init("files", t0)
-	if got, want := d.Dropped("svn", true), []string{"files", "svn"}; !slices.Equal(got, want) {
-		t.Fatalf("dropped %v, want %v", got, want)
 	}
 }
 

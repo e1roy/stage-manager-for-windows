@@ -19,9 +19,24 @@ func (a *App) hookEvents() {
 		[2]uint32{winapi.EventSystemMoveSizeStart, winapi.EventSystemMoveSizeEnd},
 		[2]uint32{winapi.EventSystemMinimizeEnd, winapi.EventSystemMinimizeEnd},
 		[2]uint32{winapi.EventObjectCreate, winapi.EventObjectHide},
-		[2]uint32{winapi.EventObjectLocationChange, winapi.EventObjectNameChange},
+		[2]uint32{winapi.EventObjectNameChange, winapi.EventObjectNameChange},
 		[2]uint32{winapi.EventObjectCloaked, winapi.EventObjectUncloaked},
 	)
+	a.watchMoves(true)
+}
+
+// watchMoves turns the events of windows moving on or off. A drag sends
+// one for every step, and while they keep coming the frames of the flight
+// layers, painted only once nothing else waits, starve: during a drag the
+// pointer poll follows the window instead.
+func (a *App) watchMoves(on bool) {
+	switch {
+	case on && a.unhookMoves == nil:
+		a.unhookMoves = winapi.AddWinEventHook(winapi.EventObjectLocationChange, winapi.EventObjectLocationChange)
+	case !on && a.unhookMoves != nil:
+		a.unhookMoves()
+		a.unhookMoves = nil
+	}
 }
 
 func (a *App) onWinEvent(event uint32, h winapi.HWND) {
@@ -34,6 +49,9 @@ func (a *App) onWinEvent(event uint32, h winapi.HWND) {
 		return
 	case winapi.EventSystemMoveSizeStart:
 		a.moving.h, a.moving.from = h, winapi.WindowRect(h)
+		a.moving.home = a.displayByHandle(winapi.MonitorFromRect(winapi.FrameBounds(h)))
+		a.moving.at, a.moving.over, a.moving.stage = a.moving.home, nil, nil
+		a.watchMoves(false)
 		return
 	case winapi.EventObjectCreate:
 		if winapi.ClassName(h) == peekClass {
@@ -62,14 +80,77 @@ func (a *App) onWinEvent(event uint32, h winapi.HWND) {
 	a.refreshSoon()
 }
 
+// dwell is how long a window dragged onto another display rests there
+// before the stage there makes way, so that one only passing over, on to
+// a third display or back, does not set it flying.
+const dwell = 150 * time.Millisecond
+
+// dragOver makes way for a window dragged onto another display, as macOS
+// does: the stage there flies into the strip once the window comes over,
+// and back out should the window leave again before it is let go.
+func (a *App) dragOver() {
+	if !a.ready || a.moving.h == 0 {
+		return
+	}
+	// By its visible frame, as displayOf goes: a switch must not take the
+	// window for one of the stage it leaves, and park it under the pointer.
+	// Not by its size: crossing to a display of another DPI resizes it.
+	d := a.displayByHandle(winapi.MonitorFromRect(winapi.FrameBounds(a.moving.h)))
+	if d != a.moving.at {
+		a.moving.at, a.moving.since = d, time.Now()
+	}
+	if d == a.moving.over {
+		return
+	}
+	if o := a.moving.over; o != nil {
+		a.moving.over = nil
+		a.switchStage(o, a.moving.stage, a.moving.h, false, false)
+	}
+	if d == nil || d == a.moving.home || !a.managed(d) || !a.settings.HideInactive {
+		return
+	}
+	if wait := dwell - time.Since(a.moving.since); wait > 0 {
+		if a.moving.dwell == nil {
+			a.moving.dwell = after(wait, func() {
+				a.moving.dwell = nil
+				a.dragOver()
+			})
+		}
+		return
+	}
+	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == a.moving.h })
+	if i < 0 {
+		return
+	}
+	w := a.windows[i]
+	stage := a.heading(d)
+	if slices.Contains(stage, w.App) {
+		return
+	}
+	a.moving.over, a.moving.stage = d, stage
+	a.switchStage(d, []string{w.App}, a.moving.h, false, false)
+}
+
 // windowMoved puts the app of a window moved to another display on that
 // display's stage: the user put it there to use it, so it must not be taken
-// for a stray and parked. A window dragged into the strip takes its app off
+// for a stray and parked. A window dragged into a strip takes its app off
 // the stage instead.
 func (a *App) windowMoved(h winapi.HWND) {
-	from, moved := a.moving.from, a.moving.h == h
-	a.moving.h = 0
-	if a.busy || !a.ready || a.park.IsParked(h) {
+	from, home, moved := a.moving.from, a.moving.home, a.moving.h == h
+	if moved {
+		a.dragOver()
+	}
+	over, stage := a.moving.over, a.moving.stage
+	if a.moving.dwell != nil {
+		a.moving.dwell.Stop()
+	}
+	a.moving.h, a.moving.home, a.moving.at, a.moving.over, a.moving.stage, a.moving.dwell = 0, nil, nil, nil, nil, nil
+	a.watchMoves(true)
+	if a.settings.Mode == settings.Floating && a.coverTimer == nil {
+		// Unseen during the drag.
+		a.coverTimer = after(50*time.Millisecond, a.updateCovered)
+	}
+	if !a.ready || a.park.IsParked(h) {
 		return
 	}
 	a.windows = a.cat.Windows()
@@ -78,16 +159,71 @@ func (a *App) windowMoved(h winapi.HWND) {
 		return
 	}
 	w := a.windows[i]
-	// A resize that ends over the strip is no drag into it.
-	if r := winapi.WindowRect(h); moved && r.W() == from.W() && r.H() == from.H() {
-		if d := a.stripUnder(winapi.Cursor()); d != nil && d.model.OnStage(w.App) {
-			a.sendToStrip(d, w, from)
+	if d := a.stripUnder(winapi.Cursor()); moved && d != nil {
+		switch {
+		case d != home && a.settings.HideInactive:
+			if d != over {
+				stage = a.heading(d)
+			}
+			a.leave(home, w)
+			a.sendAcross(d, w, stage)
 			return
+		case d == home && slices.Contains(a.heading(d), w.App):
+			// A resize that ends over the strip is no drag into it.
+			if r := winapi.WindowRect(h); r.W() == from.W() && r.H() == from.H() {
+				a.sendToStrip(d, w, from)
+				return
+			}
 		}
 	}
-	if d := a.displayOf(w); d != nil && a.managed(d) && !d.model.OnStage(w.App) {
-		a.switchStage(d, d.model.Dropped(w.App, a.settings.Companion(w.Exe)), w.HWND, false, true)
+	d := a.displayOf(w)
+	if d != home {
+		a.leave(home, w)
 	}
+	// A stage that did not make way during the drag, as one whose windows
+	// are never hidden or one let go of at once, takes the window now.
+	if d != nil && a.managed(d) && !slices.Contains(a.heading(d), w.App) {
+		a.switchStage(d, []string{w.App}, w.HWND, false, false)
+	}
+}
+
+// leave lets display d go of the app of window w, just moved off it, at
+// once rather than once its stage settles, unless a window of the app
+// stays there: should the stage be left empty, the one before comes back.
+func (a *App) leave(d *display, w catalog.Window) {
+	if d == nil || !d.model.OnStage(w.App) || slices.ContainsFunc(a.windows, func(o catalog.Window) bool {
+		return o.App == w.App && o.HWND != w.HWND && a.displayOf(o) == d
+	}) {
+		return
+	}
+	d.model.Leave(w.App)
+	if d.model.Empty() {
+		d.refill = true
+	}
+}
+
+// followMoved puts the app of the window in front on the stage of its
+// display, should it have moved there without a drag, as with
+// Win+Shift+Arrow or by itself: it takes the stage as a dropped window
+// does, rather than be parked for a stray once it loses the focus. It
+// reports whether it started a switch.
+func (a *App) followMoved() bool {
+	if !a.settings.HideInactive || a.moving.h != 0 || a.fg.h != 0 || a.fg.timer != nil {
+		return false
+	}
+	fg := catalog.RootOwner(winapi.Foreground())
+	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == fg })
+	if i < 0 || a.park.IsParked(fg) {
+		return false
+	}
+	w := a.windows[i]
+	d := a.displayOf(w)
+	if d == nil || !a.managed(d) || d.model.OnStage(w.App) || d.model.Settling(time.Now()) {
+		return false
+	}
+	debugf("%q moved to %s", w.Title, d.mon.Device)
+	a.switchStage(d, []string{w.App}, w.HWND, false, false)
+	return true
 }
 
 // stripUnder returns the display whose strip shows under a point.
@@ -104,7 +240,7 @@ func (a *App) stripUnder(p winapi.Point) *display {
 // to where the drag began, for when its app returns.
 func (a *App) sendToStrip(d *display, w catalog.Window, from winapi.Rect) {
 	debugf("%q dragged into the strip", w.Title)
-	next := slices.DeleteFunc(d.model.Stage(), func(app string) bool { return app == w.App })
+	next := slices.DeleteFunc(a.heading(d), func(app string) bool { return app == w.App })
 	if a.settings.HideInactive {
 		a.dropHomes[w.HWND] = from
 	} else {
@@ -113,6 +249,19 @@ func (a *App) sendToStrip(d *display, w catalog.Window, from winapi.Rect) {
 			winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
 	}
 	a.switchStage(d, next, 0, true, false)
+}
+
+// sendAcross puts the app of a window dragged into the strip of another
+// display into a card there, and the stage there back as it was before
+// the window came over. The window moves onto that display, clear of the
+// strip, for when its app comes out of the card.
+func (a *App) sendAcross(d *display, w catalog.Window, stage []string) {
+	debugf("%q dragged into the strip of %s", w.Title, d.mon.Device)
+	f := winapi.FitInto(w.Frame, d.mon.Handle)
+	winapi.SetWindowPos(w.HWND, 0, w.Rect.Left+f.Left-w.Frame.Left, w.Rect.Top+f.Top-w.Frame.Top, 0, 0,
+		winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
+	next := slices.DeleteFunc(slices.Clone(stage), func(app string) bool { return app == w.App })
+	a.switchStage(d, next, 0, false, false)
 }
 
 func (a *App) isListed(h winapi.HWND) bool {
@@ -270,6 +419,9 @@ func (a *App) poll() {
 	}
 	cur := winapi.Cursor()
 	now := time.Now()
+	if a.moving.h != 0 {
+		a.dragOver()
+	}
 	a.watchTaskbar(cur)
 	for _, d := range a.displays {
 		if d.strip != nil {
