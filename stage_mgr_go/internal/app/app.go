@@ -686,6 +686,19 @@ func (a *App) redraw() {
 	}
 }
 
+// paintStrips has the strips draw the frames they asked for now. A window
+// asks for a frame by invalidating itself, and Windows hands WM_PAINT to
+// the top-most window waiting for one first: a flight layer animating above
+// them always is, and the strips would not draw again until it stops, their
+// cards frozen mid-slide and then jumping into place as the flights land.
+func (a *App) paintStrips() {
+	for _, d := range a.displays {
+		if d.strip != nil && d.strip.visible {
+			winapi.PaintNow(d.strip.hwnd)
+		}
+	}
+}
+
 // tr returns the words of the language the settings choose.
 func (a *App) tr() *i18n.Strings {
 	l := a.settings.Language

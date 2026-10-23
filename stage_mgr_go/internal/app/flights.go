@@ -224,6 +224,9 @@ type layer struct {
 	trip    *trip
 	drag    []flight // held where their from is, under the pointer
 	dragGen int
+	// framed runs after each frame the layer draws, for the strips below
+	// it to draw theirs (App.paintStrips).
+	framed func()
 }
 
 // flights runs the flights of switches, on a layer per display.
@@ -239,8 +242,8 @@ func (f *flights) layer(d *display) *layer {
 	if l != nil {
 		return l
 	}
-	l = &layer{}
-	pane := func(view func(*ui.Context)) (*mygo.Window, winapi.HWND) {
+	l = &layer{framed: f.a.paintStrips}
+	pane :=func(view func(*ui.Context)) (*mygo.Window, winapi.HWND) {
 		win := mygo.NewFlyout(mygo.FlyoutOptions{Tray: f.a.tray, Hidden: true, Width: 400, Height: 400, Content: ui.View(view)})
 		h := winapi.HWND(win.NativeHandle())
 		win.OnClose(func(e *mygo.CloseEvent) {
@@ -717,6 +720,10 @@ func lerp(a, b, t float64) float64 { return a + (b-a)*t }
 
 func (l *layer) view(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
+	if l.framed != nil {
+		// Posted, it runs once this frame is done.
+		post(l.framed)
+	}
 	for i, f := range l.drag {
 		l.draw(c, i+len(l.list), f.still, f.from, 1, cardShade(float32(f.from.h/l.scale)))
 	}
