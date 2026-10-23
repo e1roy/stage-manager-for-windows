@@ -65,6 +65,7 @@ stage_mgr_go/
     app/       Stage Manager for Windows 本体，全部运行在 MyGo 主线程
       app.go          App/display/group/set 结构、显示器同步、refresh、初始舞台、游离/逃逸窗口
       events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询
+      drag.go         拖动窗口：拖到另一台显示器时那边的舞台让位、松手、拖进侧边栏、键盘移动窗口
       switch.go       舞台切换、真实窗口交接（handover）、切换排队/打断、卡片动作
       flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
       strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透
@@ -118,6 +119,7 @@ stage_mgr_go/
 - 飞行起飞与落地时窗口阴影“嘭”一下跳变：飞行代理的假阴影与真实 DWM 阴影在交接帧叠加。相关代码在 `flights.go`（`takeOffDelay`、`landingDelay`、`ownShadow`、`shade`）和 `switch.go` 的 `handover`。最近一次提交 `wip: checkpoint before shadow handover fixes` 就是为此做的检查点。
 - 侧边栏显示的是离场时的静帧（Windows 不绘制桌面外的窗口）；`PrintWindow` 拍不到内容的窗口显示为带图标的磨砂卡片。
 - 以管理员权限运行的窗口，非管理员的 Stage Manager for Windows 可能无法移动或激活。
+- 拖动窗口时，飞行层不能压到被拖窗口下面：那样系统很少把飞行层的画面送上屏幕，约 700ms 只有 30–40 帧。现在飞行层留在最上层，每帧避开被拖窗口所在的区域（`flights.go` 的 `hole`），看起来像从它下面飞过。`STAGEMANAGER_DEBUG` 下每次飞行结束记一行 `flights: N frames in ..., longest gap ...`，排查卡顿先看这一行。
 - 拍静帧（`PrintWindow` + `PW_RENDERFULLCONTENT`）会让部分应用闪一下，已确认的有 JetBrains IDE。IDEA 打开“查找引用”等弹窗时，前台会先切到弹窗（`SunAwtWindow`），约 10ms 后又切回主窗口（`SunAwtFrame`）。`events.go: onForeground` 原来会把主窗口当成“刚离开的窗口”去拍静帧，导致每次打开弹窗都闪。现在焦点只在同一进程内移动时不拍（`sameProcess`）。以后新增拍照时机时，不要在用户正在用的、舞台上的窗口上随便拍；`STAGEMANAGER_DEBUG` 下每次拍照都会记一行 `capture [...]`，可以用来排查。
 
 ## Git

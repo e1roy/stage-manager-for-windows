@@ -174,7 +174,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 			s.edgeSince = time.Time{}
 			// A window dragged over a strip that is out keeps it out,
 			// for the window to be dropped in.
-			if inside || s.shown && s.a.moving.h != 0 && s.rect.Contains(cur) {
+			if inside || s.shown && s.a.drag != nil && s.rect.Contains(cur) {
 				s.lastInside = now
 			}
 		}
