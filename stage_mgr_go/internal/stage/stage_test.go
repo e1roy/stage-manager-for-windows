@@ -112,11 +112,11 @@ func TestNewcomersEnterAtTopAndGoneLeave(t *testing.T) {
 	}
 }
 
-func TestJoinAndPrune(t *testing.T) {
+func TestPrune(t *testing.T) {
 	var d Display
 	d.Init("code", t0)
 	d.Strip([]string{"code", "chrome", "mail"})
-	d.Join("mail", t0)
+	d.Switch(append(d.Stage(), "mail"), t0)
 	if !d.OnStage("mail") || !d.OnStage("code") {
 		t.Fatalf("stage %v", d.Stage())
 	}
@@ -137,7 +137,7 @@ func TestStageLeavesAndReturnsAsOneSet(t *testing.T) {
 	var d Display
 	d.Init("code", t0)
 	d.Strip([]string{"code", "chrome", "mail", "music"})
-	d.Join("chrome", t0)
+	d.Switch(append(d.Stage(), "chrome"), t0)
 	if got := d.Strip([]string{"code", "chrome", "mail", "music"}); !equalSets(got, [][]string{{"mail"}, {"music"}}) {
 		t.Fatalf("strip %v", got)
 	}
@@ -165,8 +165,8 @@ func TestSetsLoseAppsThatGoAndSplit(t *testing.T) {
 	var d Display
 	d.Init("code", t0)
 	d.Strip([]string{"code", "chrome", "mail", "music"})
-	d.Join("chrome", t0)
-	d.Join("mail", t0)
+	d.Switch(append(d.Stage(), "chrome"), t0)
+	d.Switch(append(d.Stage(), "mail"), t0)
 	d.Switch([]string{"music"}, t0)
 	if got := d.Strip([]string{"music", "code", "chrome", "mail"}); !equalSets(got, [][]string{{"code", "chrome", "mail"}}) {
 		t.Fatalf("strip %v", got)
@@ -185,7 +185,7 @@ func TestSendingOneAppToTheStrip(t *testing.T) {
 	var d Display
 	d.Init("code", t0)
 	d.Strip([]string{"code", "chrome", "mail"})
-	d.Join("chrome", t0)
+	d.Switch(append(d.Stage(), "chrome"), t0)
 	// Chrome's window was dragged into the strip: it leaves on its own.
 	d.Switch([]string{"code"}, t0)
 	got := d.Strip([]string{"code", "chrome", "mail"})
@@ -194,17 +194,27 @@ func TestSendingOneAppToTheStrip(t *testing.T) {
 	}
 }
 
-func TestJoiningPartOfASetLeavesTheRest(t *testing.T) {
+func TestDroppingPartOfASetLeavesTheRest(t *testing.T) {
 	var d Display
 	d.Init("code", t0)
 	d.Strip([]string{"code", "chrome", "mail", "music"})
-	d.Join("chrome", t0)
+	d.Switch(append(d.Stage(), "chrome"), t0)
 	d.Switch([]string{"music"}, t0)
-	// A window of chrome moved onto the stage brings chrome alone.
-	d.Join("chrome", t0)
+	d.Switch(d.Dropped("chrome", false), t0)
+	if got, want := d.Stage(), []string{"chrome"}; !slices.Equal(got, want) {
+		t.Fatalf("stage %v, want %v", got, want)
+	}
 	got := d.Strip([]string{"music", "code", "chrome", "mail"})
-	if want := [][]string{{"mail"}, {"code"}}; !equalSets(got, want) {
+	if want := [][]string{{"mail"}, {"music"}, {"code"}}; !equalSets(got, want) {
 		t.Fatalf("strip %v, want %v", got, want)
+	}
+}
+
+func TestDroppedCompanionJoinsTheStage(t *testing.T) {
+	var d Display
+	d.Init("files", t0)
+	if got, want := d.Dropped("svn", true), []string{"files", "svn"}; !slices.Equal(got, want) {
+		t.Fatalf("dropped %v, want %v", got, want)
 	}
 }
 
@@ -238,7 +248,7 @@ func TestPreviousComesBackAsItsSet(t *testing.T) {
 	var d Display
 	d.Init("code", t0)
 	d.Strip([]string{"code", "chrome", "mail"})
-	d.Join("chrome", t0)
+	d.Switch(append(d.Stage(), "chrome"), t0)
 	d.Switch([]string{"mail"}, t0)
 	if p, want := d.Previous(), []string{"code", "chrome"}; !slices.Equal(p, want) {
 		t.Fatalf("previous %v, want %v", p, want)

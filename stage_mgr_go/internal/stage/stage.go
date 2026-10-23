@@ -149,15 +149,11 @@ func (d *Display) cameFrom() int {
 	return d.setIndex(d.above) + 1
 }
 
-// Join adds an app to the stage beside those already there. It leaves its
-// set; the others of the set stay in the strip.
-func (d *Display) Join(app string, now time.Time) {
-	if d.OnStage(app) {
-		return
+func (d *Display) Dropped(app string, companion bool) []string {
+	if companion {
+		return append(d.Stage(), app)
 	}
-	d.stage = append(d.stage, app)
-	d.without(app)
-	d.changedAt = now
+	return []string{app}
 }
 
 // Leave takes an app off the stage into a set of its own at the top of
