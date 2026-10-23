@@ -46,8 +46,6 @@ func (a *App) onWinEvent(event uint32, h winapi.HWND) {
 			return
 		}
 	case winapi.EventSystemMoveSizeEnd:
-		// A window the user moved to another display joins the stage
-		// there; one dragged into the strip leaves the stage.
 		a.windowMoved(h)
 	case winapi.EventObjectLocationChange:
 		// Moves of parked windows are ours. Others only matter for whether
@@ -88,7 +86,7 @@ func (a *App) windowMoved(h winapi.HWND) {
 		}
 	}
 	if d := a.displayOf(w); d != nil && a.managed(d) && !d.model.OnStage(w.App) {
-		d.model.Join(w.App, time.Now())
+		a.switchStage(d, d.model.Dropped(w.App, a.settings.Companion(w.Exe)), w.HWND, false, true)
 	}
 }
 
