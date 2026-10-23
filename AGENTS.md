@@ -123,5 +123,5 @@ stage_mgr_go/
 ## Git
 
 - 主分支 `main`，提交信息用 `feat:` / `fix:` / `chore:` / `wip:` 前缀。
-- 不要提交 `stage_mgr_go/build/`、`*.exe`、`其他项目参考代码/`、`.codebuddy/`、`.claude/`。
+- 不要提交 `stage_mgr_go/build/`、`*.exe`、`其他项目参考代码/`、`.codebuddy/`（已在 `.gitignore`）。`.claude/skills/` 是团队共用的 Claude skill，随仓库提交。
 - `.bat` 文件保持 CRLF（见 `.gitattributes`），且 bat 里有中文，开头需要 `chcp 65001`。
