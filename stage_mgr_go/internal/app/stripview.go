@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
@@ -61,10 +62,10 @@ func (s *strip) view(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	w, h := c.Size()
 	d.viewW, d.viewH = w, h
-	l := layoutStrip(len(d.sets), w, h, d.scroll)
+	l := layoutStrip(len(d.sets), w, h, d.scroll, float32(a.settings.Spacing))
 	if d.scroll > l.maxScroll(h) {
 		d.scroll = l.maxScroll(h)
-		l = layoutStrip(len(d.sets), w, h, d.scroll)
+		l = layoutStrip(len(d.sets), w, h, d.scroll, float32(a.settings.Spacing))
 	}
 	d.layout = l
 
@@ -84,7 +85,7 @@ func (s *strip) view(c *ui.Context) {
 	hits := s.hits[:0]
 	root.Children(func() {
 		if len(d.sets) == 0 && a.ready {
-			emptyHint(c, w, h)
+			emptyHint(c, a.tr(), w, h)
 		}
 		for i, set := range d.sets {
 			if b := s.card(c, set, l.cards[i]); b.W > 0 {
@@ -95,10 +96,10 @@ func (s *strip) view(c *ui.Context) {
 	s.hits = hits
 }
 
-func emptyHint(c *ui.Context, w, h float32) {
+func emptyHint(c *ui.Context, tr *i18n.Strings, w, h float32) {
 	ui.Column(c).Absolute().Left(0).Top(h/2-30).Size(w, 60).Center().Gap(4).Children(func() {
-		ui.Text(c, "舞台之外没有应用").FontSize(13).TextColor(ui.RGBA(255, 255, 255, 0.78)).Bold()
-		ui.Text(c, "打开的应用会出现在这里").FontSize(11).TextColor(ui.RGBA(255, 255, 255, 0.55))
+		ui.Text(c, tr.EmptyStrip).FontSize(13).TextColor(ui.RGBA(255, 255, 255, 0.78)).Bold()
+		ui.Text(c, tr.EmptyStripHint).FontSize(11).TextColor(ui.RGBA(255, 255, 255, 0.55))
 	})
 }
 
@@ -166,12 +167,9 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 		// the size the card cannot show.
 		a.media.preview(g.windows)
 	}
-	tilt := float32(cardTilt)
+	tilt, hoverTilt := cardTilts(a.settings.Tilt)
 	if hovered {
-		tilt = cardHoverTilt
-	}
-	if !a.settings.Perspective {
-		tilt = 0
+		tilt = hoverTilt
 	}
 	tilt = el.AnimateTo("tilt", tilt, ui.Snappy)
 	lift := float32(1)
@@ -212,19 +210,36 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	el.Translate(ox, oy).Opacity(op)
 
 	el.ContextMenu(func(m *ui.Menu) {
-		if m.Item("切换到舞台").Chosen() {
+		tr := a.tr()
+		if m.Item(tr.PickStage).Chosen() {
 			a.request(actPick, d, g)
 		}
-		if !d.model.Empty() && m.Item("加入当前舞台").Chosen() {
+		if !d.model.Empty() && m.Item(tr.JoinStage).Chosen() {
 			a.request(actJoin, d, g)
 		}
-		if len(g.apps) > 1 && m.Item("拆开组合").Chosen() {
+		if len(g.apps) > 1 && m.Item(tr.SplitSet).Chosen() {
 			a.request(actSplit, d, g)
 		}
+		// Companions are picked here, from the apps at hand, rather than
+		// typed into the settings by the name of their executable.
+		companion := func(m *ui.Menu, label string, app *group) {
+			if exe := app.front().Exe; exe != "" && m.Item(label).Checked(a.settings.Companion(exe)).Chosen() {
+				a.request(actCompanion, d, newSet([]*group{app}))
+			}
+		}
+		if len(g.apps) == 1 {
+			companion(m, tr.CompanionLabel, g.apps[0])
+		} else {
+			m.Submenu(tr.CompanionLabel, func(m *ui.Menu) {
+				for _, app := range g.apps {
+					companion(m, app.name, app)
+				}
+			})
+		}
 		m.Separator()
-		label := "关闭窗口"
+		label := tr.CloseWindow
 		if len(g.windows) > 1 {
-			label = "关闭全部窗口"
+			label = tr.CloseWindows
 		}
 		if m.Item(label).Chosen() {
 			a.request(actClose, d, g)

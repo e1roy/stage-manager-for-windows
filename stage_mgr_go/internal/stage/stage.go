@@ -19,6 +19,10 @@ type Display struct {
 	stage     []string   // apps on the stage, in the order they came
 	sets      [][]string // the strip, top first: the apps of each card
 	changedAt time.Time
+	// recent lists the apps that were switched off the stage, the last
+	// to leave first, for the stage to fall back on when what is on it
+	// closes.
+	recent []string
 }
 
 // OnStage reports whether an app is on the stage.
@@ -49,6 +53,19 @@ func (d *Display) SetOf(app string) []string {
 	return []string{app}
 }
 
+// Coming returns the apps on the stage once the user goes to a window of
+// app: its set, in place of those there. A companion, a tool used for a
+// moment beside the app it was opened from, joins them instead, unless it
+// is in a set with other apps: then the user is going back to that set.
+func (d *Display) Coming(app string, companion bool) []string {
+	if companion && !d.Empty() && !d.OnStage(app) {
+		if i := d.setIndex(app); i < 0 || len(d.sets[i]) == 1 {
+			return append(d.Stage(), app)
+		}
+	}
+	return d.SetOf(app)
+}
+
 func (d *Display) setIndex(app string) int {
 	return slices.IndexFunc(d.sets, func(s []string) bool { return slices.Contains(s, app) })
 }
@@ -73,6 +90,7 @@ func (d *Display) without(app string) {
 // strip follows the windows' z-order; apps that are gone leave their set.
 func (d *Display) Strip(present []string) [][]string {
 	d.drop(func(a string) bool { return !slices.Contains(present, a) })
+	d.recent = slices.DeleteFunc(d.recent, func(a string) bool { return !slices.Contains(present, a) })
 	var newcomers [][]string
 	for _, a := range present {
 		if !d.OnStage(a) && d.setIndex(a) < 0 && !slices.ContainsFunc(newcomers, func(s []string) bool { return s[0] == a }) {
@@ -98,6 +116,8 @@ func (d *Display) Switch(next []string, now time.Time) {
 	if len(leaving) > 0 {
 		slot := slices.IndexFunc(d.sets, func(s []string) bool { return slices.ContainsFunc(s, coming) })
 		d.sets = slices.Insert(d.sets, max(slot, 0), leaving)
+		d.recent = slices.DeleteFunc(d.recent, func(a string) bool { return slices.Contains(leaving, a) })
+		d.recent = slices.Insert(d.recent, 0, leaving...)
 	}
 	d.drop(coming)
 	d.stage = slices.Clone(next)
@@ -124,6 +144,20 @@ func (d *Display) Leave(app string) {
 	d.stage = slices.DeleteFunc(d.stage, func(a string) bool { return a == app })
 	d.without(app)
 	d.sets = slices.Insert(d.sets, 0, []string{app})
+	// Its windows closed: it is no stage to go back to.
+	d.recent = slices.DeleteFunc(d.recent, func(a string) bool { return a == app })
+}
+
+// Previous returns the set in the strip of the app last switched off the
+// stage, or nil: what comes back when the apps that took its place close,
+// as when the user went to them from the taskbar rather than from it.
+func (d *Display) Previous() []string {
+	for _, a := range d.recent {
+		if i := d.setIndex(a); i >= 0 {
+			return slices.Clone(d.sets[i])
+		}
+	}
+	return nil
 }
 
 // Split breaks the set of app in the strip into sets of one app each, in

@@ -1,17 +1,20 @@
 package app
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/ui"
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
+	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
+	"github.com/egoist/mygo/ui"
 )
 
 // TestSnapshots draws the strip and the settings window to PNG files in
@@ -42,7 +45,7 @@ func TestSnapshots(t *testing.T) {
 	for i, ap := range apps {
 		g := &group{app: ap.name, name: ap.name, z: i}
 		for j := 0; j < ap.windows; j++ {
-			w := catalog.Window{HWND: h, Title: ap.name, App: ap.name, Frame: winapi.Rect{Right: int32(1000 * ap.aspect), Bottom: 1000}}
+			w := catalog.Window{HWND: h, Title: ap.name, App: ap.name, Exe: `C:\Apps\` + ap.name + ".exe", Frame: winapi.Rect{Right: int32(1000 * ap.aspect), Bottom: 1000}}
 			if i != 4 { // the last app shows how a window without a still looks
 				bmp := ui.NewBitmap(fakeWindow(int(400*ap.aspect), 400, ap.hue, j))
 				a.media.stills[h] = &still{card: bmp, fly: bmp}
@@ -64,9 +67,12 @@ func TestSnapshots(t *testing.T) {
 
 	shoot := func(name string, view func(*ui.Context), w, h int, setup func(*ui.Tester)) {
 		tt := ui.NewTester(func(c *ui.Context) {
-			// The wallpaper behind the transparent strip.
-			w, h := c.Size()
-			ui.Box(c).Absolute().Left(0).Top(0).Size(w, h).Background(ui.Hex("#4a6178"))
+			// The wallpaper behind the transparent strip. The settings
+			// window has a background of its own.
+			if strings.HasPrefix(name, "strip") {
+				w, h := c.Size()
+				ui.Box(c).Absolute().Left(0).Top(0).Size(w, h).Background(ui.Hex("#4a6178"))
+			}
 			view(c)
 		}, w, h)
 		tt.Frame()
@@ -89,9 +95,27 @@ func TestSnapshots(t *testing.T) {
 		x, y := center(d.layout.cards[1])
 		tt.Move(x, y)
 	})
+	// One companion has a window open, and shows as its app.
+	a.settings.Companions = []string{"tortoiseproc", "notepad", `d:\tools\paint.exe`}
 	sw := &settingsWindow{a: a}
 	sw.load()
-	shoot("settings.png", sw.view, 620, 1100, nil)
+	dark := func(c *ui.Context) {
+		c.SetTheme(ui.DarkTheme())
+		sw.view(c)
+	}
+	for _, l := range i18n.Langs {
+		a.settings.Language = l
+		for i := range settingsIcons {
+			sw.tab = i
+			shoot(fmt.Sprintf("settings-%s-%d.png", l, i), sw.view, 620, 760, nil)
+			if l == i18n.SimplifiedChinese {
+				shoot(fmt.Sprintf("settings-dark-%d.png", i), dark, 620, 760, nil)
+			}
+		}
+	}
+	a.settings.Language = i18n.SimplifiedChinese
+	sw.tab = 1
+	shoot("settings-wide.png", sw.view, 1100, 600, nil)
 }
 
 func fakeWindow(w, h int, bg color.RGBA, k int) *image.RGBA {

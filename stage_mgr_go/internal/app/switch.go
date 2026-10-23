@@ -276,6 +276,7 @@ const (
 	actJoin
 	actSplit
 	actClose
+	actCompanion
 )
 
 // request carries out what a card asks for once the frame is built. Tests
@@ -297,6 +298,8 @@ func (a *App) request(act action, d *display, s *set) {
 			a.refresh()
 		case actClose:
 			a.closeApps(s)
+		case actCompanion:
+			a.toggleCompanion(s)
 		}
 	})
 }
@@ -320,6 +323,15 @@ func (a *App) closeApps(s *set) {
 		winapi.Close(w.HWND)
 	}
 	a.refreshSoon()
+}
+
+// toggleCompanion makes the app of a card a companion, or no longer one.
+func (a *App) toggleCompanion(s *set) {
+	exe := s.front().Exe
+	a.applySettings(a.settings.WithCompanion(exe, !a.settings.Companion(exe)))
+	if sw := a.settingsUI; sw != nil {
+		sw.win.Update(sw.load)
+	}
 }
 
 // arrange brings a display's strip and stage lists up to date with the

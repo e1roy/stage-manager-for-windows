@@ -156,3 +156,76 @@ func TestJoiningPartOfASetLeavesTheRest(t *testing.T) {
 		t.Fatalf("strip %v, want %v", got, want)
 	}
 }
+
+func TestPreviousIsTheLastStageLeft(t *testing.T) {
+	var d Display
+	d.Init("code", t0)
+	d.Strip([]string{"code", "chrome", "mail"})
+	if p := d.Previous(); p != nil {
+		t.Fatalf("previous %v before any switch", p)
+	}
+	// From the taskbar, to "mail" and then "chrome": "mail" left last.
+	d.Switch([]string{"mail"}, t0)
+	d.Switch([]string{"chrome"}, t0)
+	if p, want := d.Previous(), []string{"mail"}; !slices.Equal(p, want) {
+		t.Fatalf("previous %v, want %v", p, want)
+	}
+	// "chrome" closes: it is no stage to go back to, "mail" is.
+	d.Prune(func(a string) bool { return a != "chrome" }, t0.Add(time.Minute))
+	d.Strip([]string{"code", "mail"})
+	if p, want := d.Previous(), []string{"mail"}; !slices.Equal(p, want) {
+		t.Fatalf("previous %v, want %v", p, want)
+	}
+	// "mail" closes while in the strip: "code" is next.
+	d.Strip([]string{"code"})
+	if p, want := d.Previous(), []string{"code"}; !slices.Equal(p, want) {
+		t.Fatalf("previous %v, want %v", p, want)
+	}
+}
+
+func TestPreviousComesBackAsItsSet(t *testing.T) {
+	var d Display
+	d.Init("code", t0)
+	d.Strip([]string{"code", "chrome", "mail"})
+	d.Join("chrome", t0)
+	d.Switch([]string{"mail"}, t0)
+	if p, want := d.Previous(), []string{"code", "chrome"}; !slices.Equal(p, want) {
+		t.Fatalf("previous %v, want %v", p, want)
+	}
+}
+
+func TestCompanionJoinsTheStage(t *testing.T) {
+	var d Display
+	d.Init("files", t0)
+	d.Strip([]string{"files", "chrome"})
+	// A commit dialog opened from the file manager comes beside it.
+	if got, want := d.Coming("svn", true), []string{"files", "svn"}; !slices.Equal(got, want) {
+		t.Fatalf("coming %v, want %v", got, want)
+	}
+	if got, want := d.Coming("chrome", false), []string{"chrome"}; !slices.Equal(got, want) {
+		t.Fatalf("coming %v, want %v", got, want)
+	}
+	// On an empty stage it is the stage.
+	var e Display
+	if got, want := e.Coming("svn", true), []string{"svn"}; !slices.Equal(got, want) {
+		t.Fatalf("coming %v on an empty stage, want %v", got, want)
+	}
+}
+
+func TestCompanionInASetBringsTheSet(t *testing.T) {
+	var d Display
+	d.Init("files", t0)
+	d.Strip([]string{"files", "svn", "chrome"})
+	d.Switch(d.Coming("svn", true), t0)
+	// The user leaves for another app mid-commit and comes back to the
+	// dialog: the file manager comes back with it.
+	d.Switch([]string{"chrome"}, t0)
+	if got, want := d.Coming("svn", true), []string{"files", "svn"}; !slices.Equal(got, want) {
+		t.Fatalf("coming %v, want %v", got, want)
+	}
+	// Alone in the strip, it joins.
+	d.Split("svn")
+	if got, want := d.Coming("svn", true), []string{"chrome", "svn"}; !slices.Equal(got, want) {
+		t.Fatalf("coming %v, want %v", got, want)
+	}
+}

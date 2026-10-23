@@ -61,6 +61,7 @@ stage_mgr_go/
     parking/   停放/放回窗口 + 崩溃恢复日志
     stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）
     settings/  设置读取、归一化、原子保存（有单测）
+    i18n/      界面文字：简体中文、繁体中文、英文、日文各一张 Strings 表，FromLANGID 把 Windows 显示语言映射过来（有单测）
     app/       Stage Manager for Windows 本体，全部运行在 MyGo 主线程
       app.go          App/display/group/set 结构、显示器同步、refresh、初始舞台、游离/逃逸窗口
       events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询
@@ -94,6 +95,7 @@ stage_mgr_go/
 - **分层**：`winapi` 不持有应用状态；`stage` 不认识 HWND（规则改动先在 `stage` 里写测试）；纯几何放 `layout.go`。新逻辑放进对应层，别把 Win32 调用塞进 `stage`/`settings`。
 - **依赖**：除 MyGo 外不引入第三方依赖，不用 cgo。Windows 专用文件加 `//go:build windows`。
 - **设置**：新增设置项要同时改 `Settings`、`Default()`、`Normalize()`（如有范围）、`Equal/Clone`（如是引用类型）、`settingsview.go` 和 `applySettings`。
+- **界面文字**：用户看得到的字一律走 `a.tr()`（`i18n.Strings`），不要在代码里写死中文。新增文字要在 `i18n.Strings` 加字段并补齐四种语言，`TestComplete` 会检查缺失和格式动词是否一致。设置里语言为空表示跟随 Windows 显示语言。
 
 ## 代码风格
 
@@ -103,7 +105,7 @@ stage_mgr_go/
 
 ## 测试
 
-- 有单测的：`stage`、`settings`、`app/layout`、`app/stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`app/iconfit`、`app/peek`、`winapi/monitor`。
+- 有单测的：`stage`、`settings`、`i18n`、`app/layout`、`app/stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`app/iconfit`、`app/peek`、`winapi/monitor`。
 - `catalog`、`parking`、飞行动画、窗口交接**没有自动化测试**，改动后需要手动验证：
   - 固定模式和浮动模式各切换几次，包括快速连点打断正在进行的切换；
   - 多显示器（不同 DPI）下切换、把窗口拖到另一台显示器、把窗口拖进侧边栏；
@@ -116,6 +118,7 @@ stage_mgr_go/
 - 飞行起飞与落地时窗口阴影“嘭”一下跳变：飞行代理的假阴影与真实 DWM 阴影在交接帧叠加。相关代码在 `flights.go`（`takeOffDelay`、`landingDelay`、`ownShadow`、`shade`）和 `switch.go` 的 `handover`。最近一次提交 `wip: checkpoint before shadow handover fixes` 就是为此做的检查点。
 - 侧边栏显示的是离场时的静帧（Windows 不绘制桌面外的窗口）；`PrintWindow` 拍不到内容的窗口显示为带图标的磨砂卡片。
 - 以管理员权限运行的窗口，非管理员的 Stage Manager for Windows 可能无法移动或激活。
+- 拍静帧（`PrintWindow` + `PW_RENDERFULLCONTENT`）会让部分应用闪一下，已确认的有 JetBrains IDE。IDEA 打开“查找引用”等弹窗时，前台会先切到弹窗（`SunAwtWindow`），约 10ms 后又切回主窗口（`SunAwtFrame`）。`events.go: onForeground` 原来会把主窗口当成“刚离开的窗口”去拍静帧，导致每次打开弹窗都闪。现在焦点只在同一进程内移动时不拍（`sameProcess`）。以后新增拍照时机时，不要在用户正在用的、舞台上的窗口上随便拍；`STAGEMANAGER_DEBUG` 下每次拍照都会记一行 `capture [...]`，可以用来排查。
 
 ## Git
 

@@ -378,11 +378,8 @@ func (f *flights) cardPoses(d *display, ws []catalog.Window, live bool) map[wina
 		}
 		want[w.HWND] = true
 	}
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll)
-	rest := float32(0)
-	if f.a.settings.Perspective {
-		rest = cardTilt
-	}
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing))
+	rest, _ := cardTilts(f.a.settings.Tilt)
 	for i, set := range d.sets {
 		tilt, lift := rest, float32(1)
 		if st := d.cards[set.key]; live && st != nil && st.lift > 0 {
@@ -406,7 +403,7 @@ func (f *flights) landingIcons(d *display) []badge {
 	if s == nil || !s.visible || d.viewW == 0 {
 		return nil
 	}
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll)
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing))
 	var out []badge
 	for i, set := range d.sets {
 		if !d.landingOf(set) {
