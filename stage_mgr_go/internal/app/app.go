@@ -146,22 +146,9 @@ type App struct {
 	}
 	unhook   func()
 	stopPoll chan struct{}
-	// unhookMoves removes the hook of the events of windows moving, which
-	// is off during a drag.
-	unhookMoves func()
 
-	// moving is the window the user is moving, where it was when the move
-	// began and on which display; at is the display it is over and since
-	// when, over the one whose stage made way for it, and stage what was
-	// on that stage.
-	moving struct {
-		h              winapi.HWND
-		from           winapi.Rect
-		home, at, over *display
-		since          time.Time
-		dwell          *time.Timer
-		stage          []string
-	}
+	// drag is the window the user is moving, if any.
+	drag *drag
 	// dropHomes is where the windows dragged into a strip go back to.
 	dropHomes map[winapi.HWND]winapi.Rect
 	// peek is the shell's window for a peek at a taskbar thumbnail, while
@@ -539,12 +526,11 @@ func (a *App) refresh() {
 	a.media.forget(alive)
 	a.rescueLost(now)
 	var want []winapi.HWND
-	if a.moving.h != 0 && !winapi.IsWindow(a.moving.h) {
+	if a.drag != nil && !winapi.IsWindow(a.drag.h) {
 		// Closed mid-drag, with no end of the move to tell.
-		a.moving.h = 0
-		a.watchMoves(true)
+		a.drag = nil
 	}
-	dragging := a.moving.h != 0
+	dragging := a.drag != nil
 	for _, d := range a.displays {
 		if !a.managed(d) {
 			d.sets, d.onStage = nil, nil
@@ -717,17 +703,12 @@ func (a *App) redraw() {
 // them always is, and the strips would not draw again until it stops, their
 // cards frozen mid-slide and then jumping into place as the flights land.
 func (a *App) paintStrips() {
-	t0 := time.Now()
 	for _, d := range a.displays {
 		if d.strip != nil && d.strip.visible {
 			winapi.PaintNow(d.strip.hwnd)
 		}
 	}
-	stripPaint += time.Since(t0)
 }
-
-// stripPaint sums the time paintStrips took, for the debug log.
-var stripPaint time.Duration
 
 // tr returns the words of the language the settings choose.
 func (a *App) tr() *i18n.Strings {
@@ -793,7 +774,6 @@ func (a *App) shutdown() {
 	if a.unhook != nil {
 		a.unhook()
 	}
-	a.watchMoves(false)
 	if a.stopPoll != nil {
 		close(a.stopPoll)
 	}

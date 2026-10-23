@@ -173,12 +173,11 @@ type trip struct {
 	stopped   bool
 	stoppedAt float64
 	span      time.Duration // flightTime, or fadeTime with nothing but fades
-	// For the debug log: the frames drawn while flying, the longest wait
-	// between two and the strips' paint time.
-	frames  int
-	last    time.Time
-	gap     time.Duration
-	painted time.Duration
+	// For the debug log: the frames drawn while flying and the longest
+	// wait between two.
+	frames int
+	last   time.Time
+	gap    time.Duration
 
 	takeOff, land, stop func()
 }
@@ -765,16 +764,12 @@ func (l *layer) view(c *ui.Context) {
 			t.gap = max(t.gap, now.Sub(t.last))
 		}
 		t.last = now
-		if t.frames == 1 {
-			t.painted = stripPaint
-		}
 		if p < 1 {
 			c.AnimationFrame()
 		} else if !t.arrived {
 			t.arrived = true
-			debugf("flights: %d frames in %v, longest gap %v, strips painted for %v, low=%v hole=%v",
-				t.frames, now.Sub(t.start).Round(time.Millisecond), t.gap.Round(100*time.Microsecond),
-				(stripPaint - t.painted).Round(100*time.Microsecond), l.low, l.hole != 0)
+			debugf("flights: %d frames in %v, longest gap %v, low=%v hole=%v",
+				t.frames, now.Sub(t.start).Round(time.Millisecond), t.gap.Round(100*time.Microsecond), l.low, l.hole != 0)
 			post(t.land)
 		}
 	}
