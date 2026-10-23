@@ -23,7 +23,7 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 	if a.busy {
 		// A click does not wait for the switch running to end: it takes
 		// over, and the windows in the air turn where they are, as on macOS.
-		a.queued = &switchRequest{d: d, next: next, focus: focus, activate: activate, followed: followed}
+		a.queued[d] = &switchRequest{d: d, next: next, focus: focus, activate: activate, followed: followed}
 		a.flights.interrupt(d)
 		return
 	}
@@ -117,13 +117,25 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 		}
 		a.redraw()
 		// The windows fade under the one the user went to, unless that
-		// one has yet to come in from its card itself.
-		var below winapi.HWND
-		if followed && focus != 0 && !a.park.IsParked(focus) {
-			below = focus
+		// one has yet to come in from its card itself. They fly as if
+		// under one the user holds in a drag: the layer stays above all,
+		// as one under a window being dragged gets few frames, and they
+		// show nowhere over it.
+		var below, hole winapi.HWND
+		if focus != 0 && !a.park.IsParked(focus) {
+			switch {
+			case followed:
+				below = focus
+			case !activate:
+				hole = focus
+			}
 		}
-		h := handover{a: a, d: d, departing: departing, arriving: arriving, focus: focus, activate: activate}
-		a.flights.run(d, departing, arriving, from, followed, below, h.takeOff, h.land, h.stop, h.done)
+		front := below
+		if hole != 0 {
+			front = hole
+		}
+		h := handover{a: a, d: d, departing: departing, arriving: arriving, focus: focus, activate: activate, front: front}
+		a.flights.run(d, departing, arriving, from, followed, below, hole, h.takeOff, h.land, h.stop, h.done)
 	})
 }
 
@@ -143,6 +155,7 @@ type handover struct {
 	focus               winapi.HWND
 	activate            bool
 	early               bool
+	front               winapi.HWND // the window the others stay under
 }
 
 // takeOff runs once the flights cover the windows: the leaving windows go,
@@ -155,9 +168,9 @@ func (h *handover) takeOff() {
 		// A window dragged into the strip comes back where the drag began.
 		if r, ok := h.a.dropHomes[w.HWND]; ok {
 			h.a.park.Rehome(w.HWND, r)
+			delete(h.a.dropHomes, w.HWND)
 		}
 	}
-	clear(h.a.dropHomes)
 	if h.activate && h.focus != 0 && !winapi.IsIconic(h.focus) {
 		h.early = true
 		ok := winapi.Activate(h.focus)
@@ -184,6 +197,12 @@ func (h *handover) land() {
 	}
 	// Together, so that they come home in the order they flew in.
 	h.a.park.Unpark(parked...)
+	if h.front != 0 && len(parked) > 0 {
+		// They come home on top: the window they stay under goes back
+		// above them.
+		winapi.SetWindowPos(h.front, winapi.HwndTop, 0, 0, 0, 0,
+			winapi.SwpNoMove|winapi.SwpNoSize|winapi.SwpNoActivate|winapi.SwpAsyncWindowPos)
+	}
 	if h.activate && !h.early && h.focus != 0 {
 		ok := winapi.Activate(h.focus)
 		debugf("activate late %x ok=%v fg=%x", h.focus, ok, winapi.Foreground())
@@ -203,7 +222,7 @@ func (h *handover) land() {
 func (h *handover) stop() {
 	clear(h.d.landing)
 	h.a.busy, h.a.running = false, nil
-	h.a.runQueued()
+	h.a.runQueued(h.d)
 }
 
 // done ends the switch once the flights are gone.
@@ -211,7 +230,7 @@ func (h *handover) done() {
 	clear(h.d.landing)
 	h.a.busy, h.a.running = false, nil
 	h.a.refresh()
-	if h.a.runQueued() {
+	if h.a.runQueued(h.d) {
 		return
 	}
 	// A foreground change that came in meanwhile is handled now.
@@ -220,7 +239,7 @@ func (h *handover) done() {
 	}
 }
 
-// switchRequest is a switch asked for while another ran.
+// switchRequest is a switch asked for while another ran, one per display.
 type switchRequest struct {
 	d        *display
 	next     []string
@@ -229,13 +248,19 @@ type switchRequest struct {
 	followed bool
 }
 
-// runQueued starts the switch asked for while one ran, if any.
-func (a *App) runQueued() bool {
-	q := a.queued
+// runQueued starts a switch asked for while one ran, if any: first that of
+// display first, whose windows may hold in the air for it.
+func (a *App) runQueued(first *display) bool {
+	q := a.queued[first]
+	for i := 0; q == nil && i < len(a.displays); i++ {
+		q = a.queued[a.displays[i]]
+	}
 	if q == nil {
+		// Those of displays since gone.
+		clear(a.queued)
 		return false
 	}
-	a.queued = nil
+	delete(a.queued, q.d)
 	a.switchStage(q.d, q.next, q.focus, q.activate, q.followed)
 	return true
 }
@@ -244,7 +269,7 @@ func (a *App) runQueued() bool {
 // asked for meanwhile, else that of the switch running, which may not
 // have changed the model yet.
 func (a *App) heading(d *display) []string {
-	for _, r := range []*switchRequest{a.queued, a.running} {
+	for _, r := range []*switchRequest{a.queued[d], a.running} {
 		if r != nil && r.d == d {
 			return slices.Clone(r.next)
 		}
