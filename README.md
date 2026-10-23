@@ -70,3 +70,7 @@ See [stage_mgr_go/README.md](stage_mgr_go/README.md) for the code layout and deb
 ## Other
 
 No network access, no data collection. [MIT License](LICENSE).
+
+## Acknowledgements
+
+This project is forked from [renkai9418/stage-bar](https://github.com/renkai9418/stage-bar). Thanks to [@renkai9418](https://github.com/renkai9418) for the original work.
