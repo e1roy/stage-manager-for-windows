@@ -70,3 +70,7 @@ go run .
 ## 其他
 
 不联网，不收集任何数据。[MIT 许可证](LICENSE)。
+
+## 致谢
+
+本项目 fork 自 [renkai9418/stage-bar](https://github.com/renkai9418/stage-bar)，感谢 [@renkai9418](https://github.com/renkai9418) 的原始工作。
