@@ -1,6 +1,10 @@
 package app
 
-import "github.com/egoist/mygo/ui"
+import (
+	"math"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // Strip geometry in DIPs of the strip window. The cards share one left
 // edge and are centered as a group; they shrink as apps are added so the
@@ -10,14 +14,30 @@ const (
 	stripPadRight   = 22
 	stripMargin     = 28
 	minCardScale    = 0.46
-	cardTilt        = 24 // degrees a resting card is turned
-	cardHoverTilt   = 6  // and a hovered one
+	tiltStep        = 4 // degrees a resting card turns for each step of the tilt setting: the default 6 turns it 24°
 	cardPerspective = 640
 	maxStacked      = 3
 	maxIcons        = 3 // icons a card of several apps shows
 )
 
-// stripLayout places n cards in a strip of the given size.
+// cardTilts returns the degrees a resting card turns at a tilt setting, and
+// a hovered one, which turns a quarter of that to face the user.
+func cardTilts(level int) (rest, hover float32) {
+	rest = float32(level) * tiltStep
+	return rest, rest / 4
+}
+
+// turnedCard projects a w×h card turned deg degrees about its left edge,
+// seen from dist away: its right edge, gone back, comes to rx from the left
+// one, and rh above and below the middle.
+func turnedCard(w, h, deg, dist float32) (rx, rh float32) {
+	sin, cos := math.Sincos(float64(deg) * math.Pi / 180)
+	k := dist / (dist + w*float32(sin))
+	return w * float32(cos) * k, h / 2 * k
+}
+
+// stripLayout places n cards in a strip of the given size, gap DIPs apart
+// at full size; the gap shrinks with the cards.
 type stripLayout struct {
 	cards   []ui.Rect // the area each card's windows take, top first
 	scale   float32   // how much the cards shrank to fit, 1 at full size
@@ -25,10 +45,9 @@ type stripLayout struct {
 	extent  float32   // distance from one card to the next
 }
 
-func layoutStrip(n int, width, height, scroll float32) stripLayout {
+func layoutStrip(n int, width, height, scroll, gap float32) stripLayout {
 	pw := max(width-stripPadLeft-stripPadRight, 40)
 	ph := min(pw*0.66, 172)
-	gap := max(ph*0.2, 20)
 	extent := ph + gap
 	avail := max(height-2*stripMargin, 1)
 	s := float32(1)

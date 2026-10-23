@@ -98,10 +98,10 @@ func TestContextMenu(t *testing.T) {
 	x, y := center(s.d.layout.cards[0])
 	tt.RightClickAt(x, y)
 	tt.Frame()
-	if m := tt.Menu(); len(m) == 0 || m[0] != "切换到舞台" {
+	if m := tt.Menu(); len(m) == 0 || m[0] != s.a.tr().PickStage {
 		t.Fatalf("menu %v", m)
 	}
-	if err := tt.ChooseMenuItem("关闭窗口"); err != nil {
+	if err := tt.ChooseMenuItem(s.a.tr().CloseWindow); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -146,11 +146,34 @@ func TestSetCardSplits(t *testing.T) {
 	x, y := center(s.d.layout.cards[0])
 	tt.RightClickAt(x, y)
 	tt.Frame()
-	if err := tt.ChooseMenuItem("拆开组合"); err != nil {
+	if err := tt.ChooseMenuItem(s.a.tr().SplitSet); err != nil {
 		t.Fatalf("%v; menu %v", err, tt.Menu())
 	}
 	tt.Frame()
 	if len(*got) != 1 || (*got)[0] != (request{actSplit, "mail"}) {
 		t.Fatalf("requests %v", *got)
+	}
+}
+
+func TestMenuPicksCompanion(t *testing.T) {
+	s, got, tt := testStrip(t)
+	s.d.sets[0].apps[0].windows[0].Exe = `C:\Tools\mail.exe`
+	s.d.sets[0].windows[0].Exe = `C:\Tools\mail.exe`
+	x, y := center(s.d.layout.cards[0])
+	tt.RightClickAt(x, y)
+	tt.Frame()
+	if err := tt.ChooseMenuItem(s.a.tr().CompanionLabel); err != nil {
+		t.Fatalf("%v; menu %v", err, tt.Menu())
+	}
+	tt.Frame()
+	if len(*got) != 1 || (*got)[0] != (request{actCompanion, "mail"}) {
+		t.Fatalf("requests %v", *got)
+	}
+	// An app with no executable to tell it by has no such item.
+	x, y = center(s.d.layout.cards[1])
+	tt.RightClickAt(x, y)
+	tt.Frame()
+	if err := tt.ChooseMenuItem(s.a.tr().CompanionLabel); err == nil {
+		t.Fatal("an app without an executable can be a companion")
 	}
 }

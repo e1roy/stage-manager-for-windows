@@ -21,11 +21,12 @@ func (a *App) setUpTray() {
 }
 
 func (a *App) trayMenu() *mygo.Menu {
+	tr := a.tr()
 	return mygo.NewMenu([]*mygo.MenuItem{
-		{Label: "找回屏幕外的窗口", Click: func(*mygo.MenuItem, *mygo.Window) { a.rescueOffscreen() }},
-		{Label: "设置…", Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
+		{Label: tr.Rescue, Click: func(*mygo.MenuItem, *mygo.Window) { a.rescueOffscreen() }},
+		{Label: tr.Settings, Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
 		mygo.Separator(),
-		{Label: "退出", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
+		{Label: tr.Quit, Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
 	})
 }
 

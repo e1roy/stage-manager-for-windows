@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
+	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
 	"github.com/e1roy/stage_manager_for_windows/internal/parking"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/stage"
@@ -97,6 +98,9 @@ type display struct {
 	sets    []*set // the strip's cards, top first
 	onStage []*group
 	covered bool // a window on the stage covers the cards (floating mode)
+	// refill is set when the apps on the stage closed and left it empty,
+	// for the apps there before them to come back.
+	refill bool
 
 	cards  map[string]*cardState // per set key, what a card remembers between frames
 	scroll float32
@@ -159,6 +163,7 @@ type App struct {
 
 	tray       *mygo.Tray
 	trayIcon   []byte
+	sysLang    i18n.Lang // the language of Windows, for settings that follow it
 	settingsUI *settingsWindow
 	flights    *flights
 }
@@ -180,8 +185,10 @@ func Start(o Options) *App {
 		lost:      map[winapi.HWND]time.Time{},
 		dropHomes: map[winapi.HWND]winapi.Rect{},
 		trayIcon:  o.TrayIcon,
+		sysLang:   i18n.FromLANGID(winapi.UILanguage()),
 	}
 	a.settings = a.store.Load()
+	a.media.setQuality(a.settings.Quality)
 	// Windows a crashed run left off the desktop come back first.
 	logToFile(o.DataDir)
 	a.park.Logf = debugf
@@ -211,7 +218,7 @@ func Start(o Options) *App {
 
 // managed reports whether Stage Manager arranges the windows of a display.
 func (a *App) managed(d *display) bool {
-	return !a.settings.Paused && a.settings.DisplayEnabled(d.mon.Device)
+	return a.settings.DisplayEnabled(d.mon.Device)
 }
 
 func (a *App) displayByDevice(dev string) *display {
@@ -529,7 +536,9 @@ func (a *App) refresh() {
 				visible[g.app] = true
 			}
 		}
-		d.model.Prune(func(app string) bool { return visible[app] }, now)
+		if gone := d.model.Prune(func(app string) bool { return visible[app] }, now); len(gone) > 0 && d.model.Empty() {
+			d.refill = true
+		}
 		a.parkStrays(d, groups, now)
 		a.arrange(d, groups, now)
 		for _, s := range d.sets {
@@ -552,6 +561,47 @@ func (a *App) refresh() {
 		a.media.capture(want, false, 3*time.Second, a.redraw)
 	}
 	a.redraw()
+	a.refill()
+}
+
+// refill brings back the apps a display's stage had before those that
+// closed and left it empty, as macOS does. Windows usually does it for us:
+// closing a window activates the one activated before it, which the stage
+// follows. But a window the user went to from the taskbar, or that opened
+// from another app, was activated after the taskbar or that app, and
+// closing it hands the foreground back to them, not to the parked window
+// it took the place of.
+func (a *App) refill() {
+	for _, d := range a.displays {
+		if !d.refill {
+			continue
+		}
+		if !d.model.Empty() || !a.managed(d) {
+			d.refill = false
+			continue
+		}
+		if a.fg.timer != nil {
+			// The window Windows activated is yet to be followed; it may
+			// fill the stage itself.
+			a.refreshSoon()
+			return
+		}
+		d.refill = false
+		prev := d.model.Previous()
+		if prev == nil {
+			continue
+		}
+		// The apps come back in front only when nothing else is: a window
+		// the foreground went to on another display keeps it.
+		fg := catalog.RootOwner(winapi.Foreground())
+		i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == fg })
+		if i >= 0 && a.displayOf(a.windows[i]) == d {
+			continue
+		}
+		debugf("refill %s with %v, activate=%v", d.mon.Device, prev, i < 0)
+		a.switchStage(d, prev, 0, i < 0, false)
+		return
+	}
 }
 
 // refreshSoon coalesces the refreshes a burst of events asks for.
@@ -636,6 +686,15 @@ func (a *App) redraw() {
 	}
 }
 
+// tr returns the words of the language the settings choose.
+func (a *App) tr() *i18n.Strings {
+	l := a.settings.Language
+	if l == i18n.Auto {
+		l = a.sysLang
+	}
+	return i18n.For(l)
+}
+
 // applySettings takes new settings from the settings window.
 func (a *App) applySettings(s settings.Settings) {
 	s = s.Normalize()
@@ -647,10 +706,22 @@ func (a *App) applySettings(s settings.Settings) {
 	if err := a.store.Save(a.settings); err != nil {
 		log.Println("stagebar: saving settings:", err)
 	}
-	if old.Paused != s.Paused || old.HideInactive != s.HideInactive {
-		if s.Paused || !s.HideInactive {
-			a.park.RestoreAll()
+	if old.HideInactive && !s.HideInactive {
+		a.park.RestoreAll()
+	}
+	if old.Quality != s.Quality {
+		a.media.setQuality(s.Quality)
+	}
+	if old.Language != s.Language {
+		if a.tray != nil {
+			a.tray.SetMenu(a.trayMenu())
 		}
+		if a.settingsUI != nil {
+			a.settingsUI.win.SetTitle(a.tr().SettingsTitle)
+		}
+	}
+	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing {
+		a.redraw()
 	}
 	if old.Mode != s.Mode || old.Width != s.Width {
 		for _, d := range a.displays {
@@ -660,8 +731,8 @@ func (a *App) applySettings(s settings.Settings) {
 		}
 	}
 	a.syncDisplays()
-	// A display that just became managed starts with what shows there.
-	if (!old.Paused && s.Paused) || (old.Paused && !s.Paused) || (!old.HideInactive && s.HideInactive) {
+	// Hiding again starts the stages with what shows on the displays.
+	if !old.HideInactive && s.HideInactive {
 		a.ready = false
 		after(300*time.Millisecond, a.initStage)
 	}

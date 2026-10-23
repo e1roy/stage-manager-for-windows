@@ -25,7 +25,7 @@ func (a *App) hookEvents() {
 }
 
 func (a *App) onWinEvent(event uint32, h winapi.HWND) {
-	if a.quitting || a.settings.Paused {
+	if a.quitting {
 		return
 	}
 	switch event {
@@ -140,7 +140,11 @@ func (a *App) onForeground(h winapi.HWND) {
 		return
 	}
 	// The window the user left gets a fresh still, for when its app goes.
-	if prev := a.fg.prev; prev != 0 && prev != h && a.isListed(prev) && !a.park.IsParked(prev) {
+	// Not when the focus only moves to a popup or dialog of the same app:
+	// the app stays, and some apps flash when asked to draw themselves, as
+	// JetBrains IDEs do on every Find Usages popup. Should the app go after
+	// all, the switch takes the still.
+	if prev := a.fg.prev; prev != 0 && prev != h && a.isListed(prev) && !a.park.IsParked(prev) && !sameProcess(prev, h) {
 		if s := a.media.still(prev); s == nil || time.Since(s.at) > 1500*time.Millisecond {
 			a.media.capture([]winapi.HWND{prev}, false, time.Second, a.redraw)
 		}
@@ -162,6 +166,12 @@ func (a *App) onForeground(h winapi.HWND) {
 		a.fg.timer.Stop()
 	}
 	a.fg.timer = after(70*time.Millisecond, a.settleForeground)
+}
+
+func sameProcess(a, b winapi.HWND) bool {
+	pa, _ := winapi.ProcessID(a)
+	pb, _ := winapi.ProcessID(b)
+	return pa != 0 && pa == pb
 }
 
 // desktopClick returns the display whose wallpaper was just clicked, if
@@ -231,7 +241,9 @@ func (a *App) settleForeground() {
 	}
 	// The app comes with the apps of its set, as on macOS. The system
 	// already brought its window up: the stage it leaves fades under it.
-	a.switchStage(d, d.model.SetOf(w.App), w.HWND, false, true)
+	// A companion, as a TortoiseSVN dialog opened from the file manager,
+	// comes beside the stage instead and leaves it with its windows.
+	a.switchStage(d, d.model.Coming(w.App, a.settings.Companion(w.Exe)), w.HWND, false, true)
 }
 
 // startPolling follows the pointer for the strips: revealing a floating

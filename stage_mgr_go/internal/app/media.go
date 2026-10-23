@@ -7,22 +7,27 @@ import (
 	"sync"
 	"time"
 
+	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	xdraw "golang.org/x/image/draw"
-	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
-	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
-const (
-	// cardStillHeight is the most pixels a card needs of a window's height.
-	cardStillHeight = 640
-// flyBudget bounds the memory the stills flights draw take: a window on a
-// 5K display is some 59 MB at the size it shows, and one of those per app
-// would add up. The stills used longest ago fall back to their card's and
-// fly to the stage less sharp.
-	flyBudget = 128 << 20
-)
+// cardStillHeight is the most pixels a card needs of a window's height.
+const cardStillHeight = 640
+
+// flyBudgets bound the memory the stills flights draw take, by quality: a
+// window on a 5K display is some 59 MB at the size it shows, and one of
+// those per app would add up. The stills used longest ago fall back to
+// their card's and fly to the stage less sharp. Low keeps two such stills,
+// medium six and high some seventeen.
+var flyBudgets = map[settings.Quality]int{
+	settings.Low:    128 << 20,
+	settings.Medium: 384 << 20,
+	settings.High:   1 << 30,
+}
 
 // stillHeight is how tall a window's still is: the height the window shows
 // at, so that a flight to the stage is as sharp as the window it stands in
@@ -63,11 +68,15 @@ type media struct {
 	tried    map[winapi.HWND]time.Time
 	icons    map[string]*ui.Bitmap // by app
 	sem      chan struct{}
-	flyBytes int // what all the flight pictures take, against flyBudget
+	flyBytes int // what all the flight pictures take, against budget
+	budget   int
+	// full takes every still at the size the window shows, so that windows
+	// fly out of the stage as sharp as they fly in.
+	full bool
 }
 
 func newMedia() *media {
-	return &media{
+	m := &media{
 		stills:  map[winapi.HWND]*still{},
 		pending: map[winapi.HWND]bool{},
 		tried:   map[winapi.HWND]time.Time{},
@@ -75,6 +84,16 @@ func newMedia() *media {
 		// A few at a time: each asks an app to draw itself.
 		sem: make(chan struct{}, 3),
 	}
+	m.setQuality(settings.Low)
+	return m
+}
+
+// setQuality sets how sharp flights are and how much memory their stills
+// may take; a lower budget lets go of what is over it at once.
+func (m *media) setQuality(q settings.Quality) {
+	m.budget = flyBudgets[settings.Settings{Quality: q}.Normalize().Quality]
+	m.full = q == settings.Medium || q == settings.High
+	m.trim()
 }
 
 func (m *media) still(h winapi.HWND) *still { return m.stills[h] }
@@ -119,6 +138,11 @@ func (m *media) capture(hs []winapi.HWND, full bool, timeout time.Duration, done
 		}
 		return
 	}
+	// Read here: the goroutines must not touch the media.
+	full = full || m.full
+	// Some apps flash when asked to draw themselves: a capture nobody
+	// expected is worth seeing in the log.
+	debugf("capture %x full=%v", hs, full)
 	var mu sync.Mutex
 	var got []shot
 	var wg sync.WaitGroup
@@ -230,7 +254,7 @@ func shrink(img *image.RGBA, height int) *image.RGBA {
 // memory than the budget allows; those windows fly to the stage at their
 // card's size, which is less sharp.
 func (m *media) trim() {
-	for m.flyBytes > flyBudget {
+	for m.flyBytes > m.budget {
 		var oldest *still
 		for _, st := range m.stills {
 			if st.flyBytes > 0 && (oldest == nil || st.at.Before(oldest.at)) {
