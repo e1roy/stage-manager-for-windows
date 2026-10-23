@@ -51,6 +51,57 @@ func TestSwitchWithoutSlotEntersAtTop(t *testing.T) {
 	}
 }
 
+func TestSwitchWithoutSlotGoesBack(t *testing.T) {
+	var d Display
+	d.Init("", t0)
+	d.Strip([]string{"code", "chrome", "mail", "music"})
+	d.Switch(d.SetOf("chrome"), t0)
+	// The wallpaper was clicked: chrome goes back to its slot, not the top.
+	d.Switch(nil, t0)
+	got := d.Strip([]string{"code", "chrome", "mail", "music"})
+	if want := [][]string{{"code"}, {"chrome"}, {"mail"}, {"music"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// From the top card, it goes back to the top.
+	d.Switch(d.SetOf("code"), t0)
+	d.Switch(nil, t0)
+	got = d.Strip([]string{"code", "chrome", "mail", "music"})
+	if want := [][]string{{"code"}, {"chrome"}, {"mail"}, {"music"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+}
+
+func TestSwitchWithoutSlotGoesBackBelowTheSameSet(t *testing.T) {
+	var d Display
+	d.Init("", t0)
+	d.Strip([]string{"code", "chrome", "mail", "music"})
+	d.Switch(d.SetOf("mail"), t0)
+	// "music" takes the place of "mail", which takes its slot: "music" came
+	// from below "chrome", where "mail" is now.
+	d.Switch(d.SetOf("music"), t0)
+	d.Switch(nil, t0)
+	got := d.Strip([]string{"code", "chrome", "mail", "music"})
+	if want := [][]string{{"code"}, {"chrome"}, {"music"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// Joined by another app, the stage still goes back where it came from.
+	d.Switch(d.SetOf("chrome"), t0)
+	d.Switch(append(d.Stage(), "mail"), t0)
+	d.Switch(nil, t0)
+	got = d.Strip([]string{"code", "chrome", "mail", "music"})
+	if want := [][]string{{"code"}, {"chrome", "mail"}, {"music"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// The app it came from below is gone: it enters at the top.
+	d.Switch(d.SetOf("music"), t0)
+	d.Strip([]string{"music", "mail"})
+	d.Switch(nil, t0)
+	got = d.Strip([]string{"music", "mail"})
+	if want := [][]string{{"music"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+}
+
 func TestNewcomersEnterAtTopAndGoneLeave(t *testing.T) {
 	var d Display
 	d.Init("code", t0)

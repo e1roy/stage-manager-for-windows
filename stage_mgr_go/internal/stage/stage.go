@@ -16,8 +16,11 @@ const SettleTime = time.Second
 // Display is the stage of one display. An app is on the stage, in one
 // set of the strip, or nowhere.
 type Display struct {
-	stage     []string   // apps on the stage, in the order they came
-	sets      [][]string // the strip, top first: the apps of each card
+	stage []string   // apps on the stage, in the order they came
+	sets  [][]string // the strip, top first: the apps of each card
+	// above is where in the strip the apps on the stage came from: the
+	// first app of the set right above their card, or "" for the top.
+	above     string
 	changedAt time.Time
 	// recent lists the apps that were switched off the stage, the last
 	// to leave first, for the stage to fall back on when what is on it
@@ -108,20 +111,42 @@ func (d *Display) Strip(present []string) [][]string {
 // Switch makes next the apps on the stage. The apps leaving it go to the
 // strip together, as one set, in the slot of the first set coming in, as
 // on macOS, so the rest of the strip stays where it was; with no slot to
-// take they enter at the top. What is left of a set some of whose apps
-// came in stays a set.
+// take, as when the wallpaper is clicked, they go back where they came
+// from, or enter at the top. What is left of a set some of whose apps came
+// in stays a set.
 func (d *Display) Switch(next []string, now time.Time) {
 	coming := func(a string) bool { return slices.Contains(next, a) }
 	leaving := slices.DeleteFunc(slices.Clone(d.stage), coming)
+	slot := slices.IndexFunc(d.sets, func(s []string) bool { return slices.ContainsFunc(s, coming) })
+	above := d.above
+	if !slices.ContainsFunc(d.stage, coming) {
+		// A new stage, rather than apps joining the one there.
+		above = ""
+		if slot > 0 {
+			above = d.sets[slot-1][0]
+		}
+	}
 	if len(leaving) > 0 {
-		slot := slices.IndexFunc(d.sets, func(s []string) bool { return slices.ContainsFunc(s, coming) })
-		d.sets = slices.Insert(d.sets, max(slot, 0), leaving)
+		if slot < 0 {
+			slot = d.cameFrom()
+		}
+		d.sets = slices.Insert(d.sets, slot, leaving)
 		d.recent = slices.DeleteFunc(d.recent, func(a string) bool { return slices.Contains(leaving, a) })
 		d.recent = slices.Insert(d.recent, 0, leaving...)
 	}
 	d.drop(coming)
 	d.stage = slices.Clone(next)
+	d.above = above
 	d.changedAt = now
+}
+
+// cameFrom is the slot of the strip the apps on the stage came from: right
+// below the set that was above them, or the top once that app left the strip.
+func (d *Display) cameFrom() int {
+	if d.above == "" {
+		return 0
+	}
+	return d.setIndex(d.above) + 1
 }
 
 // Join adds an app to the stage beside those already there. It leaves its
@@ -195,7 +220,7 @@ func (d *Display) Prune(visible func(app string) bool, now time.Time) []string {
 // Init puts app, or nothing, on the stage without a transition, as the
 // app starts.
 func (d *Display) Init(app string, now time.Time) {
-	d.stage = nil
+	d.stage, d.above = nil, ""
 	if app != "" {
 		d.stage = []string{app}
 		d.without(app)

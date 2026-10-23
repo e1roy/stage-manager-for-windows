@@ -264,6 +264,10 @@ func Redraw(h HWND) {
 	procRedrawWindow.Call(uintptr(h), 0, 0, rdwInvalidate|rdwNoErase|rdwAllChildren|rdwFrame)
 }
 
+// PaintNow has a window of this thread paint at once, if it asked to be
+// painted, rather than when the message loop gets to it.
+func PaintNow(h HWND) { procUpdateWindow.Call(uintptr(h)) }
+
 // Close asks a window to close, as its close button does.
 func Close(h HWND) {
 	const wmClose = 0x0010
