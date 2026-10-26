@@ -91,6 +91,7 @@ type Strings struct {
 	Display                          string // %d: its number
 	DisplayDesc                      string // %d × %d: its pixels; %.0f%%: its scale
 	DisplayPrimary                   string
+	SideLeft, SideRight              string // the edge of a display its strip keeps to
 	Troubleshooting                  string
 	Rescue, RescueDesc, RescueButton string
 	RescueDone                       string // %d: how many windows

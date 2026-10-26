@@ -74,6 +74,37 @@ func TestDragOutJoinsStage(t *testing.T) {
 	}
 }
 
+// From a strip on the right, the stage is leftward: a card dragged that
+// way joins it, one dragged as far the other way does not.
+func TestRightStripDragsLeftToStage(t *testing.T) {
+	drag := func(dx float32) []request {
+		s, got, tt := testStrip(t)
+		s.a.settings.Sides = map[string]settings.Side{s.d.mon.Device: settings.Right}
+		tt.Frame()
+		x, y := center(s.d.layout.cards[0])
+		if x < 100 {
+			t.Fatalf("a card of a strip on the right at %v", x)
+		}
+		tt.Move(x, y)
+		tt.Frame()
+		tt.Press(x, y)
+		tt.Frame()
+		for i := 1; i <= 10; i++ {
+			tt.Move(x+float32(i)*dx/10, y)
+			tt.Frame()
+		}
+		tt.Release(x+dx, y)
+		tt.Frame()
+		return *got
+	}
+	if got := drag(-250); len(got) != 1 || got[0] != (request{actJoin, "mail"}) {
+		t.Fatalf("dragged toward the stage: requests %v", got)
+	}
+	if got := drag(250); len(got) != 0 {
+		t.Fatalf("dragged away from the stage: requests %v", got)
+	}
+}
+
 func TestShortDragReturnsWithoutClick(t *testing.T) {
 	s, got, tt := testStrip(t)
 	x, y := center(s.d.layout.cards[0])

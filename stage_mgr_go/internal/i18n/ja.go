@@ -24,6 +24,8 @@ var ja = Strings{
 	Display:            "ディスプレイ %d",
 	DisplayDesc:        "%d × %d · 拡大率 %.0f%%",
 	DisplayPrimary:     " · メインディスプレイ",
+	SideLeft:           "左側",
+	SideRight:          "右側",
 
 	Mode:         "表示方法",
 	ModeDesc:     "サイドバーとウインドウで画面をどう分け合うか。",

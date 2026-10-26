@@ -46,8 +46,8 @@ var (
 	white      = ui.RGB(255, 255, 255)
 	pillColor  = ui.RGBA(18, 18, 22, 0.72)
 	shadowSoft = ui.RGBA(0, 0, 0, 0.34)
-	// Cards slide to their places and come in from the left. They leave
-	// at once: a card that goes is either flying to the stage, where its
+	// Cards slide to their places and come in from the display's edge,
+	// here the left one. They leave at once: a card that goes is either flying to the stage, where its
 	// flight takes over, or an app that closed.
 	cardMotion = ui.ElementTransition{
 		Animation: &ui.Snappy,
@@ -62,17 +62,19 @@ func (s *strip) view(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	w, h := c.Size()
 	d.viewW, d.viewH = w, h
-	l := layoutStrip(len(d.sets), w, h, d.scroll, float32(a.settings.Spacing))
+	right := s.right()
+	l := layoutStrip(len(d.sets), w, h, d.scroll, float32(a.settings.Spacing), right)
 	if d.scroll > l.maxScroll(h) {
 		d.scroll = l.maxScroll(h)
-		l = layoutStrip(len(d.sets), w, h, d.scroll, float32(a.settings.Spacing))
+		l = layoutStrip(len(d.sets), w, h, d.scroll, float32(a.settings.Spacing), right)
 	}
 	d.layout = l
 
 	root := ui.Box(c).Absolute().Left(0).Top(0).Size(w, h)
 	out := float32(0)
 	if !s.shown {
-		out = -(w + 32)
+		// A floating strip slides out over its display's edge.
+		out = -(w + 32) * turnSign(right)
 	}
 	root.Translate(root.AnimateTo("reveal", out, ui.Snappy), 0)
 	root.HandleInput(func(ev ui.InputEvent) bool {
@@ -112,9 +114,15 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	// It enters where it lands rather than sliding in, so that it is in
 	// place when they get there.
 	landing := d.landingOf(g)
+	right := s.right()
+	sign := turnSign(right)
 	motion := cardMotion
 	if landing {
 		motion.Enter = nil
+	} else if right {
+		enter := *motion.Enter
+		enter.X = -enter.X
+		motion.Enter = &enter
 	}
 	el := ui.Box(c.Key(g.key)).Absolute().Left(box.X).Top(box.Y).Size(box.W, box.H).
 		Cursor(ui.CursorPointer).Transition(motion)
@@ -131,7 +139,9 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 			s.setDragging(true)
 		}
 	} else if st.dragging || st.dx != 0 || st.dy != 0 {
-		if st.dragging && st.dx > float32(a.settings.Width)*0.75 {
+		// Toward the stage is rightward, or leftward from a strip on the
+		// right.
+		if st.dragging && st.dx*sign > float32(a.settings.Width)*0.75 {
 			// The windows stay on the layer where they were let go until
 			// the switch flies them on.
 			d.dropPoses = st.poses
@@ -246,20 +256,23 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 		}
 	})
 
+	// The card scales and turns about its outer edge, the one by the
+	// display's edge.
 	local := ui.Rect{W: box.W, H: box.H}
-	stack := g.stack(local)
+	stack := g.stack(local, right)
+	originX := (1 - sign) / 2
 	el.Children(func() {
 		windows := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).
-			TransformOrigin(0, 0.5).Scale(lift, lift).RotateY(tilt).Perspective(cardPerspective).Opacity(shown)
+			TransformOrigin(originX, 0.5).Scale(lift, lift).RotateY(tilt*sign).Perspective(cardPerspective).Opacity(shown)
 		windows.Children(func() {
 			for i := len(stack) - 1; i >= 0; i-- {
 				s.windowStill(c, g, i, stack[i])
 			}
 		})
 		// The icons of a set's apps overlap a little, the first on top.
-		row := iconRow(stack[0], local, len(g.apps), float32(a.settings.IconScale))
+		row := iconRow(stack[0], local, len(g.apps), float32(a.settings.IconScale), right)
 		ir := row[len(row)-1]
-		overlay := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).TransformOrigin(0, 0.5).Scale(lift, lift).Opacity(iconOp)
+		overlay := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).TransformOrigin(originX, 0.5).Scale(lift, lift).Opacity(iconOp)
 		overlay.Children(func() {
 			for i := len(row) - 1; i >= 0; i-- {
 				if icon := a.media.icons[g.apps[i].app]; icon != nil {
@@ -267,10 +280,15 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 					ui.Image(c.Key(g.apps[i].app), icon).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H)
 				}
 			}
-			right := ir.X + ir.W
+			// The name follows the icons toward the stage.
 			label := ui.Text(c, g.title()).FontSize(12).Bold().TextColor(white).MaxLines(1).
-				Absolute().Left(right+4).Top(ir.Y+ir.H-24).MaxWidth(max(box.W-right, 60)).
-				Background(pillColor).Padding(3, 9).Radius(11)
+				Absolute().Top(ir.Y+ir.H-24).Background(pillColor).Padding(3, 9).Radius(11)
+			if right {
+				label.Right(box.W - ir.X + 4).MaxWidth(max(ir.X, 60))
+			} else {
+				end := ir.X + ir.W
+				label.Left(end + 4).MaxWidth(max(box.W-end, 60))
+			}
 			op := float32(0)
 			if hovered && !st.dragging {
 				op = 1
@@ -287,8 +305,9 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 // dragPoses puts the stills of a dragged card's windows on the flight
 // layer where the card shows, offset by the drag, and returns where.
 func (s *strip) dragPoses(g *set, box ui.Rect, ox, oy, lift, tilt float32) map[winapi.HWND]pose {
+	right := s.right()
 	card := ui.Rect{X: box.X + ox, Y: box.Y + oy, W: box.W, H: box.H}
-	stack := g.stack(card)
+	stack := g.stack(card, right)
 	poses := map[winapi.HWND]pose{}
 	var list []flight
 	for i := len(stack) - 1; i >= 0; i-- {
@@ -297,8 +316,8 @@ func (s *strip) dragPoses(g *set, box ui.Rect, ox, oy, lift, tilt float32) map[w
 		if st == nil {
 			continue
 		}
-		x, y, pw, ph := s.toScreen(lifted(card, stack[i], lift))
-		p := pose{x: x, y: y, w: pw, h: ph, tilt: tilt}
+		x, y, pw, ph := s.toScreen(lifted(card, stack[i], lift, right))
+		p := pose{x: x, y: y, w: pw, h: ph, tilt: tilt * turnSign(right)}
 		poses[w.HWND] = p
 		list = append(list, flight{still: st.fly, from: p})
 	}

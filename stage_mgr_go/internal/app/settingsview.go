@@ -386,6 +386,23 @@ func (sw *settingsWindow) generalPane(c *ui.Context, f form, tr *i18n.Strings) {
 			on := sw.s.DisplayEnabled(m.Device)
 			c.Key(m.Device)
 			f.row(c, fmt.Sprintf(tr.Display, i+1), desc, func() {
+				// Which edge the strip keeps to, beside whether there is
+				// one: a display whose neighbor is on its left may want it
+				// on the right, away from where the pointer crosses over.
+				side := 0
+				if sw.s.SideOf(m.Device) == settings.Right {
+					side = 1
+				}
+				if ui.Segmented(c.Key(m.Device+"/side"), &side, tr.SideLeft, tr.SideRight).Disabled(!on).Changed() {
+					if sw.s.Sides == nil {
+						sw.s.Sides = map[string]settings.Side{}
+					}
+					sw.s.Sides[m.Device] = settings.Left
+					if side == 1 {
+						sw.s.Sides[m.Device] = settings.Right
+					}
+					sw.apply()
+				}
 				if ui.Switch(c.Key(m.Device), &on).Changed() {
 					if sw.s.Displays == nil {
 						sw.s.Displays = map[string]bool{}

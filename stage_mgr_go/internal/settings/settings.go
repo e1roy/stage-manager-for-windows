@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -39,6 +40,17 @@ const (
 	// High keeps many more stills at the size windows show, so that apps
 	// switched to without a hover over their card still come in sharp.
 	High Quality = "high"
+)
+
+// Side is the edge of a display its strip keeps to.
+type Side string
+
+const (
+	// Left is where macOS keeps the strip.
+	Left Side = "left"
+	// Right mirrors it, for a display whose neighbor is on its left or a
+	// user who reaches for the right.
+	Right Side = "right"
 )
 
 // Limits of the adjustable values.
@@ -81,6 +93,9 @@ type Settings struct {
 	// Displays turns the strip off on some displays, by device name
 	// (\\.\DISPLAY2). Displays not listed have one.
 	Displays map[string]bool `json:"displays,omitempty"`
+	// Sides puts the strip of some displays on their right, by device
+	// name. Displays not listed keep it on the left.
+	Sides map[string]Side `json:"sides,omitempty"`
 	// Language of the words shown; Auto follows Windows.
 	Language i18n.Lang `json:"language,omitempty"`
 }
@@ -108,6 +123,14 @@ func Default() Settings {
 func (s Settings) DisplayEnabled(device string) bool {
 	on, listed := s.Displays[device]
 	return !listed || on
+}
+
+// SideOf returns the edge a display's strip keeps to.
+func (s Settings) SideOf(device string) Side {
+	if s.Sides[device] == Right {
+		return Right
+	}
+	return Left
 }
 
 // Normalize clamps values into their ranges and fills what is missing.
@@ -141,6 +164,18 @@ func (s Settings) Normalize() Settings {
 		}
 	}
 	s.Companions = companions
+	// Only the right is kept, as the left is where an unlisted display's
+	// strip is anyway: a strip moved there and back is as it was.
+	var sides map[string]Side
+	for k, v := range s.Sides {
+		if v == Right {
+			if sides == nil {
+				sides = map[string]Side{}
+			}
+			sides[k] = v
+		}
+	}
+	s.Sides = sides
 	return s
 }
 
@@ -199,13 +234,8 @@ func (s Settings) Equal(o Settings) bool {
 
 // Clone returns a copy that shares no map with s.
 func (s Settings) Clone() Settings {
-	if s.Displays != nil {
-		m := make(map[string]bool, len(s.Displays))
-		for k, v := range s.Displays {
-			m[k] = v
-		}
-		s.Displays = m
-	}
+	s.Displays = maps.Clone(s.Displays)
+	s.Sides = maps.Clone(s.Sides)
 	s.Companions = slices.Clone(s.Companions)
 	return s
 }

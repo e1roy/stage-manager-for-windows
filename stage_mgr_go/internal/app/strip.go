@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	edgeWidth    = 2 // pixels at a display's left edge that reveal a floating strip
+	edgeWidth    = 2 // pixels at a display's edge that reveal a floating strip
 	autoHide     = 700 * time.Millisecond
 	slideOutTime = 450 * time.Millisecond
 )
@@ -27,6 +27,7 @@ type strip struct {
 	bar  winapi.AppBar
 
 	rect    winapi.Rect // where the window is
+	placed  bool        // the side rect is on: true on the right
 	scale   float64     // the display's scale factor
 	visible bool        // the window shows
 	shown   bool        // the strip is in (a floating strip slides out)
@@ -40,7 +41,7 @@ type strip struct {
 	fullScreen   bool // a full-screen app is on the display
 	lastBar      time.Time
 	wasInside    bool
-	edgeSince    time.Time // when the pointer came to the left edge
+	edgeSince    time.Time // when the pointer came to the strip's edge
 	hits         []ui.Rect // the cards, in DIPs of the window, as last drawn
 }
 
@@ -75,16 +76,25 @@ func newStrip(a *App, d *display) *strip {
 	return s
 }
 
-// place puts the window where the mode wants it: in a band of the work
-// area it reserves, or over the left edge of the work area.
+// right reports whether the strip keeps to its display's right edge.
+func (s *strip) right() bool { return s.a.right(s.d) }
+
+// place puts the window where the mode and the side want it: in a band of
+// the work area it reserves, or over that edge of the work area.
 func (s *strip) place() {
+	right := s.right()
+	if s.bar.Registered() && right != s.placed {
+		// The band on the other edge goes back first, so that the shell
+		// does not keep both out of the work area.
+		s.bar.Remove()
+	}
 	mon := winapi.MonitorInfo(s.d.mon.Handle)
 	s.scale = mon.Scale()
 	width := int32(math.Round(s.a.settings.Width * s.scale))
 	var r winapi.Rect
 	if s.a.settings.Mode == settings.Fixed {
 		s.lastBar = time.Now()
-		r = s.bar.Reserve(mon.Monitor, width)
+		r = s.bar.Reserve(mon.Monitor, width, right)
 		s.shown = true
 	} else {
 		if s.bar.Registered() {
@@ -92,8 +102,11 @@ func (s *strip) place() {
 			mon = winapi.MonitorInfo(s.d.mon.Handle)
 		}
 		r = winapi.Rect{Left: mon.Work.Left, Top: mon.Work.Top, Right: mon.Work.Left + width, Bottom: mon.Work.Bottom}
+		if right {
+			r.Left, r.Right = mon.Work.Right-width, mon.Work.Right
+		}
 	}
-	s.rect = r
+	s.rect, s.placed = r, right
 	debugf("strip %s placed %+v scale=%.2f shown=%v", s.d.mon.Device, r, s.scale, s.shown)
 	if s.shown && !s.visible {
 		s.win.ShowInactive()
@@ -147,8 +160,8 @@ func (s *strip) message(msg uint32, wParam, lParam uintptr) (uintptr, bool) {
 	return 0, true
 }
 
-// poll follows the pointer: a floating strip comes out at the display's
-// left edge and goes once the pointer has left it, and clicks go through
+// poll follows the pointer: a floating strip comes out at its display's
+// edge and goes once the pointer has left it, and clicks go through
 // wherever no card is.
 func (s *strip) poll(cur winapi.Point, now time.Time) {
 	inside := s.visible && s.rect.Contains(cur) && s.overCard(cur)
@@ -160,9 +173,13 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 	s.wasInside = inside
 	if s.a.settings.Mode == settings.Floating {
 		m := s.d.mon.Monitor
-		if cur.X >= m.Left && cur.X < m.Left+edgeWidth && cur.Y >= m.Top && cur.Y < m.Bottom {
-			// Where another display lies to the left, the pointer crosses
-			// this edge on its way there: it has to rest a moment.
+		x0 := m.Left
+		if s.placed {
+			x0 = m.Right - edgeWidth
+		}
+		if cur.X >= x0 && cur.X < x0+edgeWidth && cur.Y >= m.Top && cur.Y < m.Bottom {
+			// Where another display lies beyond the edge, the pointer
+			// crosses it on its way there: it has to rest a moment.
 			if s.edgeSince.IsZero() {
 				s.edgeSince = now
 				debugf("strip %s: pointer at the edge, hard=%v", s.d.mon.Device, s.hardEdge(cur))
@@ -239,10 +256,14 @@ func (s *strip) setClickThrough(v bool) {
 // dragged.
 func (s *strip) setDragging(v bool) { s.dragging = v }
 
-// hardEdge reports whether no display lies left of the point, so the
-// pointer stops at the edge.
+// hardEdge reports whether no display lies beyond the strip's edge next
+// to the point, so the pointer stops there.
 func (s *strip) hardEdge(p winapi.Point) bool {
-	return !winapi.OnAnyMonitor(winapi.Rect{Left: p.X - 2, Top: p.Y, Right: p.X - 1, Bottom: p.Y + 1})
+	x := p.X - 2
+	if s.placed {
+		x = p.X + 2
+	}
+	return !winapi.OnAnyMonitor(winapi.Rect{Left: x, Top: p.Y, Right: x + 1, Bottom: p.Y + 1})
 }
 
 // overCard reports whether a screen point is over a card.
