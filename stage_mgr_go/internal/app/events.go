@@ -45,6 +45,9 @@ func (a *App) onWinEvent(event uint32, h winapi.HWND) {
 			a.peekEnd()
 			return
 		}
+		a.noteClosed(h)
+	case winapi.EventObjectHide:
+		a.noteClosed(h)
 	case winapi.EventSystemMoveSizeEnd:
 		a.windowMoved(h)
 	case winapi.EventObjectLocationChange:
@@ -181,10 +184,15 @@ func (a *App) settleForeground() {
 		return
 	}
 	if d.model.OnStage(w.App) {
+		// The foreground stayed on the stage: whatever closed is over.
+		a.closed.d = nil
 		if a.park.IsParked(w.HWND) {
 			a.park.Unpark(w.HWND)
 			a.refreshSoon()
 		}
+		return
+	}
+	if a.keepStage() {
 		return
 	}
 	// The app comes with the apps of its set, as on macOS. The system
@@ -193,6 +201,50 @@ func (a *App) settleForeground() {
 	// comes beside the stage instead and leaves it with its windows.
 	a.switchStage(d, d.model.Coming(w.App, a.settings.Companion(w.Exe)), w.HWND, false, true)
 }
+
+// noteClosed remembers a window that closed or hid while on a stage, for
+// keepStage.
+func (a *App) noteClosed(h winapi.HWND) {
+	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == h })
+	if i < 0 || a.park.IsParked(h) {
+		return
+	}
+	w := a.windows[i]
+	if d := a.displayOf(w); d != nil && d.model.OnStage(w.App) {
+		a.closed.h, a.closed.d, a.closed.at = h, d, time.Now()
+	}
+}
+
+// keepStage keeps the apps on a stage a window just closed on, should
+// any of their windows be left there. Windows hands the foreground of a
+// closed window to the window activated before it, which may well be one
+// parked in the strip, as the windows of the previous stage are; following
+// it would send the apps still on the stage away. On macOS closing a
+// window leaves the stage to the others on it: the front one of them
+// gets the foreground instead.
+func (a *App) keepStage() bool {
+	c := a.closed
+	if c.d == nil || time.Since(c.at) > closeGrace || !slices.Contains(a.displays, c.d) || !a.managed(c.d) {
+		return false
+	}
+	// The windows are listed front first.
+	for _, w := range a.windows {
+		if w.HWND == c.h || a.hidden(w) || !c.d.model.OnStage(w.App) || a.displayOf(w) != c.d {
+			continue
+		}
+		a.closed.d = nil
+		debugf("closed %x on %s: the stage keeps %q", c.h, c.d.mon.Device, w.Title)
+		winapi.Activate(w.HWND)
+		a.refreshSoon()
+		return true
+	}
+	return false
+}
+
+// closeGrace is how long after a window closes the foreground is taken to
+// have moved because of it: the system activates another at once, and
+// settleForeground follows within a few hundred milliseconds.
+const closeGrace = time.Second
 
 // startPolling follows the pointer for the strips: revealing a floating
 // strip at the screen's edge, and letting clicks through where no card is.
