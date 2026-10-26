@@ -144,6 +144,12 @@ type App struct {
 		timer *time.Timer
 		prev  winapi.HWND
 	}
+	// closed is the window that last closed or hid on a stage, and when.
+	closed struct {
+		h  winapi.HWND
+		d  *display
+		at time.Time
+	}
 	unhook   func()
 	stopPoll chan struct{}
 
