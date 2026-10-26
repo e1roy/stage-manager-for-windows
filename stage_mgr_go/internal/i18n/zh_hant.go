@@ -23,6 +23,8 @@ var zhHant = Strings{
 	Display:            "顯示器 %d",
 	DisplayDesc:        "%d × %d · 縮放 %.0f%%",
 	DisplayPrimary:     " · 主顯示器",
+	SideLeft:           "左側",
+	SideRight:          "右側",
 
 	Mode:         "顯示方式",
 	ModeDesc:     "側邊欄如何與視窗共用螢幕。",

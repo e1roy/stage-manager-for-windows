@@ -22,6 +22,8 @@ var en = Strings{
 	Display:            "Display %d",
 	DisplayDesc:        "%d × %d · %.0f%% scale",
 	DisplayPrimary:     " · Main display",
+	SideLeft:           "Left",
+	SideRight:          "Right",
 
 	Mode:         "Style",
 	ModeDesc:     "How the sidebar shares the screen with windows.",

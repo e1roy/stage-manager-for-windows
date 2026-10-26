@@ -389,7 +389,8 @@ func (f *flights) cardPoses(d *display, ws []catalog.Window, live bool) map[wina
 		}
 		want[w.HWND] = true
 	}
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing))
+	right := s.right()
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), right)
 	rest, _ := cardTilts(f.a.settings.Tilt)
 	for i, set := range d.sets {
 		tilt, lift := rest, float32(1)
@@ -397,10 +398,10 @@ func (f *flights) cardPoses(d *display, ws []catalog.Window, live bool) map[wina
 			tilt, lift = st.tilt, st.lift
 		}
 		card := l.cards[i]
-		for j, r := range set.stack(card) {
+		for j, r := range set.stack(card, right) {
 			if h := set.windows[j].HWND; want[h] {
-				x, y, w, ht := s.toScreen(lifted(card, r, lift))
-				out[h] = pose{x: x, y: y, w: w, h: ht, tilt: tilt}
+				x, y, w, ht := s.toScreen(lifted(card, r, lift, right))
+				out[h] = pose{x: x, y: y, w: w, h: ht, tilt: tilt * turnSign(right)}
 			}
 		}
 	}
@@ -414,14 +415,15 @@ func (f *flights) landingIcons(d *display) []badge {
 	if s == nil || !s.visible || d.viewW == 0 {
 		return nil
 	}
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing))
+	right := s.right()
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), right)
 	var out []badge
 	for i, set := range d.sets {
 		if !d.landingOf(set) {
 			continue
 		}
 		card := l.cards[i]
-		row := iconRow(set.stack(card)[0], card, len(set.apps), float32(f.a.settings.IconScale))
+		row := iconRow(set.stack(card, right)[0], card, len(set.apps), float32(f.a.settings.IconScale), right)
 		for j := len(row) - 1; j >= 0; j-- {
 			g := set.apps[j]
 			if icon := f.a.media.icon(g.front()); icon != nil {
@@ -652,11 +654,15 @@ func (f *flights) airborne(d *display) map[winapi.HWND]aloft {
 }
 
 // collapse is where a window with no card to land in goes: a small copy of
-// it at the middle of the display's left edge.
+// it at the middle of the edge of the display its strip keeps to.
 func (f *flights) collapse(d *display, p pose) pose {
 	work := winapi.MonitorInfo(d.mon.Handle).Work
 	w, h := p.w/6, p.h/6
-	return pose{x: float64(work.Left), y: float64(work.Top) + (float64(work.H())-h)/2, w: w, h: h}
+	x := float64(work.Left)
+	if f.a.right(d) {
+		x = float64(work.Right) - w
+	}
+	return pose{x: x, y: float64(work.Top) + (float64(work.H())-h)/2, w: w, h: h}
 }
 
 // show puts a display's layer over the whole display: the flights go into
@@ -879,5 +885,11 @@ func (l *layer) draw(c *ui.Context, key int, still *ui.Bitmap, at pose, op float
 	if sh.key > 0 {
 		img = img.Shadow(0, sh.keyY, sh.keyBlur, -sh.keyInset, ui.RGBA(0, 0, 0, sh.key))
 	}
-	img.TransformOrigin(0, 0.5).RotateY(at.tilt).Perspective(cardPerspective).Opacity(op)
+	// Cards turn about their outer edge: a negative tilt is a card of a
+	// strip on the right, turned about its right edge.
+	originX := float32(0)
+	if at.tilt < 0 {
+		originX = 1
+	}
+	img.TransformOrigin(originX, 0.5).RotateY(at.tilt).Perspective(cardPerspective).Opacity(op)
 }

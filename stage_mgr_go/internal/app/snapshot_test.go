@@ -95,6 +95,14 @@ func TestSnapshots(t *testing.T) {
 		x, y := center(d.layout.cards[1])
 		tt.Move(x, y)
 	})
+	// The same strip on the right of its display, its mirror image.
+	a.settings.Sides = map[string]settings.Side{d.mon.Device: settings.Right}
+	shoot("strip-right.png", s.view, 220, 1000, nil)
+	shoot("strip-right-hover.png", s.view, 220, 1000, func(tt *ui.Tester) {
+		x, y := center(d.layout.cards[1])
+		tt.Move(x, y)
+	})
+	a.settings.Sides = nil
 	// One companion has a window open, and shows as its app.
 	a.settings.Companions = []string{"tortoiseproc", "notepad", `d:\tools\paint.exe`}
 	sw := &settingsWindow{a: a}

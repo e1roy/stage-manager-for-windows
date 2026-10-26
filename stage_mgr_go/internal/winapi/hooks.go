@@ -115,6 +115,7 @@ const (
 	abmQueryPos = 2
 	abmSetPos   = 3
 	abeLeft     = 0
+	abeRight    = 2
 
 	AbnPosChanged    = 1
 	AbnFullScreenApp = 2
@@ -141,9 +142,9 @@ func (a *AppBar) data() appBarData {
 	return appBarData{Size: uint32(unsafe.Sizeof(appBarData{})), Wnd: uintptr(a.Wnd), Callback: a.Callback}
 }
 
-// Reserve takes width pixels along the left edge of monitor and returns
-// the band the shell granted.
-func (a *AppBar) Reserve(monitor Rect, width int32) Rect {
+// Reserve takes width pixels along the left edge of monitor, or the right
+// one, and returns the band the shell granted.
+func (a *AppBar) Reserve(monitor Rect, width int32, right bool) Rect {
 	if !a.registered {
 		d := a.data()
 		r, _, _ := procSHAppBarMessage.Call(abmNew, uintptr(unsafe.Pointer(&d)))
@@ -151,9 +152,16 @@ func (a *AppBar) Reserve(monitor Rect, width int32) Rect {
 	}
 	d := a.data()
 	d.Edge = abeLeft
+	if right {
+		d.Edge = abeRight
+	}
 	d.Rc = monitor
 	procSHAppBarMessage.Call(abmQueryPos, uintptr(unsafe.Pointer(&d)))
-	d.Rc.Right = d.Rc.Left + width
+	if right {
+		d.Rc.Left = d.Rc.Right - width
+	} else {
+		d.Rc.Right = d.Rc.Left + width
+	}
 	procSHAppBarMessage.Call(abmSetPos, uintptr(unsafe.Pointer(&d)))
 	return d.Rc
 }

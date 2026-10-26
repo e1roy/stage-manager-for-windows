@@ -22,6 +22,8 @@ var zhHans = Strings{
 	Display:            "显示器 %d",
 	DisplayDesc:        "%d × %d · 缩放 %.0f%%",
 	DisplayPrimary:     " · 主显示器",
+	SideLeft:           "左侧",
+	SideRight:          "右侧",
 
 	Mode:         "显示方式",
 	ModeDesc:     "侧边栏怎样和窗口共用屏幕。",

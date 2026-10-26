@@ -5,6 +5,7 @@ package app
 
 import (
 	"log"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -224,6 +225,12 @@ func Start(o Options) *App {
 // managed reports whether Stage Manager arranges the windows of a display.
 func (a *App) managed(d *display) bool {
 	return a.settings.DisplayEnabled(d.mon.Device)
+}
+
+// right reports whether a display's strip keeps to its right edge rather
+// than the left one, where macOS keeps it.
+func (a *App) right(d *display) bool {
+	return a.settings.SideOf(d.mon.Device) == settings.Right
 }
 
 func (a *App) displayByDevice(dev string) *display {
@@ -750,7 +757,9 @@ func (a *App) applySettings(s settings.Settings) {
 			a.settingsUI.win.SetTitle(a.tr().SettingsTitle)
 		}
 	}
-	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing {
+	// syncDisplays below moves a strip to its new side; its cards turn the
+	// other way as it draws again.
+	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || !maps.Equal(old.Sides, s.Sides) {
 		a.redraw()
 	}
 	if old.Mode != s.Mode || old.Width != s.Width {

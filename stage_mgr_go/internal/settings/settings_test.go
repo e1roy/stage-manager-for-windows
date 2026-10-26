@@ -40,6 +40,25 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSides(t *testing.T) {
+	const second = `\\.\DISPLAY2`
+	s := Default()
+	s.Sides = map[string]Side{second: Right, `\\.\DISPLAY3`: Left, `\\.\DISPLAY4`: "top"}
+	n := s.Normalize()
+	if n.SideOf(second) != Right || n.SideOf(`\\.\DISPLAY1`) != Left || len(n.Sides) != 1 {
+		t.Fatalf("sides normalized to %v", n.Sides)
+	}
+	// A strip moved right and back is as it never moved.
+	if !(Settings{Sides: map[string]Side{"x": Left}}).Equal(Settings{}) {
+		t.Fatal("a strip on the left differs from one not listed")
+	}
+	c := n.Clone()
+	c.Sides[second] = Left
+	if n.SideOf(second) != Right {
+		t.Fatal("a clone shares its sides")
+	}
+}
+
 func TestBrokenFileFallsBack(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "settings.json"), []byte("{nope"), 0o644)
