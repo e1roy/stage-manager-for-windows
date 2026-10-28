@@ -43,7 +43,7 @@ internal/
   settings/  设置的读取、归一化、原子保存（有单元测试）
   app/       Stage Manager for Windows 本体，全部在 MyGo 主线程上运行
     app.go          显示器同步、刷新、初始舞台、游离/逃逸窗口处理
-    events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询
+    events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询、Win+Tab 打开概览
     switch.go       舞台切换与真实窗口的交接
     flights.go      飞行层（每台显示器一个）
     strip.go        侧边栏窗口：放置、AppBar、浮动显示/隐藏、点击穿透
@@ -54,7 +54,7 @@ internal/
     tray.go         托盘图标与托盘菜单
 ```
 
-**线程模型。** 所有状态只在 MyGo 主线程上读写：WinEvent 钩子在主线程安装、在主线程回调；定时器、截图 goroutine 的结果都通过 `mygo.RunOnMain` 回到主线程。截图（`PrintWindow` 会等目标应用自己绘制）只在 goroutine 里做，并有超时，卡死的应用不会拖住切换。
+**线程模型。** 所有状态只在 MyGo 主线程上读写：WinEvent 钩子在主线程安装、在主线程回调；定时器、截图 goroutine 的结果都通过 `mygo.RunOnMain` 回到主线程。截图（`PrintWindow` 会等目标应用自己绘制）只在 goroutine 里做，并有超时，卡死的应用不会拖住切换。接管 Win+Tab 的低级键盘钩子是例外：它在独立线程上跑自己的消息循环，回调只把按键 `post` 回主线程，主线程再忙也不会拖慢全系统的键盘输入。
 
 **看门狗。** 一个后台 goroutine 每 2 秒确认主线程是否响应。若 5 秒无响应，它直接按磁盘上的停放日志把所有停放的窗口放回桌面（不经过主线程），并把所有 goroutine 的堆栈写到数据目录的 `hang-*.log`；主线程恢复后，Stage Manager for Windows 会按当前舞台重新收起该收的窗口。
 

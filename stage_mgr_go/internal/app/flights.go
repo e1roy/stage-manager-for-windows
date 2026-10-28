@@ -102,6 +102,17 @@ func lerpShade(a, b shade, t float32) shade {
 	}
 }
 
+// cast gives el the shadow; the zero shade casts none.
+func (sh shade) cast(el ui.Element) ui.Element {
+	if sh.ambient > 0 {
+		el = el.Shadow(0, 0, sh.ambientBlur, 0, ui.RGBA(0, 0, 0, sh.ambient))
+	}
+	if sh.key > 0 {
+		el = el.Shadow(0, sh.keyY, sh.keyBlur, -sh.keyInset, ui.RGBA(0, 0, 0, sh.key))
+	}
+	return el
+}
+
 // flight carries one window's still between the strip and the stage.
 type flight struct {
 	still          *ui.Bitmap
@@ -202,11 +213,14 @@ type aloft struct {
 }
 
 // at is where f shows e of the way, eased, from its from to its to.
-func (f *flight) at(e float64) pose {
+func (f *flight) at(e float64) pose { return lerpPose(f.from, f.to, e) }
+
+// lerpPose is e of the way from a to b.
+func lerpPose(a, b pose, e float64) pose {
 	return pose{
-		x: lerp(f.from.x, f.to.x, e), y: lerp(f.from.y, f.to.y, e),
-		w: lerp(f.from.w, f.to.w, e), h: lerp(f.from.h, f.to.h, e),
-		tilt: f.from.tilt + (f.to.tilt-f.from.tilt)*float32(e),
+		x: lerp(a.x, b.x, e), y: lerp(a.y, b.y, e),
+		w: lerp(a.w, b.w, e), h: lerp(a.h, b.h, e),
+		tilt: a.tilt + (b.tilt-a.tilt)*float32(e),
 	}
 }
 
@@ -390,7 +404,7 @@ func (f *flights) cardPoses(d *display, ws []catalog.Window, live bool) map[wina
 		want[w.HWND] = true
 	}
 	right := s.right()
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), right)
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), f.a.panel(), right)
 	rest, _ := cardTilts(f.a.settings.Tilt)
 	for i, set := range d.sets {
 		tilt, lift := rest, float32(1)
@@ -416,7 +430,7 @@ func (f *flights) landingIcons(d *display) []badge {
 		return nil
 	}
 	right := s.right()
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), right)
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), f.a.panel(), right)
 	var out []badge
 	for i, set := range d.sets {
 		if !d.landingOf(set) {
@@ -878,13 +892,7 @@ func (l *layer) draw(c *ui.Context, key int, still *ui.Bitmap, at pose, op float
 	y := float32((at.y-float64(l.rect.Top))/l.scale) - oy
 	w, h := float32(at.w/l.scale), float32(at.h/l.scale)
 	radius := max(min(h*0.045, 8), 3)
-	img := ui.Image(c.Key(key), still).Absolute().Left(x).Top(y).Size(w, h).Fit(ui.FillBox).Radius(radius)
-	if sh.ambient > 0 {
-		img = img.Shadow(0, 0, sh.ambientBlur, 0, ui.RGBA(0, 0, 0, sh.ambient))
-	}
-	if sh.key > 0 {
-		img = img.Shadow(0, sh.keyY, sh.keyBlur, -sh.keyInset, ui.RGBA(0, 0, 0, sh.key))
-	}
+	img := sh.cast(ui.Image(c.Key(key), still).Absolute().Left(x).Top(y).Size(w, h).Fit(ui.FillBox).Radius(radius))
 	// Cards turn about their outer edge: a negative tilt is a card of a
 	// strip on the right, turned about its right edge.
 	originX := float32(0)

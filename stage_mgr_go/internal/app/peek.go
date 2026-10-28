@@ -23,7 +23,7 @@ type taskbarPoint struct {
 // watchTaskbar notes where the pointer is over a taskbar. Main thread.
 func (a *App) watchTaskbar(cur winapi.Point) {
 	root := winapi.Root(winapi.WindowFromPoint(cur))
-	if c := winapi.ClassName(root); c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd" {
+	if winapi.IsTaskbar(root) {
 		a.taskbar = taskbarPoint{tray: root, at: cur}
 	}
 }

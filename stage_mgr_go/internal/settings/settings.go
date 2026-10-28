@@ -61,6 +61,17 @@ const (
 	MaxIconScale = 1.6
 	MaxTilt      = 10
 	MaxSpacing   = 80
+	// The overview's panel is a share of the cards' width, and so many
+	// DIPs tall.
+	MinPanelWidth  = 0.2
+	MaxPanelWidth  = 1
+	MinPanelHeight = 12
+	MaxPanelHeight = 80
+	// The button over a display's bottom-left corner is a taskbar's
+	// height, and as wide as the user wants; narrower than tall would
+	// crowd its mark.
+	MinCornerWidth = 48
+	MaxCornerWidth = 320
 )
 
 // Settings are the user's preferences.
@@ -82,6 +93,23 @@ type Settings struct {
 	// Tilt is how far the cards turn in 3D, as the macOS strip's do, from
 	// 0, flat, to MaxTilt.
 	Tilt int `json:"tilt"`
+	// PanelWidth and PanelHeight size the panel at the bottom of a strip
+	// that opens the overview: its width a share of the cards', so it
+	// follows the strip's width, and its height in DIPs.
+	PanelWidth  float64 `json:"panelWidth"`
+	PanelHeight float64 `json:"panelHeight"`
+	// CornerWidth is the width in DIPs of the button over the bottom-left
+	// corner of a display, which opens the same overview; its height is a
+	// taskbar's, which leaves that corner empty.
+	CornerWidth float64 `json:"cornerWidth"`
+	// WinTab takes Win+Tab from Task View for the same overview, of the
+	// display the user is in. It is on unless turned off, settings from
+	// before it included, as Load starts from Default.
+	WinTab bool `json:"winTab"`
+	// Accent is the color the overview's buttons take under the pointer:
+	// AccentDefault, the blue of the overview's ring; AccentNone, which
+	// keeps the borders they had; or a color, as "#rrggbb".
+	Accent string `json:"accent"`
 	// Quality sets how sharp flights are and how much memory they take.
 	Quality Quality `json:"quality"`
 	// Companions lists apps whose windows join the stage rather than take
@@ -103,6 +131,28 @@ type Settings struct {
 // DefaultTilt turns the cards as far as the macOS strip does.
 const DefaultTilt = 6
 
+// The accent the overview's buttons take under the pointer, besides a color
+// of the user's: AccentDefault is the blue the overview rings with, and
+// AccentNone keeps the borders the buttons had.
+const (
+	AccentDefault = "default"
+	AccentNone    = "none"
+)
+
+// accent keeps the accent the user picked: AccentDefault, AccentNone, or a
+// color in lower case; anything else is the default, as settings written
+// before the accent had a choice have none.
+func accent(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == AccentNone || s == AccentDefault {
+		return s
+	}
+	if len(s) == 7 && s[0] == '#' && strings.Trim(s[1:], "0123456789abcdef") == "" {
+		return s
+	}
+	return AccentDefault
+}
+
 // Default returns the settings of a first launch.
 func Default() Settings {
 	return Settings{
@@ -113,6 +163,11 @@ func Default() Settings {
 		IconScale:          1,
 		Spacing:            20,
 		Tilt:               DefaultTilt,
+		PanelWidth:         1,
+		PanelHeight:        38,
+		CornerWidth:        MinCornerWidth,
+		WinTab:             true,
+		Accent:             AccentDefault,
 		Quality:            Low,
 		// TortoiseSVN's and TortoiseGit's dialogs all come from these.
 		Companions: []string{"tortoiseproc", "tortoisegitproc"},
@@ -151,6 +206,20 @@ func (s Settings) Normalize() Settings {
 	}
 	s.Spacing = math.Round(min(max(s.Spacing, 0), MaxSpacing))
 	s.Tilt = min(max(s.Tilt, 0), MaxTilt)
+	// Neither can be 0, so 0 is one missing from older settings.
+	if s.PanelWidth == 0 || math.IsNaN(s.PanelWidth) {
+		s.PanelWidth = Default().PanelWidth
+	}
+	s.PanelWidth = math.Round(min(max(s.PanelWidth, MinPanelWidth), MaxPanelWidth)*100) / 100
+	if s.PanelHeight == 0 || math.IsNaN(s.PanelHeight) {
+		s.PanelHeight = Default().PanelHeight
+	}
+	s.PanelHeight = math.Round(min(max(s.PanelHeight, MinPanelHeight), MaxPanelHeight))
+	if s.CornerWidth == 0 || math.IsNaN(s.CornerWidth) {
+		s.CornerWidth = Default().CornerWidth
+	}
+	s.CornerWidth = math.Round(min(max(s.CornerWidth, MinCornerWidth), MaxCornerWidth))
+	s.Accent = accent(s.Accent)
 	if !i18n.Known(s.Language) {
 		s.Language = i18n.Auto
 	}

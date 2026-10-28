@@ -40,6 +40,26 @@ var zhHans = Strings{
 	TiltOff:      "关闭",
 	DefaultValue: "默认值：%s，点按恢复",
 
+	OverviewPanel:     "所有窗口面板",
+	OverviewPanelDesc: "侧边栏底部的面板，指针移到那里时出现，点按铺开本显示器的所有窗口。宽度按卡片宽度的比例计算。",
+	Height:            "高度",
+
+	OverviewCorner:     "左下角按钮",
+	OverviewCornerDesc: "显示器左下角、任务栏上的按钮，指针靠近时出现，点按同样铺开所有窗口。只在 Windows 11 任务栏居中、左下角空着时出现。",
+
+	WinTab:     "用 Win+Tab 铺开所有窗口",
+	WinTabDesc: "按 Win+Tab 时铺开当前显示器的所有窗口，与点按左下角按钮相同，代替 Windows 的任务视图；再按一次收起。关闭后 Win+Tab 仍打开任务视图。",
+
+	Highlight:       "高亮颜色",
+	HighlightDesc:   "指针移到边栏底部的面板或左下角按钮上时，边框显示的颜色。",
+	HighlightNone:   "无",
+	HighlightBlue:   "蓝",
+	HighlightPurple: "紫",
+	HighlightPink:   "粉",
+	HighlightRed:    "红",
+	HighlightOrange: "橙",
+	HighlightGreen:  "绿",
+
 	HideInactive:     "隐藏舞台之外的窗口",
 	HideInactiveDesc: "只有当前应用留在桌面上，其他应用收进侧边栏。关闭后侧边栏只列出它们。",
 	ClickDesktop:     "点击桌面清空舞台",

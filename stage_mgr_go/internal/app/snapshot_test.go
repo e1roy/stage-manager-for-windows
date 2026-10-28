@@ -67,9 +67,9 @@ func TestSnapshots(t *testing.T) {
 
 	shoot := func(name string, view func(*ui.Context), w, h int, setup func(*ui.Tester)) {
 		tt := ui.NewTester(func(c *ui.Context) {
-			// The wallpaper behind the transparent strip. The settings
-			// window has a background of its own.
-			if strings.HasPrefix(name, "strip") {
+			// The wallpaper behind the transparent strip and overview. The
+			// settings window has a background of its own.
+			if strings.HasPrefix(name, "strip") || strings.HasPrefix(name, "overview") {
 				w, h := c.Size()
 				ui.Box(c).Absolute().Left(0).Top(0).Size(w, h).Background(ui.Hex("#4a6178"))
 			}
@@ -103,6 +103,94 @@ func TestSnapshots(t *testing.T) {
 		tt.Move(x, y)
 	})
 	a.settings.Sides = nil
+	// The pointer near the bottom brings up the overview's panel.
+	shoot("strip-footer-hover.png", s.view, 220, 1000, func(tt *ui.Tester) {
+		tt.Move(center(footerButton(220, 1000, a.panel(), false)))
+	})
+	// On its way in, the pointer still some way off.
+	s.near = panelNearness((panelReach + panelFull) / 2)
+	shoot("strip-footer-near.png", s.view, 220, 1000, nil)
+	s.near = 0
+	// Pressed, it lights up.
+	shoot("strip-footer-pressed.png", s.view, 220, 1000, func(tt *ui.Tester) {
+		x, y := center(footerButton(220, 1000, a.panel(), false))
+		tt.Move(x, y)
+		tt.Frame()
+		tt.Press(x, y)
+	})
+	// Under the pointer, the panel outlines in the accent the settings
+	// choose, or in the plain edge once it is turned off.
+	a.settings.Accent = "#bf5af2"
+	shoot("strip-footer-accent.png", s.view, 220, 1000, func(tt *ui.Tester) {
+		tt.Move(center(footerButton(220, 1000, a.panel(), false)))
+	})
+	a.settings.Accent = settings.AccentNone
+	shoot("strip-footer-plain.png", s.view, 220, 1000, func(tt *ui.Tester) {
+		tt.Move(center(footerButton(220, 1000, a.panel(), false)))
+	})
+	a.settings.Accent = settings.Default().Accent
+	// A narrower, thinner panel, as the settings may size it.
+	a.settings.PanelWidth, a.settings.PanelHeight = 0.5, 20
+	shoot("strip-footer-small.png", s.view, 220, 1000, func(tt *ui.Tester) {
+		tt.Move(center(footerButton(220, 1000, a.panel(), false)))
+	})
+	a.settings.PanelWidth, a.settings.PanelHeight = settings.Default().PanelWidth, settings.Default().PanelHeight
+	// The overview of that display, spread out, the pointer on a window.
+	o := &overview{a: a, d: d, rect: d.mon.Work, scale: 1, phase: ovOpen, held: true, flying: true, spreadFrom: 1, spreadTo: 1}
+	var ws []catalog.Window
+	var items []overviewItem
+	for _, g := range groups {
+		for _, w := range g.windows {
+			items = append(items, overviewItem{w: float32(w.Frame.W()), h: float32(w.Frame.H()), cx: float32(len(ws) * 37 % 300), cy: float32(len(ws) * 140)})
+			ws = append(ws, w)
+		}
+	}
+	slots := layoutOverview(ui.Rect{X: overviewMargin, Y: overviewMargin, W: 2560 - 2*overviewMargin, H: 1392 - overviewMargin - overviewBottom},
+		items, overviewGapX, overviewGapY)
+	for i, w := range ws {
+		t := ovTile{w: w, name: w.App, icon: a.media.icons[w.App]}
+		if st := a.media.stills[w.HWND]; st != nil {
+			t.still = st.card
+		}
+		t.slot = o.screen(slots[i])
+		t.from, t.to, t.fromOp, t.toOp, t.fromSh, t.toSh = t.slot, t.slot, 1, 1, overviewShade, overviewShade
+		o.tiles = append(o.tiles, t)
+	}
+	shoot("overview.png", o.view, 2560, 1392, func(tt *ui.Tester) {
+		x, y, w, h := o.local(o.tiles[2].slot)
+		tt.Move(x+w/2, y+h/2)
+	})
+	// The mark in the hot corner, over a dark and a light taskbar: on the
+	// pointer's approach, under it, and pressed.
+	hint := &cornerHint{a: a, d: d, visible: true}
+	for _, light := range []bool{false, true} {
+		hint.light = light
+		bar, theme := "#1c1c1c", "dark"
+		if light {
+			bar, theme = "#eef0f3", "light"
+		}
+		corner := func(name string, near float32, setup func(*ui.Tester)) {
+			hint.near = near
+			shoot(fmt.Sprintf("corner-%s-%s.png", theme, name), func(c *ui.Context) {
+				ui.Box(c).Absolute().Left(0).Top(0).Size(hotCorner, hotCorner).Background(ui.Hex(bar))
+				hint.view(c)
+			}, hotCorner, hotCorner, setup)
+		}
+		corner("near", 0.5, nil)
+		corner("hover", 1, func(tt *ui.Tester) { tt.Move(24, 24) })
+		corner("pressed", 1, func(tt *ui.Tester) {
+			tt.Move(24, 24)
+			tt.Frame()
+			tt.Press(24, 24)
+		})
+		// As wide as the settings may make it, under the pointer.
+		const wide = 200
+		hint.near = 1
+		shoot(fmt.Sprintf("corner-%s-wide.png", theme), func(c *ui.Context) {
+			ui.Box(c).Absolute().Left(0).Top(0).Size(wide, hotCorner).Background(ui.Hex(bar))
+			hint.view(c)
+		}, wide, hotCorner, func(tt *ui.Tester) { tt.Move(wide/2, hotCorner/2) })
+	}
 	// One companion has a window open, and shows as its app.
 	a.settings.Companions = []string{"tortoiseproc", "notepad", `d:\tools\paint.exe`}
 	sw := &settingsWindow{a: a}
@@ -115,9 +203,9 @@ func TestSnapshots(t *testing.T) {
 		a.settings.Language = l
 		for i := range settingsIcons {
 			sw.tab = i
-			shoot(fmt.Sprintf("settings-%s-%d.png", l, i), sw.view, 620, 760, nil)
+			shoot(fmt.Sprintf("settings-%s-%d.png", l, i), sw.view, 620, 1000, nil)
 			if l == i18n.SimplifiedChinese {
-				shoot(fmt.Sprintf("settings-dark-%d.png", i), dark, 620, 760, nil)
+				shoot(fmt.Sprintf("settings-dark-%d.png", i), dark, 620, 1000, nil)
 			}
 		}
 	}

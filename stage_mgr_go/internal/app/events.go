@@ -1,6 +1,7 @@
 package app
 
 import (
+	"log"
 	"slices"
 	"time"
 
@@ -22,6 +23,66 @@ func (a *App) hookEvents() {
 		[2]uint32{winapi.EventObjectLocationChange, winapi.EventObjectNameChange},
 		[2]uint32{winapi.EventObjectCloaked, winapi.EventObjectUncloaked},
 	)
+}
+
+// syncWinTab takes Win+Tab from Task View for the overview while the
+// settings ask for it and a display has a strip to open it on, and gives
+// it back otherwise, and as Stage Manager quits. Task View spreads out
+// every window, as the overview does, but knows nothing of the stages and
+// strips; the overview is what Mission Control's key is on macOS.
+func (a *App) syncWinTab() {
+	want := a.settings.WinTab && !a.quitting && slices.ContainsFunc(a.displays, func(d *display) bool { return d.strip != nil })
+	if want == (a.unhookWinTab != nil) {
+		return
+	}
+	if !want {
+		a.unhookWinTab()
+		a.unhookWinTab = nil
+		return
+	}
+	// The hook calls on its own thread; the press comes here.
+	unhook, err := winapi.HookWinTab(func() { post(a.winTab) })
+	if err != nil {
+		log.Println("stagebar: taking Win+Tab:", err)
+		return
+	}
+	a.unhookWinTab = unhook
+}
+
+// winTab spreads out the windows of the display the user is in, as the
+// corner button does, or puts them back if they are out, as a second
+// Win+Tab closes Task View.
+func (a *App) winTab() {
+	if o := a.ov; o != nil && o.phase != ovHidden {
+		debugf("win+tab: overview closes")
+		o.close(nil)
+		return
+	}
+	if d := a.winTabDisplay(); d != nil {
+		debugf("win+tab: overview of %s", d.mon.Device)
+		a.openOverview(d, time.Now())
+	}
+}
+
+// winTabDisplay is the display of the window the keys went to, or, when
+// that is none of the windows Stage Manager arranges, as the taskbar or
+// the desktop, the one the pointer is on.
+func (a *App) winTabDisplay() *display {
+	fg := catalog.RootOwner(winapi.Foreground())
+	if i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == fg }); i >= 0 {
+		if d := a.displayOf(a.windows[i]); d != nil && d.strip != nil {
+			return d
+		}
+	}
+	if d := a.displayByHandle(winapi.MonitorFromPoint(winapi.Cursor())); d != nil && d.strip != nil {
+		return d
+	}
+	for _, d := range a.displays {
+		if d.strip != nil {
+			return d
+		}
+	}
+	return nil
 }
 
 func (a *App) onWinEvent(event uint32, h winapi.HWND) {
@@ -138,7 +199,7 @@ func (a *App) desktopClick() *display {
 	}
 	// The strip lets clicks through wherever no card is: those reach the
 	// wallpaper and count.
-	if d.strip != nil && d.strip.visible && d.strip.rect.Contains(cur) && d.strip.overCard(cur) {
+	if d.strip != nil && d.strip.visible && d.strip.rect.Contains(cur) && d.strip.over(cur) {
 		return nil
 	}
 	return d
@@ -273,6 +334,7 @@ func (a *App) poll() {
 	cur := winapi.Cursor()
 	now := time.Now()
 	a.watchTaskbar(cur)
+	a.watchCorner(cur, now)
 	for _, d := range a.displays {
 		if d.strip != nil {
 			d.strip.poll(cur, now)

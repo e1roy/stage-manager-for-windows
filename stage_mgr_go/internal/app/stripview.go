@@ -32,8 +32,12 @@ func (d *display) card(key string) *cardState {
 	return st
 }
 
-// landingOf reports whether windows are flying into a card.
+// landingOf reports whether windows are flying into a card, or are out in
+// the overview: either way it holds still and shows nothing till they land.
 func (d *display) landingOf(s *set) bool {
+	if d.inOverview {
+		return true
+	}
 	for _, g := range s.apps {
 		if d.landing[g.app] {
 			return true
@@ -63,10 +67,11 @@ func (s *strip) view(c *ui.Context) {
 	w, h := c.Size()
 	d.viewW, d.viewH = w, h
 	right := s.right()
-	l := layoutStrip(len(d.sets), w, h, d.scroll, float32(a.settings.Spacing), right)
+	gap, p := float32(a.settings.Spacing), a.panel()
+	l := layoutStrip(len(d.sets), w, h, d.scroll, gap, p, right)
 	if d.scroll > l.maxScroll(h) {
 		d.scroll = l.maxScroll(h)
-		l = layoutStrip(len(d.sets), w, h, d.scroll, float32(a.settings.Spacing), right)
+		l = layoutStrip(len(d.sets), w, h, d.scroll, gap, p, right)
 	}
 	d.layout = l
 
@@ -85,6 +90,7 @@ func (s *strip) view(c *ui.Context) {
 		return true
 	})
 	hits := s.hits[:0]
+	footer := ui.Rect{}
 	root.Children(func() {
 		if len(d.sets) == 0 && a.ready {
 			emptyHint(c, a.tr(), w, h)
@@ -94,8 +100,118 @@ func (s *strip) view(c *ui.Context) {
 				hits = append(hits, b)
 			}
 		}
+		if a.ready && !d.inOverview {
+			footer = s.footer(c, w, h)
+		}
 	})
-	s.hits = hits
+	s.hits, s.footerHit = hits, footer
+}
+
+// footer draws the panel at the bottom of the strip that opens the
+// overview. It comes in as the pointer nears it (strip.approach), or for a
+// moment as the settings size it, so the strip looks as it does on macOS
+// until it is wanted. It returns where it takes the pointer, for hit
+// testing.
+func (s *strip) footer(c *ui.Context, w, h float32) ui.Rect {
+	a, d := s.a, s.d
+	p := a.panel()
+	band := footerBand(w, h, p, s.right())
+	r := footerButton(w, h, p, s.right())
+	el := ui.Box(c.Key("overview")).Absolute().Left(band.X).Top(band.Y).Size(band.W, band.H).Cursor(ui.CursorPointer)
+	hovered, pressed := el.Hovered(), el.Pressed()
+	// A click lights the panel up and lets it go with a little pop, so it
+	// is seen to take the click in the moment before the overview opens.
+	var flash float32
+	if el.Clicked() {
+		debugf("overview panel clicked on %s", d.mon.Device)
+		a.requestOverview(d)
+		flash = el.Jump("flash", 1)
+		c.AnimationFrame()
+	} else {
+		flash = el.AnimateTo("flash", 0, panelFlash)
+	}
+	near := s.near
+	if hovered || pressed || time.Now().Before(a.panelUntil) {
+		near = 1
+	}
+	op := max(el.AnimateTo("shown", near, fadeQuick), flash)
+	hot := el.AnimateTo("hot", b2f(hovered), fadeQuick)
+	down := el.AnimateTo("down", b2f(pressed), panelPress)
+	press := el.AnimateTo("press", 1-0.08*b2f(pressed), ui.Snappy)
+	lit := max(down, flash)
+	// It grows into place as it comes in.
+	scale := (0.9 + 0.1*op) * press * (1 + 0.04*flash)
+	accent, outlined := a.accent()
+	bg := pillColor.Mix(panelHot, hot).Mix(accent, lit)
+	edge := ui.RGBA(255, 255, 255, 0.16).Mix(ui.RGBA(255, 255, 255, 0.34), hot).Mix(ui.RGBA(150, 205, 255, 0.95), lit)
+	if outlined {
+		// Under the pointer the border takes the accent, as the corner
+		// button's does; otherwise the panel keeps the faint edge it
+		// rests with.
+		edge = edge.Mix(accent.Alpha(max(hot, lit)), max(hot, lit))
+	}
+	el.Children(func() {
+		// Its corners round as a window's do on Windows 11, less on a
+		// thin panel.
+		pane := ui.Row(c).Absolute().Left(r.X-band.X).Top(r.Y-band.Y).Size(r.W, r.H).Center().
+			Radius(min(8, r.H/4)).Background(bg).Border(1, edge).
+			Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.28)).Scale(scale, scale).Opacity(op)
+		pane.Children(func() {
+			if g := min(16, r.H*0.42, r.W*0.6); g >= 8 {
+				overviewGlyph(c, g, white)
+			}
+		})
+	})
+	if !s.shown {
+		return ui.Rect{}
+	}
+	return band
+}
+
+var (
+	// panelHot is the panel under the pointer, a little lighter; pressed,
+	// it takes the blue of the overview's ring.
+	panelHot = ui.RGBA(44, 44, 52, 0.84)
+	// The press shows at once; the flash of a click fades as the overview
+	// opens.
+	panelPress = ui.Animation{Duration: 70 * time.Millisecond}
+	panelFlash = ui.Animation{Duration: 420 * time.Millisecond}
+)
+
+func b2f(v bool) float32 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// panel is the size of the overview's panel the settings give.
+func (a *App) panel() panel {
+	return panel{share: float32(a.settings.PanelWidth), h: float32(a.settings.PanelHeight)}
+}
+
+// panelPeek is how long the strips show the overview's panel after the
+// settings size it, though the pointer is not there.
+const panelPeek = 1500 * time.Millisecond
+
+// showPanel shows the overview's panel on every strip for a moment, as the
+// settings size it, and puts it away after.
+func (a *App) showPanel() {
+	a.panelUntil = time.Now().Add(panelPeek)
+	a.redraw()
+	after(panelPeek+20*time.Millisecond, a.redraw)
+}
+
+// overviewGlyph draws the mark of the overview: four windows side by side.
+func overviewGlyph(c *ui.Context, size float32, color ui.Color) {
+	h, g := size*0.78, size*0.14
+	cw, ch := (size-g)/2, (h-g)/2
+	ui.Box(c).Size(size, h).Children(func() {
+		for i := 0; i < 4; i++ {
+			x, y := float32(i%2)*(cw+g), float32(i/2)*(ch+g)
+			ui.Box(c.Key(i)).Absolute().Left(x).Top(y).Size(cw, ch).Radius(1.6).Background(color)
+		}
+	})
 }
 
 func emptyHint(c *ui.Context, tr *i18n.Strings, w, h float32) {

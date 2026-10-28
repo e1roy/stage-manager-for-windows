@@ -151,6 +151,50 @@ func TestHiddenStripHasNoHits(t *testing.T) {
 	if len(s.hits) != 0 {
 		t.Fatalf("a hidden strip keeps hits %v", s.hits)
 	}
+	if s.footerHit.W != 0 {
+		t.Fatalf("a hidden strip keeps its footer %v", s.footerHit)
+	}
+}
+
+// The band at the bottom of the strip takes the pointer, to bring up the
+// overview's button, and a click there opens the overview. While the
+// overview shows, the band is gone.
+func TestFooterOpensOverview(t *testing.T) {
+	s, _, tt := testStrip(t)
+	var got []action
+	s.a.act = func(act action, d *display, _ *set) {
+		if d != s.d {
+			t.Errorf("asked for display %p, not %p", d, s.d)
+		}
+		got = append(got, act)
+	}
+	x, y := center(footerButton(200, 900, s.a.panel(), false))
+	if !s.over(winapi.Point{X: int32(x), Y: int32(y)}) {
+		t.Fatalf("the strip lets the pointer through at its footer %v", s.footerHit)
+	}
+	if s.over(winapi.Point{X: int32(x), Y: int32(s.footerHit.Y - 10)}) {
+		t.Fatal("the strip takes the pointer above its footer, where no card is")
+	}
+	// A narrow panel leaves the bottom beside it to the desktop.
+	s.a.settings.PanelWidth = 0.3
+	tt.Frame()
+	if s.over(winapi.Point{X: stripPadLeft + 4, Y: int32(y)}) {
+		t.Fatalf("the strip takes the pointer beside a narrow panel, in %v", s.footerHit)
+	}
+	s.a.settings.PanelWidth = 1
+	tt.Frame()
+	tt.Move(x, y)
+	tt.Frame()
+	tt.ClickAt(x, y)
+	tt.Frame()
+	if len(got) != 1 || got[0] != actOverview {
+		t.Fatalf("requests %v", got)
+	}
+	s.d.inOverview = true
+	tt.Frame()
+	if s.footerHit.W != 0 {
+		t.Fatalf("the footer stays %v while the overview shows", s.footerHit)
+	}
 }
 
 func TestShiftClickJoinsStage(t *testing.T) {
