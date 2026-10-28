@@ -41,6 +41,26 @@ var zhHant = Strings{
 	TiltOff:      "關閉",
 	DefaultValue: "預設值：%s，按一下還原",
 
+	OverviewPanel:     "所有視窗面板",
+	OverviewPanelDesc: "側邊欄底部的面板，指標移到那裡時出現，按一下即可鋪開此顯示器的所有視窗。寬度以卡片寬度的比例計算。",
+	Height:            "高度",
+
+	OverviewCorner:     "左下角按鈕",
+	OverviewCornerDesc: "顯示器左下角、工作列上的按鈕，指標靠近時出現，按一下同樣鋪開所有視窗。只在 Windows 11 工作列置中、左下角空著時出現。",
+
+	WinTab:     "用 Win+Tab 鋪開所有視窗",
+	WinTabDesc: "按 Win+Tab 時鋪開目前顯示器的所有視窗，與按一下左下角按鈕相同，取代 Windows 的工作檢視；再按一次收起。關閉後 Win+Tab 仍開啟工作檢視。",
+
+	Highlight:       "高亮顏色",
+	HighlightDesc:   "指標移到側邊欄底部的面板或左下角按鈕上時，邊框顯示的顏色。",
+	HighlightNone:   "無",
+	HighlightBlue:   "藍",
+	HighlightPurple: "紫",
+	HighlightPink:   "粉",
+	HighlightRed:    "紅",
+	HighlightOrange: "橙",
+	HighlightGreen:  "綠",
+
 	HideInactive:     "隱藏舞台以外的視窗",
 	HideInactiveDesc: "只有目前的應用程式留在桌面上，其他應用程式收進側邊欄。關閉後側邊欄只列出它們。",
 	ClickDesktop:     "按一下桌面清空舞台",

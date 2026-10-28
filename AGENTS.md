@@ -64,7 +64,7 @@ stage_mgr_go/
     i18n/      界面文字：简体中文、繁体中文、英文、日文各一张 Strings 表，FromLANGID 把 Windows 显示语言映射过来（有单测）
     app/       Stage Manager for Windows 本体，全部运行在 MyGo 主线程
       app.go          App/display/group/set 结构、显示器同步、refresh、初始舞台、游离/逃逸窗口
-      events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询
+      events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询、Win+Tab 打开概览
       drag.go         拖动窗口：拖到另一台显示器时那边的舞台让位、松手、拖进侧边栏、键盘移动窗口
       switch.go       舞台切换、真实窗口交接（handover）、切换排队/打断、卡片动作
       flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
@@ -74,6 +74,8 @@ stage_mgr_go/
       media.go        静帧（PrintWindow）与图标缓存、内存预算
       iconfit.go      裁掉图标四周透明边
       peek.go         任务栏缩略图 peek 时临时放回被停放的窗口
+      overview.go     “所有窗口”概览（类 Mission Control）：侧边栏底部按钮打开，铺开本显示器所有窗口，点选切换舞台
+      corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览
       settingsview.go 设置窗口；tray.go 托盘；debug.go 调试日志与看门狗
 ```
 
@@ -89,7 +91,7 @@ stage_mgr_go/
 
 ## 必须遵守的约束
 
-- **线程模型**：`App` 的所有状态只在 MyGo 主线程读写。后台 goroutine 的结果必须用 `post(fn)` / `after(d, fn)`（内部是 `mygo.RunOnMain`）回到主线程。WinEvent 钩子在主线程安装和回调。不要加锁来“修”并发，正确做法是回到主线程。
+- **线程模型**：`App` 的所有状态只在 MyGo 主线程读写。后台 goroutine 的结果必须用 `post(fn)` / `after(d, fn)`（内部是 `mygo.RunOnMain`）回到主线程。WinEvent 钩子在主线程安装和回调。唯一例外是 Win+Tab 的低级键盘钩子（`winapi/keyboard.go`）：它在自己的线程里跑消息循环，免得主线程一忙全系统打字卡顿，回调里只 `post`。不要加锁来“修”并发，正确做法是回到主线程。
 - **不要在主线程做可能阻塞的事**：`PrintWindow` 会等目标应用自己绘制，只能在 goroutine 里做并带超时。看门狗在主线程 5 秒无响应时会直接按日志放回所有窗口。
 - **坐标**：与系统打交道一律是物理像素（进程是 Per-Monitor V2，`winapi.Rect`）；MyGo 在窗口内按 DIP 绘制（`ui.Rect`）。两者之间的换算集中在 `strip.toScreen`、`display.mon.Scale()` 一类地方，别在别处随手乘 DPI。
 - **停放而不是最小化**：隐藏窗口一律走 `parking.Service`（移到同一显示器旁的桌面外，保持 DPI），每次变动写日志。绕过它直接 `SetWindowPos` 移走窗口，崩溃后窗口就回不来了。用户手动最小化的窗口交给任务栏，不进侧边栏。

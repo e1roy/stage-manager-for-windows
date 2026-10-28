@@ -114,6 +114,9 @@ type display struct {
 	// dropPoses is where the windows of a card dropped on the stage were
 	// let go, for their flight home.
 	dropPoses map[winapi.HWND]pose
+	// inOverview is set while the overview shows the display's windows:
+	// the strip's cards are out there, and show nothing in the strip.
+	inOverview bool
 }
 
 // App is Stage Manager.
@@ -153,6 +156,9 @@ type App struct {
 	}
 	unhook   func()
 	stopPoll chan struct{}
+	// unhookWinTab gives Win+Tab back to Task View, while the overview
+	// has it (events.go).
+	unhookWinTab func()
 
 	// drag is the window the user is moving, if any.
 	drag *drag
@@ -162,6 +168,9 @@ type App struct {
 	// it shows one, and taskbar where the pointer was last over a taskbar.
 	peek    winapi.HWND
 	taskbar taskbarPoint
+	// hint is the window over a hot corner (corner.go); made the first
+	// time the pointer nears one.
+	hint *cornerHint
 
 	// act, when set, receives what the cards ask for instead of App.
 	act func(action, *display, *set)
@@ -171,6 +180,12 @@ type App struct {
 	sysLang    i18n.Lang // the language of Windows, for settings that follow it
 	settingsUI *settingsWindow
 	flights    *flights
+	// ov spreads out a display's windows (overview.go); made the first
+	// time it opens.
+	ov *overview
+	// panelUntil is when the strips stop showing the overview's panel
+	// after the settings sized it.
+	panelUntil time.Time
 }
 
 // Options configure Start.
@@ -338,6 +353,7 @@ func (a *App) syncDisplays() {
 	for _, d := range a.displays {
 		d.mon = winapi.MonitorInfo(d.mon.Handle)
 	}
+	a.syncWinTab()
 }
 
 // frontApp returns the front-most app showing on a display, or "".
@@ -435,6 +451,10 @@ func bringOnScreen(h winapi.HWND, frame winapi.Rect) bool {
 func (a *App) displaysChanged() {
 	if a.quitting {
 		return
+	}
+	// The overview's windows go back to where they were measured from.
+	if a.ov != nil {
+		a.ov.abort()
 	}
 	a.syncDisplays()
 	a.refresh()
@@ -758,9 +778,14 @@ func (a *App) applySettings(s settings.Settings) {
 		}
 	}
 	// syncDisplays below moves a strip to its new side; its cards turn the
-	// other way as it draws again.
-	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || !maps.Equal(old.Sides, s.Sides) {
+	// other way as it draws again. The panel's size moves the cards too,
+	// and the accent is drawn on the panels and the corner button.
+	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || !maps.Equal(old.Sides, s.Sides) ||
+		old.PanelWidth != s.PanelWidth || old.PanelHeight != s.PanelHeight || old.Accent != s.Accent {
 		a.redraw()
+	}
+	if old.Accent != s.Accent && a.hint != nil && a.hint.visible {
+		a.hint.win.Invalidate()
 	}
 	if old.Mode != s.Mode || old.Width != s.Width {
 		for _, d := range a.displays {
@@ -768,6 +793,11 @@ func (a *App) applySettings(s settings.Settings) {
 				d.strip.relayout()
 			}
 		}
+	}
+	// The corner button is hidden till the pointer comes near it, so it
+	// shows while the settings size it.
+	if old.CornerWidth != s.CornerWidth {
+		a.showCorner()
 	}
 	a.syncDisplays()
 	// Hiding again starts the stages with what shows on the displays.
@@ -792,6 +822,7 @@ func (a *App) shutdown() {
 	if a.stopPoll != nil {
 		close(a.stopPoll)
 	}
+	a.syncWinTab()
 	a.park.RestoreAll()
 	// Nothing will follow the windows home after this: wait for them.
 	a.park.Settle(600 * time.Millisecond)

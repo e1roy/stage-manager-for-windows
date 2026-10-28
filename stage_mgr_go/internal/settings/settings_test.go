@@ -145,6 +145,64 @@ func TestSpacing(t *testing.T) {
 	}
 }
 
+func TestPanel(t *testing.T) {
+	s := (Settings{PanelWidth: 3, PanelHeight: 2}).Normalize()
+	if s.PanelWidth != MaxPanelWidth || s.PanelHeight != MinPanelHeight {
+		t.Fatalf("panel %v × %v", s.PanelWidth, s.PanelHeight)
+	}
+	// Settings from before the panel had a size keep the one it had.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"width": 240}`), 0o644)
+	if got, def := NewStore(dir).Load(), Default(); got.PanelWidth != def.PanelWidth || got.PanelHeight != def.PanelHeight {
+		t.Fatalf("loaded panel %v × %v", got.PanelWidth, got.PanelHeight)
+	}
+}
+
+func TestCornerWidth(t *testing.T) {
+	if s := (Settings{CornerWidth: 9000}).Normalize(); s.CornerWidth != MaxCornerWidth {
+		t.Fatalf("corner width 9000 normalized to %v", s.CornerWidth)
+	}
+	if s := (Settings{CornerWidth: 10}).Normalize(); s.CornerWidth != MinCornerWidth {
+		t.Fatalf("corner width 10 normalized to %v", s.CornerWidth)
+	}
+	// Settings from before the corner had a width keep the button it had.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"width": 240}`), 0o644)
+	if got := NewStore(dir).Load().CornerWidth; got != Default().CornerWidth {
+		t.Fatalf("loaded corner width %v", got)
+	}
+}
+
+func TestWinTab(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	// Settings from before Win+Tab opened the overview have it do so.
+	os.WriteFile(path, []byte(`{"width": 240}`), 0o644)
+	if !NewStore(dir).Load().WinTab {
+		t.Fatal("settings without winTab loaded it off")
+	}
+	os.WriteFile(path, []byte(`{"winTab": false}`), 0o644)
+	if NewStore(dir).Load().WinTab {
+		t.Fatal("winTab turned off loaded on")
+	}
+}
+
+func TestAccent(t *testing.T) {
+	for in, want := range map[string]string{
+		"":        AccentDefault, // settings from before the accent had a choice
+		"default": AccentDefault,
+		"none":    AccentNone,
+		"#BF5AF2": "#bf5af2",
+		"purple":  AccentDefault,
+		"#12345":  AccentDefault,
+		"#12345g": AccentDefault,
+	} {
+		if got := (Settings{Accent: in}).Normalize().Accent; got != want {
+			t.Errorf("accent %q normalized to %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestLanguage(t *testing.T) {
 	if s := (Settings{Language: "fr"}).Normalize(); s.Language != i18n.Auto {
 		t.Fatalf("unknown language normalized to %q", s.Language)

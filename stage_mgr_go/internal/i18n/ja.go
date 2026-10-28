@@ -42,6 +42,26 @@ var ja = Strings{
 	TiltOff:      "オフ",
 	DefaultValue: "デフォルト：%s。クリックで戻します。",
 
+	OverviewPanel:     "すべてのウインドウ パネル",
+	OverviewPanelDesc: "サイドバー下部のパネルです。ポインタを近づけると表示され、クリックするとこのディスプレイのすべてのウインドウを並べて表示します。幅はカードの幅に対する割合です。",
+	Height:            "高さ",
+
+	OverviewCorner:     "左下のボタン",
+	OverviewCornerDesc: "ディスプレイ左下のタスクバー上のボタンです。ポインタを近づけると表示され、クリックすると同じくすべてのウインドウを並べます。Windows 11 のタスクバーが中央揃えで左下が空いているときだけ表示されます。",
+
+	WinTab:     "Win+Tab ですべてのウインドウを並べる",
+	WinTabDesc: "Win+Tab を押すと、タスク ビューの代わりに、使用中のディスプレイのすべてのウインドウを左下のボタンと同じように並べます。もう一度押すと元に戻ります。オフにすると Win+Tab でタスク ビューが開きます。",
+
+	Highlight:       "ハイライトの色",
+	HighlightDesc:   "ポインタをサイドバー下部のパネルや左下のボタンに重ねたときの枠線の色です。",
+	HighlightNone:   "なし",
+	HighlightBlue:   "青",
+	HighlightPurple: "紫",
+	HighlightPink:   "ピンク",
+	HighlightRed:    "赤",
+	HighlightOrange: "オレンジ",
+	HighlightGreen:  "緑",
+
 	HideInactive:     "ステージ外のウインドウを隠す",
 	HideInactiveDesc: "現在のアプリだけをデスクトップに残し、ほかのアプリはサイドバーにしまいます。オフにするとサイドバーに一覧表示するだけです。",
 	ClickDesktop:     "デスクトップをクリックしてステージを空にする",

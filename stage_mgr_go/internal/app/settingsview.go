@@ -30,8 +30,12 @@ type settingsWindow struct {
 	tilt  float64
 	// spacing is the gap between cards, as the slider sets it.
 	spacing float64
-	login   bool
-	icon0   *ui.Bitmap
+	// panelW and panelH size the overview's panel, as the sliders set them,
+	// and cornerW the button over a display's bottom-left corner.
+	panelW, panelH float64
+	cornerW        float64
+	login          bool
+	icon0          *ui.Bitmap
 	// fileIcons are the icons of the companions listed by path, by path.
 	fileIcons map[string]*ui.Bitmap
 	// notice is shown as a toast in the next frame.
@@ -89,6 +93,8 @@ func (sw *settingsWindow) load() {
 	}
 	sw.quality = slices.Index(qualities, sw.s.Quality)
 	sw.width, sw.icon, sw.tilt, sw.spacing = sw.s.Width, sw.s.IconScale, float64(sw.s.Tilt), sw.s.Spacing
+	sw.panelW, sw.panelH = sw.s.PanelWidth, sw.s.PanelHeight
+	sw.cornerW = sw.s.CornerWidth
 }
 
 // running returns the apps on the stages and in the strips, one per
@@ -500,6 +506,129 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 					sw.apply()
 				}
 			}
+		})
+	})
+	sw.panelSection(c, f, tr)
+	sw.cornerSection(c, f, tr)
+	// The third way into the overview, after the panel and the corner.
+	f.section(c, "", func() {
+		f.row(c, tr.WinTab, tr.WinTabDesc, func() {
+			if ui.Switch(c, &sw.s.WinTab).Changed() {
+				sw.apply()
+			}
+		})
+	})
+	sw.highlightRow(c, f, tr)
+}
+
+// panelSection sizes the overview's panel. The strips show it while it is
+// sized, as it is hidden till the pointer comes near.
+func (sw *settingsWindow) panelSection(c *ui.Context, f form, tr *i18n.Strings) {
+	def := settings.Default()
+	ui.Column(c).Gap(4).Margin(16, 0, 2, 2).Children(func() {
+		ui.Text(c, tr.OverviewPanel).FontSize(14).Bold()
+		ui.Text(c, tr.OverviewPanelDesc).FontSize(12).TextColor(f.t.TextMuted)
+	})
+	f.section(c, "", func() {
+		pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
+		px := func(v float64) string { return fmt.Sprintf(tr.WidthValue, v) }
+		f.row(c, tr.Width, "", func() {
+			if f.slider(c, tr, &sw.panelW, settings.MinPanelWidth, settings.MaxPanelWidth, 0, def.PanelWidth, pct) {
+				sw.panelW = math.Round(sw.panelW*100) / 100
+				sw.s.PanelWidth = sw.panelW
+				sw.a.showPanel()
+				sw.apply()
+			}
+		})
+		f.row(c, tr.Height, "", func() {
+			if f.slider(c, tr, &sw.panelH, settings.MinPanelHeight, settings.MaxPanelHeight, 0, def.PanelHeight, px) {
+				sw.panelH = math.Round(sw.panelH)
+				sw.s.PanelHeight = sw.panelH
+				sw.a.showPanel()
+				sw.apply()
+			}
+		})
+	})
+}
+
+// cornerSection sizes the button over a display's bottom-left corner, which
+// opens the same overview wherever a centered taskbar leaves the corner
+// empty. The button shows while it is sized, as it is hidden till the
+// pointer comes near.
+func (sw *settingsWindow) cornerSection(c *ui.Context, f form, tr *i18n.Strings) {
+	def := settings.Default()
+	px := func(v float64) string { return fmt.Sprintf(tr.WidthValue, v) }
+	ui.Column(c).Gap(4).Margin(16, 0, 2, 2).Children(func() {
+		ui.Text(c, tr.OverviewCorner).FontSize(14).Bold()
+		ui.Text(c, tr.OverviewCornerDesc).FontSize(12).TextColor(f.t.TextMuted)
+	})
+	f.section(c, "", func() {
+		f.row(c, tr.Width, "", func() {
+			if f.slider(c, tr, &sw.cornerW, settings.MinCornerWidth, settings.MaxCornerWidth, 0, def.CornerWidth, px) {
+				sw.cornerW = math.Round(sw.cornerW)
+				sw.s.CornerWidth = sw.cornerW
+				sw.apply()
+			}
+		})
+	})
+}
+
+// accents are the colors the overview's panel and corner button may take
+// under the pointer, with their names. The first is the setting's default,
+// the blue the overview rings with.
+var accents = []struct {
+	value string
+	color ui.Color
+	name  func(*i18n.Strings) string
+}{
+	{settings.AccentDefault, ui.RGBA(10, 132, 255, 1), func(tr *i18n.Strings) string { return tr.HighlightBlue }},
+	{"#bf5af2", ui.RGBA(191, 90, 242, 1), func(tr *i18n.Strings) string { return tr.HighlightPurple }},
+	{"#ff375f", ui.RGBA(255, 55, 95, 1), func(tr *i18n.Strings) string { return tr.HighlightPink }},
+	{"#ff453a", ui.RGBA(255, 69, 58, 1), func(tr *i18n.Strings) string { return tr.HighlightRed }},
+	{"#ff9f0a", ui.RGBA(255, 159, 10, 1), func(tr *i18n.Strings) string { return tr.HighlightOrange }},
+	{"#30d158", ui.RGBA(48, 209, 88, 1), func(tr *i18n.Strings) string { return tr.HighlightGreen }},
+}
+
+// highlightRow picks the color of the borders the buttons of the overview
+// show under the pointer, or none, which keeps the borders they had.
+func (sw *settingsWindow) highlightRow(c *ui.Context, f form, tr *i18n.Strings) {
+	t := f.t
+	// A swatch is the color itself, ringed while it is the one chosen.
+	swatch := func(key string, col ui.Color, on bool) ui.Element {
+		el := ui.Box(c.Key(key)).Size(20, 20).Radius(5).Background(col).Cursor(ui.CursorPointer)
+		if on {
+			el.Border(2, t.Text)
+		} else {
+			el.Border(1, t.Border)
+		}
+		return el
+	}
+	f.section(c, "", func() {
+		f.row(c, tr.Highlight, tr.HighlightDesc, func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				// None keeps the plain borders, which the mark says.
+				none := ui.Box(c.Key(settings.AccentNone)).Size(20, 20).Radius(5).Background(t.Surface).
+					Cursor(ui.CursorPointer).Tooltip(tr.HighlightNone)
+				if sw.s.Accent == settings.AccentNone {
+					none.Border(2, t.Text)
+				} else {
+					none.Border(1, t.Border)
+				}
+				none.Draw(func(p *ui.Painter, r ui.Rect) {
+					p.StrokePath(new(ui.Path).MoveTo(r.X+4, r.Y+4).LineTo(r.X+r.W-4, r.Y+r.H-4), 1.5, t.TextMuted)
+				})
+				if none.Clicked() {
+					sw.s.Accent = settings.AccentNone
+					sw.apply()
+				}
+				for _, a := range accents {
+					el := swatch(a.value, a.color, sw.s.Accent == a.value)
+					if el.Tooltip(a.name(tr)).Clicked() {
+						sw.s.Accent = a.value
+						sw.apply()
+					}
+				}
+			})
 		})
 	})
 }

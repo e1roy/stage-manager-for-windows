@@ -229,13 +229,19 @@ func (h *handover) stop() {
 func (h *handover) done() {
 	clear(h.d.landing)
 	h.a.busy, h.a.running = false, nil
-	h.a.refresh()
-	if h.a.runQueued(h.d) {
+	h.a.ended(h.d)
+}
+
+// ended takes up, once a switch or the overview on display d is over, what
+// waited for it: a switch asked for meanwhile, else a foreground change
+// that came in.
+func (a *App) ended(d *display) {
+	a.refresh()
+	if a.runQueued(d) {
 		return
 	}
-	// A foreground change that came in meanwhile is handled now.
-	if h.a.fg.h != 0 && h.a.fg.timer == nil {
-		h.a.fg.timer = after(10*time.Millisecond, h.a.settleForeground)
+	if a.fg.h != 0 && a.fg.timer == nil {
+		a.fg.timer = after(10*time.Millisecond, a.settleForeground)
 	}
 }
 
@@ -302,6 +308,7 @@ const (
 	actSplit
 	actClose
 	actCompanion
+	actOverview // asked for by the strip's button rather than a card
 )
 
 // request carries out what a card asks for once the frame is built. Tests
@@ -332,6 +339,16 @@ func (a *App) request(act action, d *display, s *set) {
 // pick puts the apps of a card on the stage, in place of those there.
 func (a *App) pick(d *display, s *set) {
 	a.switchStage(d, s.names(), s.front().HWND, true, false)
+}
+
+// requestOverview opens the overview of a display once the frame is
+// built. Tests set App.act to see the request instead, with no set.
+func (a *App) requestOverview(d *display) {
+	if a.act != nil {
+		a.act(actOverview, d, nil)
+		return
+	}
+	post(func() { a.openOverview(d, time.Now()) })
 }
 
 // join adds the apps of a card to the stage, as dragging it there or

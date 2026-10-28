@@ -43,6 +43,11 @@ type strip struct {
 	wasInside    bool
 	edgeSince    time.Time // when the pointer came to the strip's edge
 	hits         []ui.Rect // the cards, in DIPs of the window, as last drawn
+	footerHit    ui.Rect   // the band the overview's button shows in, likewise
+	// near is how far the overview's panel shows as the pointer comes
+	// near it, 0 to 1. The poll measures it everywhere on the display,
+	// where the strip lets the pointer through and so hears nothing of it.
+	near float32
 }
 
 var appBarMessage uint32
@@ -162,9 +167,10 @@ func (s *strip) message(msg uint32, wParam, lParam uintptr) (uintptr, bool) {
 
 // poll follows the pointer: a floating strip comes out at its display's
 // edge and goes once the pointer has left it, and clicks go through
-// wherever no card is.
+// wherever no card is. While the overview shows the display's windows, the
+// strip under it takes nothing.
 func (s *strip) poll(cur winapi.Point, now time.Time) {
-	inside := s.visible && s.rect.Contains(cur) && s.overCard(cur)
+	inside := s.visible && !s.d.inOverview && s.rect.Contains(cur) && s.over(cur)
 	if inside && !s.wasInside {
 		// The pointer reached the cards: a switch may follow, so the
 		// windows on the stage get fresh stills to fly with now.
@@ -212,6 +218,30 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 		s.holding = true
 	}
 	s.setClickThrough(!(inside || s.dragging || s.holding))
+	s.approach(cur)
+}
+
+// approach brings the overview's panel in as the pointer nears it, from
+// the stage or the cards, before it reaches the band that takes clicks.
+// The taskbar is left out: the pointer passes the strip's bottom corner on
+// its way to Start. A fixed strip has reserved its band out of the work
+// area, so its own rectangle counts besides.
+func (s *strip) approach(cur winapi.Point) {
+	d := s.d
+	near := float32(0)
+	on := d.mon.Work.Contains(cur) || s.rect.Contains(cur)
+	if s.visible && s.shown && s.a.ready && !d.inOverview && d.viewW > 0 && on {
+		x := float32(float64(cur.X-s.rect.Left) / s.scale)
+		y := float32(float64(cur.Y-s.rect.Top) / s.scale)
+		near = panelNearness(rectDist(footerButton(d.viewW, d.viewH, s.a.panel(), s.right()), x, y))
+	}
+	// Small steps on the way are left to the next; the ends are not, so
+	// that it shows in full and goes away entirely.
+	if near == s.near || near != 0 && near != 1 && math.Abs(float64(near-s.near)) < 0.03 {
+		return
+	}
+	s.near = near
+	s.win.Invalidate()
 }
 
 func (s *strip) setShown(v bool, now time.Time) {
@@ -266,8 +296,9 @@ func (s *strip) hardEdge(p winapi.Point) bool {
 	return !winapi.OnAnyMonitor(winapi.Rect{Left: x, Top: p.Y, Right: x + 1, Bottom: p.Y + 1})
 }
 
-// overCard reports whether a screen point is over a card.
-func (s *strip) overCard(p winapi.Point) bool {
+// over reports whether a screen point is over a card, or the band of the
+// overview's button: the strip takes the pointer there.
+func (s *strip) over(p winapi.Point) bool {
 	x := float32(float64(p.X-s.rect.Left) / s.scale)
 	y := float32(float64(p.Y-s.rect.Top) / s.scale)
 	const slop = 6
@@ -276,7 +307,8 @@ func (s *strip) overCard(p winapi.Point) bool {
 			return true
 		}
 	}
-	return false
+	f := s.footerHit
+	return f.W > 0 && x >= f.X && x < f.X+f.W && y >= f.Y && y < f.Y+f.H
 }
 
 // cardBand is the band of the screen the cards take, in pixels: a window

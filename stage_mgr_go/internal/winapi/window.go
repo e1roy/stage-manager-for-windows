@@ -246,6 +246,15 @@ func Foreground() HWND {
 	return HWND(r)
 }
 
+var procGetShellWindow = user32.NewProc("GetShellWindow")
+
+// ShellWindow is the shell's desktop window, the one clicking the
+// wallpaper activates.
+func ShellWindow() HWND {
+	r, _, _ := procGetShellWindow.Call()
+	return HWND(r)
+}
+
 // SetWindowPos wraps the Win32 call; insertAfter is a window or one of the
 // Hwnd* constants.
 func SetWindowPos(h, insertAfter HWND, x, y, w, ht int32, flags uint32) bool {

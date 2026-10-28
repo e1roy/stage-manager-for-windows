@@ -104,6 +104,25 @@ type Strings struct {
 	IconSize, Spacing                        string
 	Tilt, TiltDesc, TiltOff                  string
 	DefaultValue                             string // %s: the default value
+	// OverviewPanel names the panel at the bottom of the strip that
+	// spreads out every window of the display, as Mission Control does;
+	// OverviewPanelDesc says where it is and how it is sized.
+	OverviewPanel, OverviewPanelDesc, Height string
+	// OverviewCorner names the button over a display's bottom-left
+	// corner, which opens the same overview; OverviewCornerDesc says
+	// where it is and how it is sized.
+	OverviewCorner, OverviewCornerDesc string
+	// WinTab names Win+Tab opening the same overview in place of Task
+	// View, which WinTabDesc explains.
+	WinTab, WinTabDesc string
+	// Highlight names the color of the borders the overview's panel and
+	// corner button take under the pointer, which HighlightDesc
+	// describes; HighlightNone keeps the plain ones, and the rest name
+	// the colors the settings offer.
+	Highlight, HighlightDesc                      string
+	HighlightNone, HighlightBlue, HighlightPurple string
+	HighlightPink, HighlightRed                   string
+	HighlightOrange, HighlightGreen               string
 
 	HideInactive, HideInactiveDesc                        string
 	ClickDesktop, ClickDesktopDesc, ClickDesktopNeedsHide string

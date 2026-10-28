@@ -3,11 +3,15 @@ package app
 import (
 	"testing"
 
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/egoist/mygo/ui"
 )
 
+// defPanel is the overview's panel as the settings first size it.
+var defPanel = panel{share: float32(settings.Default().PanelWidth), h: float32(settings.Default().PanelHeight)}
+
 func TestStripFitsAndCenters(t *testing.T) {
-	l := layoutStrip(3, 200, 1000, 0, 20, false)
+	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, false)
 	if l.scale != 1 || len(l.cards) != 3 {
 		t.Fatalf("scale %v cards %d", l.scale, len(l.cards))
 	}
@@ -18,7 +22,7 @@ func TestStripFitsAndCenters(t *testing.T) {
 }
 
 func TestStripShrinksThenScrolls(t *testing.T) {
-	l := layoutStrip(8, 200, 900, 0, 20, false)
+	l := layoutStrip(8, 200, 900, 0, 20, defPanel, false)
 	if l.scale >= 1 || l.scale < minCardScale {
 		t.Fatalf("scale %v", l.scale)
 	}
@@ -26,11 +30,11 @@ func TestStripShrinksThenScrolls(t *testing.T) {
 	if last.Y+last.H > 900-stripMargin+0.5 {
 		t.Fatalf("last card ends at %v", last.Y+last.H)
 	}
-	many := layoutStrip(40, 200, 900, 0, 20, false)
+	many := layoutStrip(40, 200, 900, 0, 20, defPanel, false)
 	if many.scale != minCardScale || many.maxScroll(900) <= 0 {
 		t.Fatalf("scale %v max scroll %v", many.scale, many.maxScroll(900))
 	}
-	scrolled := layoutStrip(40, 200, 900, 100, 20, false)
+	scrolled := layoutStrip(40, 200, 900, 100, 20, defPanel, false)
 	if scrolled.cards[0].Y != many.cards[0].Y-100 {
 		t.Fatalf("scroll moved the first card from %v to %v", many.cards[0].Y, scrolled.cards[0].Y)
 	}
@@ -64,8 +68,120 @@ func TestTurnedCard(t *testing.T) {
 	}
 }
 
+// The cards keep clear of the band at the bottom where the overview's
+// panel shows, however many there are, however far they scroll and
+// however tall the panel is; a narrow panel is centered under the cards.
+func TestCardsKeepClearOfFooter(t *testing.T) {
+	const height = 900
+	for _, p := range []panel{defPanel, {share: 0.3, h: 12}, {share: 1, h: 80}} {
+		band := footerBand(200, height, p, false)
+		button := footerButton(200, height, p, false)
+		if button.X < band.X || button.Y < band.Y || button.X+button.W > band.X+band.W || button.Y+button.H > band.Y+band.H {
+			t.Fatalf("panel %+v leaves its band %+v", button, band)
+		}
+		if band.Y+band.H != height {
+			t.Fatalf("band %+v stops short of the strip's bottom %v", band, height)
+		}
+		for _, n := range []int{1, 5, 8, 40} {
+			l := layoutStrip(n, 200, height, 0, 20, p, false)
+			at := layoutStrip(n, 200, height, l.maxScroll(height), 20, p, false)
+			last := at.cards[n-1]
+			if last.Y+last.H > band.Y {
+				t.Fatalf("%v, %d cards: the last ends at %v, in the footer from %v", p, n, last.Y+last.H, band.Y)
+			}
+		}
+		cards := layoutStrip(1, 200, height, 0, 20, p, false).cards[0]
+		if d := (button.X + button.W/2) - (cards.X + cards.W/2); d > 0.01 || d < -0.01 {
+			t.Fatalf("panel %+v is not centered under the cards %+v", button, cards)
+		}
+		if r := footerButton(200, height, p, true); r.X+r.W > 200-stripPadLeft+0.01 || r.X < button.X {
+			t.Fatalf("the panel of a strip on the right %+v does not mirror %+v", r, button)
+		}
+	}
+	narrow := footerButton(200, height, panel{share: 0.3, h: 38}, false)
+	if want := (200 - stripPadLeft - stripPadRight) * float32(0.3); narrow.W != want {
+		t.Fatalf("a panel of 30%% is %v wide, want %v", narrow.W, want)
+	}
+}
+
+// The overview spreads windows out without overlapping, inside its area,
+// as they are shaped, never larger than they are, and in rows that follow
+// where they were.
+func TestOverviewSpreadsWindows(t *testing.T) {
+	area := ui.Rect{X: 40, Y: 40, W: 1800, H: 960}
+	items := []overviewItem{
+		{w: 1600, h: 1000, cx: 960, cy: 540}, // maximized on the stage
+		{w: 1200, h: 800, cx: 100, cy: 200},  // in the strip's top card
+		{w: 600, h: 400, cx: 100, cy: 520},   // a small window, in the middle card
+		{w: 900, h: 1100, cx: 100, cy: 840},  // a tall one, in the bottom card
+		{w: 1400, h: 900, cx: 120, cy: 860},
+	}
+	rs := layoutOverview(area, items, 36, 60)
+	if len(rs) != len(items) {
+		t.Fatalf("%d places for %d windows", len(rs), len(items))
+	}
+	for i, r := range rs {
+		it := items[i]
+		if r.X < area.X-0.01 || r.Y < area.Y-0.01 || r.X+r.W > area.X+area.W+0.01 || r.Y+r.H > area.Y+area.H+0.01 {
+			t.Fatalf("window %d at %+v leaves %+v", i, r, area)
+		}
+		if r.W > it.w+0.01 || r.H > it.h+0.01 {
+			t.Fatalf("window %d of %vx%v shows larger, %vx%v", i, it.w, it.h, r.W, r.H)
+		}
+		if d := r.W/r.H - it.w/it.h; d > 0.01 || d < -0.01 {
+			t.Fatalf("window %d of %vx%v shows %vx%v", i, it.w, it.h, r.W, r.H)
+		}
+		for j, s := range rs[:i] {
+			if r.X < s.X+s.W && s.X < r.X+r.W && r.Y < s.Y+s.H && s.Y < r.Y+r.H {
+				t.Fatalf("windows %d %+v and %d %+v overlap", i, r, j, s)
+			}
+		}
+	}
+	// The top card's window goes above the bottom card's.
+	if !(rs[1].Y < rs[3].Y) {
+		t.Fatalf("the window from the top %+v is not above the one from the bottom %+v", rs[1], rs[3])
+	}
+	// One small window shows at its own size, in the middle.
+	one := layoutOverview(area, []overviewItem{{w: 600, h: 400}}, 36, 60)[0]
+	if one.W != 600 || one.H != 400 || one.X+one.W/2 != area.X+area.W/2 || one.Y+one.H/2 != area.Y+area.H/2 {
+		t.Fatalf("a lone small window shows at %+v", one)
+	}
+	if got := layoutOverview(area, nil, 36, 60); len(got) != 0 {
+		t.Fatalf("no windows placed at %v", got)
+	}
+}
+
+// The panel comes in as the pointer nears it, in full before the pointer
+// is on it, and not at all from afar.
+func TestPanelComesInAsPointerNears(t *testing.T) {
+	r := ui.Rect{X: 20, Y: 800, W: 160, H: 38}
+	if d := rectDist(r, 100, 810); d != 0 {
+		t.Fatalf("a point on the panel is %v from it", d)
+	}
+	if d := rectDist(r, 100, 760); d != 40 {
+		t.Fatalf("a point 40 above the panel is %v from it", d)
+	}
+	if d := rectDist(r, 0, 800-15); d != 25 {
+		t.Fatalf("a point 20 left and 15 above the panel is %v from it", d)
+	}
+	if k := panelNearness(panelFull); k != 1 {
+		t.Fatalf("at %v the panel shows %v, not in full", panelFull, k)
+	}
+	if k := panelNearness(panelReach); k != 0 {
+		t.Fatalf("at %v the panel shows %v, not yet at all", panelReach, k)
+	}
+	last := float32(1)
+	for d := float32(0); d <= panelReach+20; d += 5 {
+		k := panelNearness(d)
+		if k > last {
+			t.Fatalf("the panel shows more, %v, farther away at %v", k, d)
+		}
+		last = k
+	}
+}
+
 func TestStripGap(t *testing.T) {
-	near, far := layoutStrip(3, 200, 1000, 0, 0, false), layoutStrip(3, 200, 1000, 0, 60, false)
+	near, far := layoutStrip(3, 200, 1000, 0, 0, defPanel, false), layoutStrip(3, 200, 1000, 0, 60, defPanel, false)
 	if d := far.extent - near.extent; d < 59.5 || d > 60.5 {
 		t.Fatalf("a gap of 60 more set cards %v further apart", d)
 	}
@@ -77,7 +193,7 @@ func TestStripGap(t *testing.T) {
 func TestRightMirrorsLeft(t *testing.T) {
 	const width = 200
 	near := func(a, b float32) bool { return a-b < 0.01 && b-a < 0.01 }
-	l, r := layoutStrip(3, width, 1000, 0, 20, false), layoutStrip(3, width, 1000, 0, 20, true)
+	l, r := layoutStrip(3, width, 1000, 0, 20, defPanel, false), layoutStrip(3, width, 1000, 0, 20, defPanel, true)
 	for i := range l.cards {
 		lc, rc := l.cards[i], r.cards[i]
 		if !near(rc.X, width-lc.X-lc.W) || rc.Y != lc.Y || rc.W != lc.W {
