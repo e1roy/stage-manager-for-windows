@@ -67,7 +67,7 @@ Works on Windows 10 and 11 (64-bit).
 
 ## Build it yourself
 
-Requires Go 1.27.1 or newer:
+Requires Go 1.27.3 or newer:
 
 ```powershell
 git clone git@github.com:e1roy/stage-manager-for-windows.git

@@ -67,7 +67,7 @@ https://github.com/user-attachments/assets/d7c72abf-a951-44b9-9254-7b855a17b556
 
 ## 自己编译
 
-需要 Go 1.27.1 以上：
+需要 Go 1.27.3 以上：
 
 ```powershell
 git clone git@github.com:e1roy/stage-manager-for-windows.git
