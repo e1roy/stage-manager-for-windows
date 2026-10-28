@@ -19,12 +19,15 @@ import (
 //go:embed resources/icon.png
 var icon []byte
 
-// version is set by the build.
-var version = "0.1.0"
-
 func main() {
 	mygo.App.SetName("Stage Manager for Windows")
-	mygo.App.SetVersion(version)
+	// The version is mygo.json's: mygo build writes it into the
+	// executable's version resource, which the About pane reads back, so
+	// the app cannot show a version its installer does not have. A go run
+	// has no such resource and is a development build.
+	if mygo.App.Version() == "" {
+		mygo.App.SetVersion("dev")
+	}
 	if !mygo.App.RequestSingleInstanceLock() {
 		// The running instance opens its settings; let it come to the front.
 		winapi.AllowAnyForeground()
