@@ -19,7 +19,7 @@ Stage Manager for Windows：在 Windows 10/11 上复刻 macOS“台前调度”�
 
 ## 常用命令
 
-都在 `stage_mgr_go/` 下执行（需要 Go 1.27.1+，`GOTOOLCHAIN=auto` 会自动下载）：
+都在 `stage_mgr_go/` 下执行（需要 Go 1.27.3+，`GOTOOLCHAIN=auto` 会自动下载）：
 
 ```powershell
 go build ./...                # 编译

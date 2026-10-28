@@ -74,7 +74,7 @@ internal/
 
 ## 构建与运行
 
-需要 Go 1.27.1 以上（`GOTOOLCHAIN=auto` 时会自动下载）。
+需要 Go 1.27.3 以上（`GOTOOLCHAIN=auto` 时会自动下载）。
 
 ```powershell
 cd stage_mgr_go
