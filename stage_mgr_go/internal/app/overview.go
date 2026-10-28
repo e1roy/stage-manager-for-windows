@@ -17,6 +17,11 @@ const (
 	overviewTime = 420 * time.Millisecond
 	// How dark the desktop goes behind the windows spread out.
 	overviewDim = 0.45
+	// The close button in the top right corner of the window under the
+	// pointer: at least this tall, and this at most, in DIPs, else in
+	// proportion to the window so that it reads on any size of it.
+	overviewCloseSize = 40
+	overviewCloseMax  = 76
 	// The windows spread over the work area this far in from its edges,
 	// further at the bottom, for the icons and titles under the last row,
 	// and this far apart, in DIPs. The gap between rows has room for the
@@ -37,6 +42,11 @@ var (
 	overviewShade = shade{ambient: 0.12, ambientBlur: 14, key: 0.36, keyBlur: 30, keyY: 12, keyInset: 4}
 	// ringColor outlines the window under the pointer, as macOS does.
 	ringColor = ui.RGBA(10, 132, 255, 0.95)
+	// closeRed is the red of a Windows title bar's close button, which the
+	// overview's takes under the pointer; at rest the block is dark and
+	// translucent, so that it does not draw the eye from the windows.
+	closeRed  = ui.RGB(216, 42, 32)
+	closeRest = ui.RGBA(28, 28, 30, 0.55)
 )
 
 // accent is the color the overview's buttons take under the pointer: the
@@ -84,6 +94,9 @@ type ovTile struct {
 	fromOp, toOp float32
 	fromSh, toSh shade
 	home         bool // it closes onto the desktop rather than into a card
+	// closing is set once its close button asked the window to close: the
+	// tile fades out and takes the pointer no more.
+	closing bool
 }
 
 // at is where t shows e of the way, eased, how opaque and with what shadow.
@@ -374,6 +387,15 @@ func (o *overview) close(pick *ovTile) {
 	var into []catalog.Window
 	for i := range o.tiles {
 		t := &o.tiles[i]
+		if t.closing && winapi.IsWindow(t.w.HWND) {
+			// It did not close, or not yet (it may be asking to save):
+			// it goes back as the others do.
+			t.closing = false
+		}
+		if t.closing {
+			t.home = false
+			continue
+		}
 		t.home = !a.settings.HideInactive || d.model.OnStage(t.w.App)
 		if !t.home {
 			into = append(into, t.w)
@@ -392,6 +414,11 @@ func (o *overview) close(pick *ovTile) {
 	}
 	for i := range o.tiles {
 		t := &o.tiles[i]
+		if t.closing {
+			// Gone: it stays out of sight where it was.
+			t.to, t.toOp, t.toSh = t.from, 0, t.fromSh
+			continue
+		}
 		t.toOp = 1
 		if t.home {
 			t.to, t.toSh = poseOf(a.home(t.w)), ownShade(castsShadow(t.w.HWND), t.w.HWND == o.focus)
@@ -609,6 +636,7 @@ func (o *overview) drawTile(c *ui.Context, t *ovTile, e float64, spread float32,
 	at, op, sh := t.at(e)
 	x, y, w, h := o.local(at)
 	el := ui.Box(c.Key(t.w.HWND)).Absolute().Left(x).Top(y).Size(w, h)
+	live = live && !t.closing
 	hovered := false
 	if live {
 		el = el.Cursor(ui.CursorPointer)
@@ -623,7 +651,12 @@ func (o *overview) drawTile(c *ui.Context, t *ovTile, e float64, spread float32,
 	}
 	ring = el.AnimateTo("ring", ring, fadeQuick)
 	lift = el.AnimateTo("lift", lift, ui.Snappy)
+	// A window asked to close shrinks a little as it fades away.
+	gone := el.AnimateTo("gone", b2f(t.closing), fadeQuick)
+	op *= 1 - gone
+	lift *= 1 - 0.08*gone
 	el.TransformOrigin(0.5, 0.5).Scale(lift, lift)
+	closer := el.AnimateTo("closer", b2f(hovered), fadeQuick)
 	// Cards turn about their outer edge: a negative tilt is a card of a
 	// strip on the right, turned about its right edge.
 	originX := float32(0)
@@ -652,6 +685,9 @@ func (o *overview) drawTile(c *ui.Context, t *ovTile, e float64, spread float32,
 			ui.Box(c.Key("ring")).Absolute().Left(-3).Top(-3).Size(w+6, h+6).Radius(radius+3).
 				Border(3, ringColor).Opacity(ring * op)
 		}
+		if live && closer > 0.01 {
+			o.closeButton(c, t, w, h, closer*op)
+		}
 		// The app's icon sits on the bottom edge of its windows spread out,
 		// and its title shows under the one the pointer is on.
 		if t.icon != nil && t.still != nil {
@@ -670,4 +706,55 @@ func (o *overview) drawTile(c *ui.Context, t *ovTile, e float64, spread float32,
 			})
 		}
 	})
+}
+
+// closeButton draws the button in the top right corner of tile t, w by h
+// DIPs, that closes its window: the block of a title bar's close button,
+// as wide as the bar is tall, dark and translucent until the pointer sets
+// it on it, when it turns the red Windows turns it. It shows only on the
+// window under the pointer, so that the windows spread out stay as
+// uncluttered as Mission Control's.
+func (o *overview) closeButton(c *ui.Context, t *ovTile, w, h, op float32) {
+	height := min(max(min(h, w)*0.2, overviewCloseSize), overviewCloseMax)
+	width := min(height*1.3, w*0.4)
+	// Flush with the corner, rounded as the window it covers is at its
+	// top right, so that it never shows outside it.
+	corner := max(min(h*0.03, 10), 3)
+	btn := ui.Box(c.Key("close")).Absolute().Left(w-width).Top(0).Size(width, height).
+		Cursor(ui.CursorPointer).Label(o.a.tr().CloseWindow)
+	if btn.Clicked() {
+		gen := o.gen
+		post(func() {
+			if o.gen == gen {
+				o.closeWindow(t)
+			}
+		})
+	}
+	hot := btn.AnimateTo("hot", b2f(btn.Hovered()), fadeQuick)
+	press := btn.AnimateTo("press", 1-0.12*b2f(btn.Pressed()), ui.Snappy)
+	bg := closeRest.Mix(closeRed, hot).Mix(ui.RGB(0, 0, 0), 0.12*b2f(btn.Pressed()))
+	btn.Radius(0, corner, 0, 3).Background(bg).TransformOrigin(0.5, 0.5).Scale(press, press).Opacity(op)
+	// An X of two bars crossed at the middle. Children are placed in the
+	// padding box, inside any border, so they center in what it leaves.
+	bar, thick := min(height, width)*0.55, max(height*0.1, 2)
+	btn.Children(func() {
+		for i, deg := range []float32{45, -45} {
+			ui.Box(c.Key(i)).Absolute().Left((width-bar)/2).Top((height-thick)/2).Size(bar, thick).Radius(thick/2).
+				Background(white).TransformOrigin(0.5, 0.5).Rotate(deg)
+		}
+	})
+}
+
+// closeWindow asks the window of tile t to close, as its close button
+// does, and fades the tile out. The overview stays open; should the window
+// not close (it may ask to save first), it goes back with the others as
+// the overview closes.
+func (o *overview) closeWindow(t *ovTile) {
+	if o.phase != ovOpening && o.phase != ovOpen || t.closing {
+		return
+	}
+	debugf("overview: close %x %q", t.w.HWND, t.w.Title)
+	t.closing = true
+	winapi.Close(t.w.HWND)
+	o.win.Invalidate()
 }
