@@ -18,6 +18,11 @@ type cardState struct {
 	// it is dragged, and returning that it is on its way back.
 	poses     map[winapi.HWND]pose
 	returning bool
+	// ox is how far across the card showed moved in the last frame, and
+	// follow how it followed the pointer then: not at all, kept in the
+	// strip, or out of it.
+	ox     float32
+	follow follow
 	// tilt and lift are how the card's windows showed in the last frame,
 	// for windows flying out of it to start from.
 	tilt, lift float32
@@ -26,6 +31,21 @@ type cardState struct {
 	// there rather than come in from the edge.
 	arrive winapi.Rect
 }
+
+type follow int8
+
+const (
+	followNone follow = iota
+	followIn
+	followOut
+)
+
+// catchUp is the spring that takes up the gap between a dragged card and
+// the pointer as the card leaves its strip, which held it, or comes back:
+// quick, for the card is under the pointer again before it goes far. The
+// gap starts from rest: what velocity Jump would make of it, jumping, is
+// none the card had.
+var catchUp = ui.Animation{Spring: ui.SpringOptions{Duration: 200 * time.Millisecond, Velocity: 1e-6}}
 
 func (d *display) card(key string) *cardState {
 	st := d.cards[key]
@@ -323,17 +343,28 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	// Moved up or down the strip, the card stays in it, whatever way the
 	// pointer strays across: the strip is hardly wider than the card. Once
 	// it heads for the stage or another display, it follows the pointer
-	// out, a spring taking it across rather than a jump.
+	// out. Either way it moves with the pointer, frame for frame: a spring
+	// chasing it would trail behind as long as it moves. Only the gap the
+	// strip's edge made between them, as the card leaves or comes back, a
+	// spring takes up.
 	sorting := st.dragging && a.cardDrag.sorts()
 	if st.dragging {
 		tx, ty := st.dx, st.dy
+		mode := followOut
 		if sorting {
 			tx, ty = s.keepIn(box, tx, ty, lift)
+			mode = followIn
 		}
-		ox, oy = el.AnimateTo("dx", tx, ui.Snappy), el.Jump("dy", ty)
+		if mode != st.follow {
+			st.follow = mode
+			el.Jump("gap", st.ox-tx)
+		}
+		ox, oy = el.Jump("dx", tx+el.AnimateTo("gap", 0, catchUp)), el.Jump("dy", ty)
 	} else {
+		st.follow = followNone
 		ox, oy = el.AnimateTo("dx", 0, ui.Smooth), el.AnimateTo("dy", 0, ui.Smooth)
 	}
+	st.ox = ox
 	// The flight covers the card as it lands, so the card shows at once
 	// underneath; fading it in once the flight is gone would blink. The
 	// icons come in on the flight layer, above the flights.

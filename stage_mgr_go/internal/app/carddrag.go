@@ -1,6 +1,7 @@
 package app
 
 import (
+	"math"
 	"slices"
 	"time"
 
@@ -30,23 +31,31 @@ type cardDrag struct {
 	aim  aim
 	to   *display // the strip that makes room for it: from's, another's, or none
 	at   int      // the slot there, counted in the strip as it is
+	// out tells that it follows the pointer out of its strip, though it
+	// may still go back there: it heads for the stage or another display.
+	out  bool
 	done bool
 }
 
 // sorts reports whether a card dragged as c stays in its strip: moved up
 // or down it, or going back. A card is dragged as nothing before the first
 // move.
-func (c *cardDrag) sorts() bool { return c == nil || c.aim == aimBack || c.aim == aimSort }
+func (c *cardDrag) sorts() bool {
+	return c == nil || !c.out && (c.aim == aimBack || c.aim == aimSort)
+}
 
 // joinReach is how far toward the stage, as a share of the strip's width,
 // a card is dragged before it goes on the stage when let go.
 const joinReach = 0.75
 
-// crossReach is how far, in DIPs, the pointer must go into another
-// display before a card dragged there goes into its strip. Two strips may
-// meet at the edge between two displays, one on its right and one on its
-// left: a card moved up or down one of them would otherwise slip into the
-// other as the pointer strays a few pixels across.
+// crossReach is how far, in DIPs, a card must be dragged toward a display
+// beside its own before it leaves its strip for that display, following
+// the pointer, and may go into the strip there. Two strips may meet at the
+// edge between two displays, one on its right and one on its left: a card
+// moved up or down one of them would otherwise slip into the other as the
+// pointer strays across. It counts the drag, not how far past the edge
+// the pointer is: two strips facing each other leave no room beyond the
+// edge to go, and a drop just inside the other strip is the natural one.
 const crossReach = 32
 
 // moveDrop is how long the windows of a card let go in another display's
@@ -54,17 +63,22 @@ const crossReach = 32
 const moveDrop = 80 * time.Millisecond
 
 // cardDropAt returns the strip of another display than from that a card
-// dragged out of from's strip would go into, let go at p, and the slot
-// there; nil if none. A floating strip counts though it is out: the card
-// over its band brings it in (strip.poll).
-func (a *App) cardDropAt(from *display, p winapi.Point) (*display, int) {
+// dragged as st, out of from's strip, would go into, let go at p, and the
+// slot there; nil if none. A floating strip counts though it is out: the
+// card over its band brings it in (strip.poll).
+func (a *App) cardDropAt(from *display, st *cardState, p winapi.Point) (*display, int) {
 	d := a.displayByHandle(winapi.MonitorFromPoint(p))
 	if d == nil || d == from || !a.managed(d) || d.strip == nil || d.inOverview || !d.strip.rect.Contains(p) {
 		return nil, 0
 	}
 	m := from.mon.Monitor
-	away := max(m.Left-p.X, p.X-m.Right+1, m.Top-p.Y, p.Y-m.Bottom+1)
-	if float64(away) < crossReach*d.mon.Scale() {
+	if p.X >= m.Left && p.X < m.Right {
+		// Across the top or bottom edge, the strips of two displays one
+		// above the other run on beyond it: the pointer has room to go in.
+		if float64(max(m.Top-p.Y, p.Y-m.Bottom+1)) < crossReach*from.mon.Scale() {
+			return nil, 0
+		}
+	} else if math.Abs(float64(st.dx)) < crossReach {
 		return nil, 0
 	}
 	s := d.strip
@@ -76,18 +90,63 @@ func (a *App) cardDropAt(from *display, p winapi.Point) (*display, int) {
 func (a *App) aimCard(d *display, g *set, st *cardState) {
 	c := &cardDrag{from: d, key: g.key}
 	i := slices.IndexFunc(d.sets, func(s *set) bool { return s.key == g.key })
-	switch to, at := a.cardDropAt(d, winapi.Cursor()); {
+	cur := winapi.Cursor()
+	switch to, at := a.cardDropAt(d, st, cur); {
 	case to != nil:
 		c.aim, c.to, c.at = aimMove, to, at
 	case st.dx*turnSign(a.right(d)) > float32(a.settings.Width)*joinReach:
 		// Toward the stage is rightward, or leftward from a strip on the
 		// right.
 		c.aim = aimJoin
+	case d.strip != nil && !d.strip.rect.Contains(cur) && a.straightToStage(d, cur):
+		// The pointer itself left the strip on the stage's side: the card
+		// follows it out, rather than wait for the drag to add up to
+		// joinReach, which on a narrow strip it does only once the pointer
+		// is well past the neighbouring display's strip.
+		c.aim = aimJoin
 	case i >= 0 && i < len(d.layout.cards):
 		b := d.layout.cards[i]
 		c.aim, c.to, c.at = aimSort, d, d.layout.nearestSlot(b.Y+b.H/2+st.dy)
 	}
+	c.out = c.aim == aimMove || c.aim == aimJoin || a.headsAcross(d, st, cur)
 	a.setCardDrag(c)
+}
+
+// headsAcross reports whether a card of display d's strip, dragged as st
+// with the pointer at p, heads across the display's edge by the strip for
+// the display beyond it: dragged crossReach that way. It then follows the
+// pointer out of the strip ahead of reaching another, rather than stop at
+// the strip's edge as if moved up or down it, and jump to the pointer once
+// that is across.
+func (a *App) headsAcross(d *display, st *cardState, p winapi.Point) bool {
+	right := a.right(d)
+	if st.dx*turnSign(right) > -crossReach {
+		return false
+	}
+	m := d.mon.Monitor
+	beyond := winapi.Point{X: m.Left - 1, Y: p.Y}
+	if right {
+		beyond.X = m.Right
+	}
+	return slices.ContainsFunc(a.displays, func(o *display) bool {
+		return o != d && o.mon.Monitor.Contains(beyond)
+	})
+}
+
+// straightToStage reports whether p, off a display's strip, is on the side
+// the stage is on: away from the display's edge, not up or down beside the
+// strip, where a card dragged to the strip of another display passes.
+func (a *App) straightToStage(d *display, p winapi.Point) bool {
+	s := d.strip
+	// The pointer has to be on the display: a test strip, or one whose
+	// window is not where the pointer is, tells nothing by it.
+	if s == nil || !d.mon.Monitor.Contains(p) {
+		return false
+	}
+	if a.right(d) {
+		return p.X < s.rect.Left
+	}
+	return p.X >= s.rect.Right
 }
 
 // setCardDrag makes c the card dragged, or none. The strip of another

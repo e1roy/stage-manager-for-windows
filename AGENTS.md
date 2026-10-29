@@ -76,7 +76,7 @@ stage_mgr_go/
       media.go        静帧（PrintWindow）与图标缓存、内存预算
       iconfit.go      裁掉图标四周透明边
       peek.go         任务栏缩略图 peek 时临时放回被停放的窗口
-      overview.go     “所有窗口”概览（类 Mission Control）：侧边栏底部按钮打开，铺开本显示器所有窗口，点选切换舞台
+      overview.go     “所有窗口”概览（类 Mission Control）：侧边栏底部按钮打开，铺开本显示器所有窗口，点选切换舞台；Win+Tab 时每个显示器各开一个（与 Windows 任务视图一致），任意一个收起时全部收起
       corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览
       settingsview.go 设置窗口；tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
 ```

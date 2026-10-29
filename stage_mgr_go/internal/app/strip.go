@@ -229,7 +229,14 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 	} else if inside {
 		s.holding = true
 	}
-	s.setClickThrough(!(inside || s.dragging || s.holding))
+	// While it shows, the window takes the pointer over its whole band, not
+	// only over a card: this poll runs every 16 ms, and a press that comes
+	// in the tick the pointer reaches the strip would otherwise go to the
+	// window below, leaving the card unpressed and so impossible to drag.
+	// While the overview shows, it takes nothing, as the cards it shows do
+	// not: the overview's window is what the pointer is on.
+	band := s.visible && s.shown && !s.d.inOverview && s.rect.Contains(cur)
+	s.setClickThrough(!(band || inside || s.dragging || s.holding))
 	s.approach(cur)
 }
 

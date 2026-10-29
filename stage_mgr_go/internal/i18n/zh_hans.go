@@ -48,7 +48,7 @@ var zhHans = Strings{
 	OverviewCornerDesc: "显示器左下角、任务栏上的按钮，指针靠近时出现，点按同样铺开所有窗口。只在 Windows 11 任务栏居中、左下角空着时出现。",
 
 	WinTab:     "用 Win+Tab 铺开所有窗口",
-	WinTabDesc: "按 Win+Tab 时铺开当前显示器的所有窗口，与点按左下角按钮相同，代替 Windows 的任务视图；再按一次收起。关闭后 Win+Tab 仍打开任务视图。",
+	WinTabDesc: "按 Win+Tab 时铺开所有显示器的窗口，每台显示器各铺自己的，与 Windows 的任务视图相同；再按一次收起。关闭后 Win+Tab 仍打开任务视图。",
 
 	Highlight:       "高亮颜色",
 	HighlightDesc:   "指针移到边栏底部的面板或左下角按钮上时，边框显示的颜色。",

@@ -79,7 +79,8 @@ const (
 // the screen.
 type ovTile struct {
 	w     catalog.Window
-	name  string // its app's
+	ov    *overview // the overview it shows in
+	name  string    // its app's
 	still *ui.Bitmap
 	icon  *ui.Bitmap
 	// origin is where the window showed as the overview opened: on the
@@ -112,7 +113,9 @@ func (t *ovTile) at(e float64) (pose, float32, shade) {
 // window flies to where that leaves it; a click elsewhere, Escape, or going
 // to another window sends them all back. It runs as a switch does, the app
 // busy meanwhile, and parks the windows it takes off the desktop, so that
-// they come back should it end unexpectedly.
+// they come back should it end unexpectedly. A display keeps one
+// (display.ov): Win+Tab opens one on every display at once, as Task View
+// does, and what closes one closes them all.
 type overview struct {
 	a      *App
 	win    *mygo.Window
@@ -141,7 +144,9 @@ type overview struct {
 func newOverview(a *App) *overview {
 	o := &overview{a: a}
 	// Focusable, it takes the keyboard for Escape, and closes as another
-	// window is activated.
+	// window is activated: MyGo dismisses a focusable flyout that loses the
+	// activation, as it dismisses a menu, and OnClose takes that for the
+	// user going elsewhere.
 	o.win = mygo.NewFlyout(mygo.FlyoutOptions{Tray: a.tray, Hidden: true, Focusable: true, Width: 400, Height: 400, Content: ui.View(o.view)})
 	o.hwnd = winapi.HWND(o.win.NativeHandle())
 	o.win.OnClose(func(e *mygo.CloseEvent) {
@@ -149,28 +154,130 @@ func newOverview(a *App) *overview {
 			return
 		}
 		e.PreventDefault()
-		post(func() { o.close(nil) })
+		post(func() {
+			// The overview of another display taking the keyboard dismisses
+			// this one the same way, and is no reason to close: they show
+			// as one, Win+Tab opening each in turn.
+			if fg := winapi.Foreground(); fg != o.hwnd && a.overviewWindow(fg) {
+				return
+			}
+			a.closeOverviews(nil)
+		})
 	})
 	winapi.SetTransitionsDisabled(o.hwnd, true)
 	return o
 }
 
-// openOverview spreads out the windows of display d, asked for at asked.
-func (a *App) openOverview(d *display, asked time.Time) {
-	if a.quitting || !a.ready || !a.managed(d) || !slices.Contains(a.displays, d) || d.strip == nil {
+// overviewWindow reports whether h is the window of an overview: made or
+// showing, so that one still opening counts.
+func (a *App) overviewWindow(h winapi.HWND) bool {
+	if h == 0 {
+		return false
+	}
+	for _, d := range a.displays {
+		if o := d.ov; o != nil && o.hwnd == h {
+			return true
+		}
+	}
+	return false
+}
+
+// overviewOf returns the overview of display d, made the first time it
+// opens there.
+func (a *App) overviewOf(d *display) *overview {
+	if d.ov == nil {
+		d.ov = newOverview(a)
+	}
+	return d.ov
+}
+
+// overviews returns the overviews showing, one per display.
+func (a *App) overviews() []*overview {
+	var out []*overview
+	for _, d := range a.displays {
+		if o := d.ov; o != nil && o.phase != ovHidden {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// anyOverview reports whether an overview shows on any display.
+func (a *App) anyOverview() bool {
+	return slices.ContainsFunc(a.displays, func(d *display) bool {
+		return d.ov != nil && d.ov.phase != ovHidden
+	})
+}
+
+// overviewDone clears busy once the last overview is gone, and takes up what
+// waited for it on display d.
+func (a *App) overviewDone(d *display) {
+	if a.anyOverview() {
 		return
 	}
-	if a.ov != nil && a.ov.phase != ovHidden {
+	a.busy = false
+	a.ended(d)
+}
+
+// closeOverviews sends back the windows of every overview, as Task View
+// closes on every display as one. With pick, the app of its window goes on
+// the stage of the display showing it, as a click on its card does; the
+// others go back as they were.
+func (a *App) closeOverviews(pick *ovTile) {
+	for _, d := range a.displays {
+		o := d.ov
+		if o == nil || o.phase == ovHidden {
+			continue
+		}
+		t := pick
+		if t != nil && t.ov != o {
+			t = nil
+		}
+		o.close(t)
+	}
+}
+
+// openOverview spreads out the windows of display d, asked for at asked.
+func (a *App) openOverview(d *display, asked time.Time) {
+	a.openOverviews([]*display{d}, asked)
+}
+
+// openOverviews spreads out the windows of the displays given, an overview
+// on each, as Windows' Task View does on every display at once.
+func (a *App) openOverviews(ds []*display, asked time.Time) {
+	if a.quitting || !a.ready {
+		return
+	}
+	var want []*display
+	for _, d := range ds {
+		if !a.managed(d) || !slices.Contains(a.displays, d) || d.strip == nil {
+			continue
+		}
+		if d.ov != nil && d.ov.phase != ovHidden {
+			continue
+		}
+		want = append(want, d)
+	}
+	if len(want) == 0 {
 		return
 	}
 	if a.busy {
 		// A switch is on its way: the overview waits for it a moment.
 		if time.Since(asked) < overviewWait {
-			after(100*time.Millisecond, func() { a.openOverview(d, asked) })
+			after(100*time.Millisecond, func() { a.openOverviews(want, asked) })
 		}
 		return
 	}
 	a.windows = a.cat.Windows()
+	debugf("overviews open on %d displays", len(want))
+	for _, d := range want {
+		a.openOverviewOn(d)
+	}
+}
+
+// openOverviewOn starts the overview of display d, its windows' stills being
+// taken meanwhile.
+func (a *App) openOverviewOn(d *display) {
 	groups := a.groupsOf(d)
 	a.arrange(d, groups, time.Now())
 	var stage []catalog.Window
@@ -186,10 +293,7 @@ func (a *App) openOverview(d *display, asked time.Time) {
 		debugf("overview %s: no windows", d.mon.Device)
 		return
 	}
-	if a.ov == nil {
-		a.ov = newOverview(a)
-	}
-	o := a.ov
+	o := a.overviewOf(d)
 	a.busy = true
 	o.gen++
 	o.d, o.groups, o.phase, o.tiles = d, groups, ovOpening, nil
@@ -218,7 +322,7 @@ func (o *overview) begin(ws []catalog.Window) {
 	a, d := o.a, o.d
 	if a.quitting || !slices.Contains(a.displays, d) || d.strip == nil {
 		o.phase, o.d = ovHidden, nil
-		a.busy = false
+		a.overviewDone(d)
 		return
 	}
 	mon := winapi.MonitorInfo(d.mon.Handle)
@@ -239,6 +343,13 @@ func (o *overview) begin(ws []catalog.Window) {
 	}
 	o.rect = area
 	fg := winapi.Foreground()
+	// An overview opened a moment ago on another display may be in front:
+	// the window the user was in is the one it remembers.
+	for _, x := range a.displays {
+		if s := x.ov; s != nil && s != o && s.hwnd == fg {
+			fg = s.prev
+		}
+	}
 	o.prev, o.focus = catalog.RootOwner(fg), 0
 	front := map[string]winapi.HWND{}
 	for _, s := range d.sets {
@@ -251,7 +362,7 @@ func (o *overview) begin(ws []catalog.Window) {
 	items := make([]overviewItem, len(ws))
 	o.tiles = make([]ovTile, len(ws))
 	for i, w := range ws {
-		t := ovTile{w: w, name: a.cat.Name(w), icon: a.media.icons[w.App], originOp: 1}
+		t := ovTile{w: w, ov: o, name: a.cat.Name(w), icon: a.media.icons[w.App], originOp: 1}
 		if st := a.media.still(w.HWND); st != nil {
 			t.still = st.fly
 			if t.still == nil {
@@ -516,8 +627,7 @@ func (o *overview) land() {
 				o.win.Hide()
 			}
 		})
-		a.busy = false
-		a.ended(d)
+		a.overviewDone(d)
 	})
 }
 
@@ -537,8 +647,7 @@ func (o *overview) abort() {
 			winapi.Activate(o.prev)
 		}
 		o.win.Hide()
-		a.busy = false
-		a.ended(d)
+		a.overviewDone(d)
 		return
 	}
 	o.close(nil)
@@ -613,12 +722,12 @@ func (o *overview) view(c *ui.Context) {
 	spread := o.spread(e)
 	live := o.flying && (o.phase == ovOpening || o.phase == ovOpen)
 	if live && c.Shortcut(0, ui.KeyEscape) {
-		post(func() { o.close(nil) })
+		post(func() { o.a.closeOverviews(nil) })
 	}
 	w, h := c.Size()
 	bg := ui.Box(c.Key("dim")).Absolute().Left(0).Top(0).Size(w, h).Background(ui.RGBA(0, 0, 0, overviewDim*spread))
 	if live && bg.Clicked() {
-		post(func() { o.close(nil) })
+		post(func() { o.a.closeOverviews(nil) })
 	}
 	// Front first, drawn the other way round; the window picked flies
 	// home above the others.
@@ -656,7 +765,7 @@ func (o *overview) drawTile(c *ui.Context, t *ovTile, e float64, spread float32,
 		el = el.Cursor(ui.CursorPointer)
 		hovered = el.Hovered()
 		if el.Clicked() {
-			post(func() { o.close(t) })
+			post(func() { o.a.closeOverviews(t) })
 		}
 	}
 	ring, lift := float32(0), float32(1)

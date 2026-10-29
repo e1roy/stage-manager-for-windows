@@ -204,14 +204,11 @@ func (h *handover) land() {
 			winapi.ShowNoActivate(w.HWND)
 		}
 	}
-	// Together, so that they come home in the order they flew in.
-	h.a.park.Unpark(parked...)
-	if h.front != 0 && len(parked) > 0 {
-		// They come home on top: the window they stay under goes back
-		// above them.
-		winapi.SetWindowPos(h.front, winapi.HwndTop, 0, 0, 0, 0,
-			winapi.SwpNoMove|winapi.SwpNoSize|winapi.SwpNoActivate|winapi.SwpAsyncWindowPos)
-	}
+	// Together, so that they come home in the order they flew in, under
+	// the window they stay under: they come home on top, and it goes back
+	// above them in the same raise, not in one of its own that would race
+	// with theirs.
+	h.a.park.UnparkUnder(h.front, parked...)
 	if h.activate && !h.early && h.focus != 0 {
 		ok := winapi.Activate(h.focus)
 		debugf("activate late %x ok=%v fg=%x", h.focus, ok, winapi.Foreground())
