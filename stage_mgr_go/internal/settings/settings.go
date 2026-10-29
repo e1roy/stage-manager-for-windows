@@ -112,6 +112,13 @@ type Settings struct {
 	Accent string `json:"accent"`
 	// Quality sets how sharp flights are and how much memory they take.
 	Quality Quality `json:"quality"`
+	// LightFlights takes the stills windows fly with at the resolution of
+	// their display at 100%, in DIPs, rather than in its pixels: on a
+	// display scaled to 200%, a quarter of the pixels to upload and draw
+	// each frame, for flights that keep up with the display. They blur a
+	// little on the way; the window is sharp once it lands. It is on
+	// unless turned off, settings from before it included.
+	LightFlights bool `json:"lightFlights"`
 	// Companions lists apps whose windows join the stage rather than take
 	// it: tools used for a moment beside the app that opened them, as
 	// TortoiseSVN's commit dialog is beside the file manager it was opened
@@ -169,6 +176,7 @@ func Default() Settings {
 		WinTab:             true,
 		Accent:             AccentDefault,
 		Quality:            Low,
+		LightFlights:       true,
 		// TortoiseSVN's and TortoiseGit's dialogs all come from these.
 		Companions: []string{"tortoiseproc", "tortoisegitproc"},
 	}

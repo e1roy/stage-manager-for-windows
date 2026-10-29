@@ -66,8 +66,10 @@ stage_mgr_go/
       app.go          App/display/group/set 结构、显示器同步、refresh、初始舞台、游离/逃逸窗口
       events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询、Win+Tab 打开概览
       drag.go         拖动窗口：拖到另一台显示器时那边的舞台让位、松手、拖进侧边栏、键盘移动窗口
+      carddrag.go     拖动卡片：松手去向（aim：回原位/侧边栏内排序/加入舞台/搬到另一台显示器的侧边栏）、让位布局、moveSet/reorder
       switch.go       舞台切换、真实窗口交接（handover）、切换排队/打断、卡片动作
       flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
+      pacer.go        按 DWM 合成节奏（DwmFlush）要帧，飞行层和概览用它代替 AnimationFrame
       strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透
       stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单
       layout.go       纯几何：卡片布局、窗口叠放、图标位置（有单测）
@@ -76,7 +78,7 @@ stage_mgr_go/
       peek.go         任务栏缩略图 peek 时临时放回被停放的窗口
       overview.go     “所有窗口”概览（类 Mission Control）：侧边栏底部按钮打开，铺开本显示器所有窗口，点选切换舞台
       corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览
-      settingsview.go 设置窗口；tray.go 托盘；debug.go 调试日志与看门狗
+      settingsview.go 设置窗口；tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
 ```
 
 ## 核心流程：一次舞台切换
@@ -121,7 +123,13 @@ stage_mgr_go/
 - 飞行起飞与落地时窗口阴影“嘭”一下跳变：飞行代理的假阴影与真实 DWM 阴影在交接帧叠加。相关代码在 `flights.go`（`takeOffDelay`、`landingDelay`、`ownShadow`、`shade`）和 `switch.go` 的 `handover`。最近一次提交 `wip: checkpoint before shadow handover fixes` 就是为此做的检查点。
 - 侧边栏显示的是离场时的静帧（Windows 不绘制桌面外的窗口）；`PrintWindow` 拍不到内容的窗口显示为带图标的磨砂卡片。
 - 以管理员权限运行的窗口，非管理员的 Stage Manager for Windows 可能无法移动或激活。
-- 拖动窗口时，飞行层不能压到被拖窗口下面：那样系统很少把飞行层的画面送上屏幕，约 700ms 只有 30–40 帧。现在飞行层留在最上层，每帧避开被拖窗口所在的区域（`flights.go` 的 `hole`），看起来像从它下面飞过。`STAGEMANAGER_DEBUG` 下每次飞行结束记一行 `flights: N frames in ..., longest gap ...`，排查卡顿先看这一行。
+- 拖动窗口时，飞行层不能压到被拖窗口下面：那样系统很少把飞行层的画面送上屏幕，约 700ms 只有 30–40 帧。现在飞行层留在最上层，每帧避开被拖窗口所在的区域（`flights.go` 的 `hole`），看起来像从它下面飞过。`STAGEMANAGER_DEBUG` 下每次飞行结束记一行 `flights: ...: N frames in ..., longest gap ...`，排查卡顿先看这一行。
+- 动画卡顿的排查（`STAGEMANAGER_DEBUG`，`start-stage-manager.bat` 还会打开 `MYGO_FRAME_STATS=1`）：
+  - `flights:` / `strip ...:` / `flight layer ...:` / `overview ...:` 行给出帧数、最长间隔（及当时进度或状态）、最长构建时间；`main thread: X took T` 列出占住主线程超过 8ms 的任务；`... took T: a 1ms, b 2ms` 是切换准备阶段的分步计时；`mygo: frame ... took` 是 MyGo 单帧的构建/绘制/提交耗时。
+  - MyGo 对动画窗口不限帧率，整屏飞行层曾每秒画约 400 帧、把 GPU 占满。整屏动画一律用 `pacer` 按合成节奏要帧，不要再用 `AnimationFrame`。
+  - 显示整屏的飞行层要 10–15ms（首次约 50ms），隐藏也要约 10ms：飞行层空了以后留 2 秒（`layerLinger`），启动时、拖卡片开始时提前显示（`standBy`），别在动画进行中显示。
+  - 拖卡片时别让其他卡片响应悬停（会按原尺寸截图）；侧边栏内排序时卡片留在侧边栏窗口里画，只有拖出去（加入舞台、去另一台显示器）才交给飞行层。
+  - 高分屏上原尺寸截图很大，设置里的“高分屏上减轻动画负担”（`LightFlights`，默认开）按 100% 缩放的清晰度截飞行用的图。
 - 拍静帧（`PrintWindow` + `PW_RENDERFULLCONTENT`）会让部分应用闪一下，已确认的有 JetBrains IDE。IDEA 打开“查找引用”等弹窗时，前台会先切到弹窗（`SunAwtWindow`），约 10ms 后又切回主窗口（`SunAwtFrame`）。`events.go: onForeground` 原来会把主窗口当成“刚离开的窗口”去拍静帧，导致每次打开弹窗都闪。现在焦点只在同一进程内移动时不拍（`sameProcess`）。以后新增拍照时机时，不要在用户正在用的、舞台上的窗口上随便拍；`STAGEMANAGER_DEBUG` 下每次拍照都会记一行 `capture [...]`，可以用来排查。
 
 ## Git

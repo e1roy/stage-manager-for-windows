@@ -73,6 +73,8 @@ var zhHans = Strings{
 	MediumDesc:       "飞出舞台也用原尺寸截图，最多约 384 MB。",
 	High:             "高",
 	HighDesc:         "最多约 1 GB，更多应用切回时依然清晰。",
+	LightFlights:     "高分屏上减轻动画负担",
+	LightFlightsDesc: "窗口飞行时按 100% 缩放的清晰度绘制，200% 的屏幕每帧只需画四分之一的像素，动画更流畅。飞行中略有模糊，落地后立即恢复清晰。",
 
 	CompanionLabel: "打开时不收起当前应用",
 	CompanionTip:   "勾选的应用打开窗口时，会和你正在用的应用一起留在桌面上，不会把它收进侧边栏；关掉后桌面回到原样。适合 TortoiseSVN 提交框这类用一下就关的工具。",

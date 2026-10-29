@@ -282,3 +282,52 @@ func TestCompanionInASetBringsTheSet(t *testing.T) {
 		t.Fatalf("coming %v, want %v", got, want)
 	}
 }
+
+func TestInsertPutsSetInSlot(t *testing.T) {
+	var d Display
+	d.Init("code", t0)
+	d.Strip([]string{"code", "chrome", "mail"})
+	// A card dragged in from another display, dropped between the two.
+	d.Insert([]string{"music", "notes"}, 1)
+	got := d.Strip([]string{"code", "chrome", "mail", "music", "notes"})
+	if want := [][]string{{"chrome"}, {"music", "notes"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// An app already in a card here leaves it; one on the stage stays.
+	// The slot counts the card it left, as the strip showed it.
+	d.Insert([]string{"code", "chrome"}, 2)
+	got = d.Strip([]string{"code", "chrome", "mail", "music", "notes"})
+	if want := [][]string{{"music", "notes"}, {"chrome"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	if !d.OnStage("code") {
+		t.Fatalf("stage %v", d.Stage())
+	}
+	// Past the end, it goes last.
+	d.Insert([]string{"music"}, 9)
+	got = d.Strip([]string{"code", "chrome", "mail", "music", "notes"})
+	if want := [][]string{{"notes"}, {"chrome"}, {"mail"}, {"music"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+}
+
+func TestMoveReordersStrip(t *testing.T) {
+	var d Display
+	d.Init("code", t0)
+	d.Strip([]string{"code", "chrome", "mail", "music"})
+	d.Move("chrome", 2)
+	got := d.Strip([]string{"code", "chrome", "mail", "music"})
+	if want := [][]string{{"mail"}, {"music"}, {"chrome"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	d.Move("chrome", 0)
+	got = d.Strip([]string{"code", "chrome", "mail", "music"})
+	if want := [][]string{{"chrome"}, {"mail"}, {"music"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// An app on the stage has no card to move.
+	d.Move("code", 1)
+	if !d.OnStage("code") {
+		t.Fatalf("stage %v", d.Stage())
+	}
+}

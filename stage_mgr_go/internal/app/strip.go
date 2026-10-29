@@ -4,10 +4,10 @@ import (
 	"math"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 )
 
 const (
@@ -48,6 +48,9 @@ type strip struct {
 	// near it, 0 to 1. The poll measures it everywhere on the display,
 	// where the strip lets the pointer through and so hears nothing of it.
 	near float32
+	// frames measures the strip's frames while its cards move, in debug
+	// runs.
+	frames frameStats
 }
 
 var appBarMessage uint32
@@ -171,9 +174,13 @@ func (s *strip) message(msg uint32, wParam, lParam uintptr) (uintptr, bool) {
 // strip under it takes nothing.
 func (s *strip) poll(cur winapi.Point, now time.Time) {
 	inside := s.visible && !s.d.inOverview && s.rect.Contains(cur) && s.over(cur)
-	if inside && !s.wasInside {
+	if inside && !s.wasInside && s.a.cardDrag == nil && !s.a.busy {
 		// The pointer reached the cards: a switch may follow, so the
-		// windows on the stage get fresh stills to fly with now.
+		// windows on the stage get fresh stills to fly with now. Not while
+		// a card is dragged over them: no switch follows that. Nor while
+		// windows fly: capturing a window at full size has DWM draw it
+		// whole, which holds up the frames of the flights; the switch that
+		// follows takes what it lacks.
 		s.a.freshenStage(s.d)
 	}
 	s.wasInside = inside
@@ -200,6 +207,11 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 			if inside || s.shown && s.a.drag != nil && s.rect.Contains(cur) {
 				s.lastInside = now
 			}
+		}
+		// A card dragged over it from another display's strip brings it
+		// out, edge or not.
+		if c := s.a.cardDrag; c != nil && c.aim == aimMove && c.to == s.d {
+			s.lastInside = now
 		}
 		want := now.Sub(s.lastInside) < autoHide || now.Before(s.holdUntil) || s.dragging ||
 			(!s.d.covered && len(s.d.sets) > 0 && s.a.ready)

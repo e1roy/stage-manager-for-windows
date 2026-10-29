@@ -33,14 +33,21 @@ var flyBudgets = map[settings.Quality]int{
 // at, so that a flight to the stage is as sharp as the window it stands in
 // for. Smaller stills blur as a flight grows them, which reads as the
 // window sharpening when it lands.
-func stillHeight(h winapi.HWND) int {
+//
+// Light, it is the height the window shows at in DIPs instead, as on a
+// display at 100% (settings.LightFlights).
+func stillHeight(h winapi.HWND, light bool) int {
 	height := 0
 	if r := winapi.FrameBounds(h); r.H() > 0 {
 		height = int(r.H())
 	}
 	// A window cannot show bigger than its display.
-	if mon := winapi.MonitorInfo(winapi.MonitorFromWindow(h)).Monitor; mon.H() > 0 {
-		height = min(height, int(mon.H()))
+	mon := winapi.MonitorInfo(winapi.MonitorFromWindow(h))
+	if mon.Monitor.H() > 0 {
+		height = min(height, int(mon.Monitor.H()))
+	}
+	if scale := mon.Scale(); light && scale > 1 {
+		height = max(int(float64(height)/scale), cardStillHeight)
 	}
 	if height <= 0 {
 		height = cardStillHeight
@@ -73,6 +80,9 @@ type media struct {
 	// full takes every still at the size the window shows, so that windows
 	// fly out of the stage as sharp as they fly in.
 	full bool
+	// light takes the stills windows fly with at the size they show in
+	// DIPs (settings.LightFlights).
+	light bool
 }
 
 func newMedia() *media {
@@ -84,15 +94,19 @@ func newMedia() *media {
 		// A few at a time: each asks an app to draw itself.
 		sem: make(chan struct{}, 3),
 	}
-	m.setQuality(settings.Low)
+	m.apply(settings.Default())
 	return m
 }
 
-// setQuality sets how sharp flights are and how much memory their stills
-// may take; a lower budget lets go of what is over it at once.
-func (m *media) setQuality(q settings.Quality) {
-	m.budget = flyBudgets[settings.Settings{Quality: q}.Normalize().Quality]
+// apply takes what the settings say of the stills: how sharp flights are
+// and how much memory their stills may take, a lower budget letting go of
+// what is over it at once. Stills taken before keep their size until they
+// are taken again.
+func (m *media) apply(s settings.Settings) {
+	q := s.Normalize().Quality
+	m.budget = flyBudgets[q]
 	m.full = q == settings.Medium || q == settings.High
+	m.light = s.LightFlights
 	m.trim()
 }
 
@@ -140,6 +154,7 @@ func (m *media) capture(hs []winapi.HWND, full bool, timeout time.Duration, done
 	}
 	// Read here: the goroutines must not touch the media.
 	full = full || m.full
+	light := m.light
 	// Some apps flash when asked to draw themselves: a capture nobody
 	// expected is worth seeing in the log.
 	debugf("capture %x full=%v", hs, full)
@@ -155,7 +170,7 @@ func (m *media) capture(hs []winapi.HWND, full bool, timeout time.Duration, done
 			m.sem <- struct{}{}
 			height := cardStillHeight
 			if full {
-				height = stillHeight(h)
+				height = stillHeight(h, light)
 			}
 			img := winapi.Capture(h, height)
 			<-m.sem

@@ -149,6 +149,39 @@ func (d *Display) cameFrom() int {
 	return d.setIndex(d.above) + 1
 }
 
+// Insert puts apps into the strip as one set at slot at, top first, as
+// when their card is dragged in from the strip of another display. Apps
+// on the stage stay there, and the others leave the sets they were in.
+// Call it once the apps have windows on the display: Strip drops those
+// that have none.
+func (d *Display) Insert(apps []string, at int) {
+	apps = slices.DeleteFunc(slices.Clone(apps), d.OnStage)
+	if len(apps) == 0 {
+		return
+	}
+	// The slot is counted before the apps leave theirs, as the strip
+	// showed it.
+	for i := range min(at, len(d.sets)) {
+		if !slices.ContainsFunc(d.sets[i], func(a string) bool { return !slices.Contains(apps, a) }) {
+			at--
+		}
+	}
+	d.drop(func(a string) bool { return slices.Contains(apps, a) })
+	d.sets = slices.Insert(d.sets, min(max(at, 0), len(d.sets)), apps)
+}
+
+// Move puts the set of app at slot at of the strip, top first, the
+// others keeping their order, as when its card is dragged up or down.
+func (d *Display) Move(app string, at int) {
+	i := d.setIndex(app)
+	if i < 0 {
+		return
+	}
+	s := d.sets[i]
+	d.sets = slices.Delete(d.sets, i, i+1)
+	d.sets = slices.Insert(d.sets, min(max(at, 0), len(d.sets)), s)
+}
+
 // Leave takes an app off the stage into a set of its own at the top of
 // the strip, as when all its windows are closed.
 func (d *Display) Leave(app string) {

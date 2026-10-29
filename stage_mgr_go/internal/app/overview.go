@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"time"
@@ -133,6 +134,8 @@ type overview struct {
 	prev                 winapi.HWND // the window in front as it opened
 	focus                winapi.HWND // the window activated as it closes
 	gen                  int         // counts its courses, for timers to tell theirs
+	frames               frameStats  // as it opens or closes, for the debug log
+	pace                 pacer       // its frames as it opens or closes
 }
 
 func newOverview(a *App) *overview {
@@ -561,6 +564,15 @@ func (o *overview) view(c *ui.Context) {
 		return
 	}
 	now := c.Now()
+	if debugOn && o.flying && (o.phase == ovOpening || o.phase == ovClosing) {
+		t0 := time.Now()
+		p := 0.0
+		if !o.start.IsZero() {
+			p = min(float64(now.Sub(o.start))/float64(overviewTime), 1)
+		}
+		o.frames.frame(now, progress(p))
+		defer func() { o.frames.built(time.Since(t0)) }()
+	}
 	if !o.held {
 		// The windows show where they are; once that is surely on the
 		// screen, the real ones may go.
@@ -582,8 +594,9 @@ func (o *overview) view(c *ui.Context) {
 			o.start = now
 		}
 		if now.Sub(o.start) < overviewTime {
-			c.AnimationFrame()
+			o.pace.frame(o.win)
 		} else if o.phase == ovOpening {
+			o.frames.report(fmt.Sprintf("overview %s opens, %d windows", o.d.mon.Device, len(o.tiles)))
 			o.phase = ovOpen
 			for i := range o.tiles {
 				t := &o.tiles[i]
@@ -591,6 +604,7 @@ func (o *overview) view(c *ui.Context) {
 			}
 			o.spreadFrom = o.spreadTo
 		} else {
+			o.frames.report(fmt.Sprintf("overview %s closes, %d windows", o.d.mon.Device, len(o.tiles)))
 			o.phase = ovLanding
 			post(o.land)
 		}

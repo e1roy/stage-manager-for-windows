@@ -1,21 +1,25 @@
 package app
 
 import (
+	"fmt"
 	"log"
 	"slices"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
+	"github.com/egoist/mygo"
 )
 
 // hookEvents listens to the system's window events, so that the stage
 // follows Alt+Tab, taskbar clicks and new windows at once rather than on a
 // polling tick. The hooks deliver on the main thread.
 func (a *App) hookEvents() {
-	a.unhook = winapi.HookWinEvents(a.onWinEvent,
+	a.unhook = winapi.HookWinEvents(func(event uint32, h winapi.HWND) {
+		defer tookLong(time.Now(), func() string { return fmt.Sprintf("win event %#x for %x", event, h) })
+		a.onWinEvent(event, h)
+	},
 		[2]uint32{winapi.EventSystemForeground, winapi.EventSystemForeground},
 		[2]uint32{winapi.EventSystemMoveSizeStart, winapi.EventSystemMoveSizeEnd},
 		[2]uint32{winapi.EventSystemMinimizeEnd, winapi.EventSystemMinimizeEnd},
@@ -311,6 +315,7 @@ const closeGrace = time.Second
 // strip at the screen's edge, and letting clicks through where no card is.
 func (a *App) startPolling() {
 	a.stopPoll = make(chan struct{})
+	poll := timed(a.poll)
 	go func() {
 		t := time.NewTicker(16 * time.Millisecond)
 		defer t.Stop()
@@ -320,7 +325,7 @@ func (a *App) startPolling() {
 				return
 			case <-t.C:
 				t0 := time.Now()
-				mygo.RunOnMain(a.poll)
+				mygo.RunOnMain(poll)
 				pollStats.add(time.Since(t0))
 			}
 		}
