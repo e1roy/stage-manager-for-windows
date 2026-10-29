@@ -40,6 +40,9 @@ var en = Strings{
 	TiltOff:      "Off",
 	DefaultValue: "Default: %s. Click to restore.",
 
+	SlideSpeed:     "Show and hide speed",
+	SlideSpeedDesc: "How fast the floating sidebar slides in and out. Only applies to Floating.",
+
 	OverviewPanel:     "All windows panel",
 	OverviewPanelDesc: "The panel at the bottom of the sidebar shows when the pointer reaches it; click it to spread out every window on the display. Its width is a share of the cards' width.",
 	Height:            "Height",

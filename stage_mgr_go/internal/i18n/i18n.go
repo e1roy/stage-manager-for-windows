@@ -104,6 +104,9 @@ type Strings struct {
 	IconSize, Spacing                        string
 	Tilt, TiltDesc, TiltOff                  string
 	DefaultValue                             string // %s: the default value
+	// SlideSpeed names how fast a floating strip comes out and goes away,
+	// which SlideSpeedDesc explains.
+	SlideSpeed, SlideSpeedDesc string
 	// OverviewPanel names the panel at the bottom of the strip that
 	// spreads out every window of the display, as Mission Control does;
 	// OverviewPanelDesc says where it is and how it is sized.

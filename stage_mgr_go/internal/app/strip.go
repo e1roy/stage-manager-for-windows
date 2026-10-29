@@ -11,10 +11,28 @@ import (
 )
 
 const (
-	edgeWidth    = 2 // pixels at a display's edge that reveal a floating strip
-	autoHide     = 700 * time.Millisecond
+	edgeWidth = 2 // pixels at a display's edge that reveal a floating strip
+	autoHide  = 700 * time.Millisecond
+	// slideTime is how long a floating strip takes to slide in or out at
+	// the speed the settings start with: ui.Snappy's. The window hides a
+	// little before the spring settles, once the strip is past the edge.
+	slideTime    = 500 * time.Millisecond
 	slideOutTime = 450 * time.Millisecond
 )
+
+// slide is the spring a floating strip slides in and out with, at the
+// speed the settings give it.
+func (a *App) slide() ui.Animation {
+	m := ui.Snappy
+	m.Spring.Duration = time.Duration(float64(slideTime) / a.settings.SlideSpeed)
+	return m
+}
+
+// slideOut is how long after a floating strip starts out of sight its
+// window hides.
+func (a *App) slideOut() time.Duration {
+	return time.Duration(float64(slideOutTime) / a.settings.SlideSpeed)
+}
 
 // strip is the window of one display's strip: transparent, above other
 // windows, never activated, and letting clicks through wherever no card is.
@@ -216,7 +234,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 		want := now.Sub(s.lastInside) < autoHide || now.Before(s.holdUntil) || s.dragging ||
 			(!s.d.covered && len(s.d.sets) > 0 && s.a.ready)
 		s.setShown(want, now)
-		if !s.shown && s.visible && now.Sub(s.hiddenAt) > slideOutTime {
+		if !s.shown && s.visible && now.Sub(s.hiddenAt) > s.a.slideOut() {
 			s.win.Hide()
 			s.visible = false
 		}

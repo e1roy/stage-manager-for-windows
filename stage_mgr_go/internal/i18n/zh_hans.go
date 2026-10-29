@@ -40,6 +40,9 @@ var zhHans = Strings{
 	TiltOff:      "关闭",
 	DefaultValue: "默认值：%s，点按恢复",
 
+	SlideSpeed:     "展开与收起速度",
+	SlideSpeedDesc: "浮动的侧边栏滑出和收回的快慢。只在浮动方式下生效。",
+
 	OverviewPanel:     "所有窗口面板",
 	OverviewPanelDesc: "侧边栏底部的面板，指针移到那里时出现，点按铺开本显示器的所有窗口。宽度按卡片宽度的比例计算。",
 	Height:            "高度",
