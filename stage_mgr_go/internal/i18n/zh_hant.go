@@ -41,6 +41,9 @@ var zhHant = Strings{
 	TiltOff:      "關閉",
 	DefaultValue: "預設值：%s，按一下還原",
 
+	SlideSpeed:     "展開與收起速度",
+	SlideSpeedDesc: "浮動的側邊欄滑出和收回的快慢。只在浮動方式下生效。",
+
 	OverviewPanel:     "所有視窗面板",
 	OverviewPanelDesc: "側邊欄底部的面板，指標移到那裡時出現，按一下即可鋪開此顯示器的所有視窗。寬度以卡片寬度的比例計算。",
 	Height:            "高度",

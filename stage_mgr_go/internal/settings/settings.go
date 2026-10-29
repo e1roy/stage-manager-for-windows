@@ -72,11 +72,19 @@ const (
 	// crowd its mark.
 	MinCornerWidth = 48
 	MaxCornerWidth = 320
+	// A floating strip slides in from about a second, at half its first
+	// speed, to about a sixth of one, at three times it: slower drags,
+	// and faster is hardly seen to slide.
+	MinSlideSpeed = 0.5
+	MaxSlideSpeed = 3
 )
 
 // Settings are the user's preferences.
 type Settings struct {
 	Mode Mode `json:"mode"`
+	// SlideSpeed is how fast a floating strip slides in and out, as a
+	// multiple of the speed it had before it had a setting.
+	SlideSpeed float64 `json:"slideSpeed"`
 	// Width of a strip in DIPs.
 	Width float64 `json:"width"`
 	// HideInactive moves the windows of apps that are not on the stage
@@ -164,6 +172,7 @@ func accent(s string) string {
 func Default() Settings {
 	return Settings{
 		Mode:               Fixed,
+		SlideSpeed:         1,
 		Width:              200,
 		HideInactive:       true,
 		ClickDesktopClears: true,
@@ -201,6 +210,11 @@ func (s Settings) Normalize() Settings {
 	if s.Mode != Fixed && s.Mode != Floating {
 		s.Mode = Fixed
 	}
+	// It cannot be 0, so 0 is one missing from older settings.
+	if s.SlideSpeed == 0 || math.IsNaN(s.SlideSpeed) {
+		s.SlideSpeed = Default().SlideSpeed
+	}
+	s.SlideSpeed = math.Round(min(max(s.SlideSpeed, MinSlideSpeed), MaxSlideSpeed)*10) / 10
 	if s.Width == 0 || math.IsNaN(s.Width) {
 		s.Width = Default().Width
 	}

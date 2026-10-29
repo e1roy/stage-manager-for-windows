@@ -116,7 +116,7 @@ func (s *strip) view(c *ui.Context) {
 		// A floating strip slides out over its display's edge.
 		out = -(w + 32) * turnSign(right)
 	}
-	root.Translate(root.AnimateTo("reveal", out, ui.Snappy), 0)
+	root.Translate(root.AnimateTo("reveal", out, a.slide()), 0)
 	root.HandleInput(func(ev ui.InputEvent) bool {
 		if ev.Kind != ui.InputScroll {
 			return false

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -229,5 +230,15 @@ func TestLightFlights(t *testing.T) {
 	}
 	if st.Load().LightFlights {
 		t.Fatal("turned off, lighter flights came back on")
+	}
+}
+
+// Settings saved before the strip's speed was a choice slide as they did;
+// a speed out of range is clamped, in tenths.
+func TestSlideSpeed(t *testing.T) {
+	for in, want := range map[float64]float64{0: 1, math.NaN(): 1, 0.1: MinSlideSpeed, 9: MaxSlideSpeed, 1.74: 1.7} {
+		if got := (Settings{SlideSpeed: in}).Normalize().SlideSpeed; got != want {
+			t.Errorf("speed %v normalized to %v, want %v", in, got, want)
+		}
 	}
 }
