@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
@@ -218,5 +219,52 @@ func TestRightMirrorsLeft(t *testing.T) {
 	// Lifted, a card grows from its outer edge, which stays put.
 	if up := lifted(card, card, 1.1, true); !near(up.X+up.W, card.X+card.W) {
 		t.Fatalf("a lifted card %+v leaves its outer edge %v", up, card.X+card.W)
+	}
+}
+
+func TestSlotAt(t *testing.T) {
+	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, false)
+	c := l.cards
+	for _, tc := range []struct {
+		y    float32
+		want int
+	}{
+		{0, 0},
+		{c[0].Y + c[0].H/2 - 1, 0},
+		{c[0].Y + c[0].H/2 + 1, 1},
+		{c[1].Y + c[1].H, 2},
+		{1000, 3},
+	} {
+		if got := l.slotAt(tc.y); got != tc.want {
+			t.Errorf("slotAt(%v) = %d, want %d", tc.y, got, tc.want)
+		}
+	}
+}
+
+func TestMakeRoom(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		from, to int
+		slots    []int
+		total    int
+	}{
+		{"none", -1, -1, []int{0, 1, 2, 3}, 4},
+		// Card 0 of four on its way to slot 2: 1 and 2 close up, 3 stays.
+		{"down", 0, 2, []int{2, 0, 1, 3}, 4},
+		{"up", 3, 1, []int{0, 2, 3, 1}, 4},
+		{"in place", 1, 1, []int{0, 1, 2, 3}, 4},
+		// A card from another strip coming in at slot 1.
+		{"in", -1, 1, []int{0, 2, 3, 4}, 5},
+		{"in last", -1, 4, []int{0, 1, 2, 3}, 5},
+	} {
+		slots, total := makeRoom(4, tc.from, tc.to)
+		if !slices.Equal(slots, tc.slots) || total != tc.total {
+			t.Errorf("%s: slots %v of %d, want %v of %d", tc.name, slots, total, tc.slots, tc.total)
+		}
+	}
+	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, false)
+	c := l.cards
+	if got := l.nearestSlot(c[2].Y + c[2].H/2 + 30); got != 2 {
+		t.Fatalf("nearest slot %d", got)
 	}
 }

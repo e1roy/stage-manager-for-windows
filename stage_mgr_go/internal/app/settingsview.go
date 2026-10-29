@@ -657,6 +657,11 @@ func (sw *settingsWindow) stagePane(c *ui.Context, f form, tr *i18n.Strings) {
 				sw.apply()
 			}
 		}, option{tr.Low, tr.LowDesc, sw.quality == 0}, option{tr.Medium, tr.MediumDesc, sw.quality == 1}, option{tr.High, tr.HighDesc, sw.quality == 2})
+		f.row(c, tr.LightFlights, tr.LightFlightsDesc, func() {
+			if ui.Switch(c, &sw.s.LightFlights).Changed() {
+				sw.apply()
+			}
+		})
 	})
 }
 

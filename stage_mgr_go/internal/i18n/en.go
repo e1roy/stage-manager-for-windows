@@ -73,6 +73,8 @@ var en = Strings{
 	MediumDesc:       "Windows leave the stage as full-size snapshots too; up to about 384 MB.",
 	High:             "High",
 	HighDesc:         "Up to about 1 GB; more apps stay sharp when you switch back to them.",
+	LightFlights:     "Lighter animation on high-DPI displays",
+	LightFlightsDesc: "Windows fly as sharp as on a display scaled to 100%, so at 200%, each frame draws a quarter of the pixels and the animation stays smooth. They blur slightly in flight and are sharp again once they land.",
 
 	CompanionLabel: "Keep the current app when opened",
 	CompanionTip:   "When a checked app opens a window, it stays on the desktop with the app you're using instead of sending that app to the sidebar; once it's closed, the desktop is as it was. Good for tools used for a moment, like TortoiseSVN's commit dialog.",

@@ -3,10 +3,10 @@ package app
 import (
 	"time"
 
-	"github.com/egoist/mygo/ui"
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
+	"github.com/egoist/mygo/ui"
 )
 
 // cardState is what a card remembers between frames.
@@ -21,6 +21,10 @@ type cardState struct {
 	// tilt and lift are how the card's windows showed in the last frame,
 	// for windows flying out of it to start from.
 	tilt, lift float32
+	// arrive is where, on the screen, a card dragged in from another
+	// display's strip was let go, for it to settle into its slot from
+	// there rather than come in from the edge.
+	arrive winapi.Rect
 }
 
 func (d *display) card(key string) *cardState {
@@ -66,6 +70,12 @@ func (s *strip) view(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	w, h := c.Size()
 	d.viewW, d.viewH = w, h
+	if debugOn {
+		t0 := time.Now()
+		s.frames.frame(c.Now(), s.motion())
+		s.frames.burst("strip " + d.mon.Device)
+		defer func() { s.frames.built(time.Since(t0)) }()
+	}
 	right := s.right()
 	gap, p := float32(a.settings.Spacing), a.panel()
 	l := layoutStrip(len(d.sets), w, h, d.scroll, gap, p, right)
@@ -74,6 +84,11 @@ func (s *strip) view(c *ui.Context) {
 		l = layoutStrip(len(d.sets), w, h, d.scroll, gap, p, right)
 	}
 	d.layout = l
+	slots, n, order := s.room()
+	shown := l
+	if n != len(d.sets) {
+		shown = layoutStrip(n, w, h, d.scroll, gap, p, right)
+	}
 
 	root := ui.Box(c).Absolute().Left(0).Top(0).Size(w, h)
 	out := float32(0)
@@ -92,11 +107,11 @@ func (s *strip) view(c *ui.Context) {
 	hits := s.hits[:0]
 	footer := ui.Rect{}
 	root.Children(func() {
-		if len(d.sets) == 0 && a.ready {
+		if n == 0 && a.ready {
 			emptyHint(c, a.tr(), w, h)
 		}
-		for i, set := range d.sets {
-			if b := s.card(c, set, l.cards[i]); b.W > 0 {
+		for _, i := range order {
+			if b := s.card(c, d.sets[i], shown.cards[slots[i]]); b.W > 0 {
 				hits = append(hits, b)
 			}
 		}
@@ -233,7 +248,18 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	right := s.right()
 	sign := turnSign(right)
 	motion := cardMotion
-	if landing {
+	if !st.arrive.Empty() {
+		// It comes in where its windows were let go, at their size.
+		// Enter motions move and scale about the card's middle.
+		r := st.arrive
+		st.arrive = winapi.Rect{}
+		x := float32(float64(r.Left-s.rect.Left)/s.scale) + float32(float64(r.W())/s.scale)/2
+		y := float32(float64(r.Top-s.rect.Top)/s.scale) + float32(float64(r.H())/s.scale)/2
+		motion.Enter = &ui.Motion{
+			X: x - (box.X + box.W/2), Y: y - (box.Y + box.H/2),
+			Opacity: 1, Scale: float32(float64(r.W())/s.scale) / box.W,
+		}
+	} else if landing {
 		motion.Enter = nil
 	} else if right {
 		enter := *motion.Enter
@@ -243,34 +269,15 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	el := ui.Box(c.Key(g.key)).Absolute().Left(box.X).Top(box.Y).Size(box.W, box.H).
 		Cursor(ui.CursorPointer).Transition(motion)
 
-	// Dragging a card out onto the desktop puts its app on the stage too.
+	// A card dragged goes where it is let go (carddrag.go): back, up or
+	// down the strip, onto the stage or into another display's strip.
 	// Dragged tells whether the card is held, wherever the pointer is;
 	// Pressed only while it is over the card.
 	dx, dy, held := el.Dragged()
 	if held {
-		st.dx += dx
-		st.dy += dy
-		if !st.dragging && st.dx*st.dx+st.dy*st.dy > 64 {
-			st.dragging, st.moved = true, true
-			s.setDragging(true)
-		}
+		s.drag(g, st, dx, dy)
 	} else if st.dragging || st.dx != 0 || st.dy != 0 {
-		// Toward the stage is rightward, or leftward from a strip on the
-		// right.
-		if st.dragging && st.dx*sign > float32(a.settings.Width)*0.75 {
-			// The windows stay on the layer where they were let go until
-			// the switch flies them on.
-			d.dropPoses = st.poses
-			a.request(actJoin, d, g)
-			a.flights.endDrag(d, 800*time.Millisecond)
-		} else if st.dragging {
-			a.flights.endDrag(d, 0)
-			st.returning = true
-		}
-		st.dragging = false
-		st.dx, st.dy = 0, 0
-		st.poses = nil
-		s.setDragging(false)
+		s.letGo(g, st, box)
 	}
 	if el.Clicked() && !st.moved {
 		debugf("card %q clicked", g.title())
@@ -286,8 +293,11 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	}
 
 	// A card being landed in holds still for its flights, but takes clicks:
-	// one turns them back.
-	hovered := (el.Hovered() || st.dragging) && !landing
+	// one turns them back. While a card is dragged, the others take no
+	// notice of the pointer passing over them as they make room: they
+	// would lift, and capture their windows at full size for a switch that
+	// will not come, holding the main thread up mid-drag.
+	hovered := (st.dragging || el.Hovered() && a.cardDrag == nil) && !landing
 	if hovered && !st.dragging {
 		// A switch may follow: take the pictures its flights need now, at
 		// the size the card cannot show.
@@ -310,8 +320,17 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	lift = el.AnimateTo("lift", lift, ui.Snappy)
 	st.tilt, st.lift = tilt, lift
 	var ox, oy float32
+	// Moved up or down the strip, the card stays in it, whatever way the
+	// pointer strays across: the strip is hardly wider than the card. Once
+	// it heads for the stage or another display, it follows the pointer
+	// out, a spring taking it across rather than a jump.
+	sorting := st.dragging && a.cardDrag.sorts()
 	if st.dragging {
-		ox, oy = el.Jump("dx", st.dx), el.Jump("dy", st.dy)
+		tx, ty := st.dx, st.dy
+		if sorting {
+			tx, ty = s.keepIn(box, tx, ty, lift)
+		}
+		ox, oy = el.AnimateTo("dx", tx, ui.Snappy), el.Jump("dy", ty)
 	} else {
 		ox, oy = el.AnimateTo("dx", 0, ui.Smooth), el.AnimateTo("dy", 0, ui.Smooth)
 	}
@@ -324,11 +343,24 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	}
 	op := float32(1)
 	if st.dragging && a.flights != nil {
-		// Dragged, the card shows on the flight layer, which reaches
-		// beyond the strip; here it leaves its place empty.
-		if st.poses = s.dragPoses(g, box, ox, oy, lift, tilt); len(st.poses) > 0 {
+		if sorting && s.holds(box, ox, oy, lift) {
+			// Moved up or down the strip, the card shows here, in the same
+			// frames as the cards making way for it: on the flight layer,
+			// a window of its own drawn at its own times, it would lag
+			// behind them and the pointer.
+			if st.poses != nil {
+				st.poses = nil
+				a.flights.endDrag(d, 0)
+			}
+		} else if st.poses = s.dragPoses(g, box, ox, oy, lift, tilt); len(st.poses) > 0 {
+			// Out of it, toward the stage or another display, it shows
+			// on the flight layer, which reaches beyond the strip; here
+			// it leaves its place empty.
 			op = 0
 		}
+	}
+	if s.leaving(g) {
+		ox, oy, op = el.Jump("dx", 0), el.Jump("dy", 0), 0
 	}
 	if st.returning && el.Settled("dx") && el.Settled("dy") {
 		st.returning = false
@@ -379,7 +411,7 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	originX := (1 - sign) / 2
 	el.Children(func() {
 		windows := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).
-			TransformOrigin(originX, 0.5).Scale(lift, lift).RotateY(tilt*sign).Perspective(cardPerspective).Opacity(shown)
+			TransformOrigin(originX, 0.5).Scale(lift, lift).RotateY(tilt * sign).Perspective(cardPerspective).Opacity(shown)
 		windows.Children(func() {
 			for i := len(stack) - 1; i >= 0; i-- {
 				s.windowStill(c, g, i, stack[i])
@@ -416,6 +448,24 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 		return ui.Rect{}
 	}
 	return el.Bounds()
+}
+
+// motion says what moves in the strip, for the debug log.
+func (s *strip) motion() string {
+	c := s.a.cardDrag
+	switch {
+	case s.dragging:
+		return "card dragged"
+	case c != nil && c.done && c.to == s.d:
+		return "card let go"
+	case c != nil && c.to == s.d:
+		return "card dragged in"
+	case s.d.inOverview:
+		return "overview"
+	case s.a.busy:
+		return "switch"
+	}
+	return "cards"
 }
 
 // dragPoses puts the stills of a dragged card's windows on the flight

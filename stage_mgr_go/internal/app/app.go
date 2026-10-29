@@ -10,20 +10,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
 	"github.com/e1roy/stage_manager_for_windows/internal/parking"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/stage"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
+	"github.com/egoist/mygo"
 )
 
 // post runs fn on the main thread without waiting for it.
-func post(fn func()) { go mygo.RunOnMain(fn) }
+func post(fn func()) { go mygo.RunOnMain(timed(fn)) }
 
 // after runs fn on the main thread once d has passed.
 func after(d time.Duration, fn func()) *time.Timer {
+	fn = timed(fn)
 	return time.AfterFunc(d, func() { mygo.RunOnMain(fn) })
 }
 
@@ -162,6 +163,8 @@ type App struct {
 
 	// drag is the window the user is moving, if any.
 	drag *drag
+	// cardDrag is the card dragged out of a strip, if any (carddrag.go).
+	cardDrag *cardDrag
 	// dropHomes is where the windows dragged into a strip go back to.
 	dropHomes map[winapi.HWND]winapi.Rect
 	// peek is the shell's window for a peek at a taskbar thumbnail, while
@@ -209,7 +212,7 @@ func Start(o Options) *App {
 		sysLang:   i18n.FromLANGID(winapi.UILanguage()),
 	}
 	a.settings = a.store.Load()
-	a.media.setQuality(a.settings.Quality)
+	a.media.apply(a.settings)
 	// Windows a crashed run left off the desktop come back first.
 	logToFile(o.DataDir)
 	a.park.Logf = debugf
@@ -229,9 +232,10 @@ func Start(o Options) *App {
 	// what is left, before the first stage is measured.
 	after(400*time.Millisecond, a.initStage)
 	ticker := time.NewTicker(1500 * time.Millisecond)
+	refresh := timed(a.refresh)
 	go func() {
 		for range ticker.C {
-			mygo.RunOnMain(a.refresh)
+			mygo.RunOnMain(refresh)
 		}
 	}()
 	return a
@@ -338,9 +342,9 @@ func (a *App) syncDisplays() {
 					d.model.Init(a.frontApp(d), time.Now())
 				}
 				d.strip = newStrip(a, d)
-				// The flight layer is made now rather than in the middle
-				// of a switch.
-				a.flights.layer(d)
+				// The flight layer is made, and shown once, now rather
+				// than in the middle of a switch.
+				a.flights.standBy(d)
 			}
 			d.strip.place()
 		} else if d.strip != nil {
@@ -766,8 +770,8 @@ func (a *App) applySettings(s settings.Settings) {
 	if old.HideInactive && !s.HideInactive {
 		a.park.RestoreAll()
 	}
-	if old.Quality != s.Quality {
-		a.media.setQuality(s.Quality)
+	if old.Quality != s.Quality || old.LightFlights != s.LightFlights {
+		a.media.apply(s)
 	}
 	if old.Language != s.Language {
 		if a.tray != nil {

@@ -1,14 +1,15 @@
 package app
 
 import (
+	"fmt"
 	"math"
 	"slices"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 )
 
 const (
@@ -184,11 +185,8 @@ type trip struct {
 	stopped   bool
 	stoppedAt float64
 	span      time.Duration // flightTime, or fadeTime with nothing but fades
-	// For the debug log: the frames drawn while flying and the longest
-	// wait between two.
-	frames int
-	last   time.Time
-	gap    time.Duration
+	// stats measures the frames drawn while flying, for the debug log.
+	stats frameStats
 
 	takeOff, land, stop func()
 }
@@ -237,7 +235,7 @@ type layer struct {
 	rect    winapi.Rect
 	scale   float64
 	shown   bool
-	low     bool // under a window rather than above all
+	low     bool     // under a window rather than above all
 	list    []flight // flying, from their from to their to
 	badges  []badge  // the icons of the cards they land in, over them
 	trip    *trip
@@ -249,6 +247,11 @@ type layer struct {
 	// hole is the window the flights stay clear of, rather than show
 	// over, while the layer is above all.
 	hole winapi.HWND
+	// name is its display's, and frames measures the frames of a card
+	// dragged on it, for the debug log.
+	name   string
+	frames frameStats
+	pace   pacer
 }
 
 // flights runs the flights of switches, on a layer per display.
@@ -264,8 +267,8 @@ func (f *flights) layer(d *display) *layer {
 	if l != nil {
 		return l
 	}
-	l = &layer{framed: f.a.paintStrips}
-	pane :=func(view func(*ui.Context)) (*mygo.Window, winapi.HWND) {
+	l = &layer{framed: f.a.paintStrips, name: d.mon.Device}
+	pane := func(view func(*ui.Context)) (*mygo.Window, winapi.HWND) {
 		win := mygo.NewFlyout(mygo.FlyoutOptions{Tray: f.a.tray, Hidden: true, Width: 400, Height: 400, Content: ui.View(view)})
 		h := winapi.HWND(win.NativeHandle())
 		win.OnClose(func(e *mygo.CloseEvent) {
@@ -531,7 +534,9 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		done()
 		return
 	}
+	sw := newStopwatch()
 	l := f.show(d)
+	sw.lap("show layer")
 	l.hole = hole
 	if below != 0 && winapi.IsWindow(below) {
 		l.lower(below)
@@ -540,12 +545,15 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		l.raise()
 	}
 	l.release()
+	sw.lap("order layer")
 	for i := range list {
 		// Without a shadow from DWM, a window may have one its app draws.
 		if fl := &list[i]; !fl.casts {
 			fl.own = newOwnShadow(l.uhwnd, fl.hwnd)
 		}
 	}
+	sw.lap("app shadows")
+	defer sw.report("flights: setting off")
 	t := &trip{hold: takeOffDelay, span: flightTime}
 	if !slices.ContainsFunc(list, func(fl flight) bool { return !fl.fadeOut }) {
 		t.span = fadeTime
@@ -698,36 +706,103 @@ func (f *flights) show(d *display) *layer {
 	return l
 }
 
-// hideLater hides a layer once it drew its last, empty frame, unless it
-// shows something again meanwhile.
+// layerLinger is how long a layer stays out, empty, once nothing shows on
+// it. Showing one over a whole display holds the main thread up for some
+// 10 ms, and hiding it as long: switches one after another, and a card
+// dragged to and fro over the edge of two displays, would pay it every
+// time, right as their frames begin.
+const layerLinger = 2 * time.Second
+
+// hideLater hides a layer once it has been empty for layerLinger, unless
+// it shows something again meanwhile. While a card is dragged it waits on:
+// the card may come back over its display.
 func (f *flights) hideLater(l *layer) {
-	after(50*time.Millisecond, func() {
-		if l.list == nil && l.drag == nil && l.shown {
-			l.shown = false
-			l.win.Hide()
-			l.under.Hide()
+	after(layerLinger, func() {
+		if l.list != nil || l.drag != nil || !l.shown {
+			return
 		}
+		if f.a.cardDrag != nil {
+			f.hideLater(l)
+			return
+		}
+		l.shown = false
+		l.win.Hide()
+		l.under.Hide()
 	})
 }
 
-// dragged shows the windows of a card being dragged where they are now.
-func (f *flights) dragged(d *display, list []flight) {
-	l := f.show(d)
-	if l.low {
-		l.raise()
+// standBy makes a display's layer and shows it, empty, ahead of what will
+// show on it; it goes again once it has been left empty for layerLinger.
+// Showing a layer holds the main thread up for some 15 ms, and the first
+// time some 50 ms on a 5K display, as the GPU sets its buffers up: not in
+// the middle of an animation.
+func (f *flights) standBy(d *display) {
+	if l := f.layer(d); !l.shown {
+		f.show(d)
+		f.hideLater(l)
 	}
-	l.hole = 0
-	l.drag = list
-	l.dragGen++
-	l.win.Invalidate()
 }
 
-// endDrag takes a dragged card's windows away after delay, unless a switch
-// took them over to fly them on, or a new drag began.
+// standByAll has the layer of every display with a strip out, for a card
+// about to be dragged out of one: it may reach any of them.
+func (f *flights) standByAll() {
+	for _, d := range f.a.displays {
+		if d.strip != nil {
+			f.standBy(d)
+		}
+	}
+}
+
+// dragged shows the windows of a card being dragged out of display d's
+// strip where they are now: on d's layer, and on that of every other
+// display they reach, as they are dragged toward its strip.
+func (f *flights) dragged(d *display, list []flight) {
+	reach := winapi.Rect{Left: math.MaxInt32, Top: math.MaxInt32, Right: math.MinInt32, Bottom: math.MinInt32}
+	for _, fl := range list {
+		p := fl.from
+		reach.Left, reach.Top = min(reach.Left, int32(p.x)), min(reach.Top, int32(p.y))
+		reach.Right, reach.Bottom = max(reach.Right, int32(p.x+p.w)), max(reach.Bottom, int32(p.y+p.h))
+	}
+	for _, o := range f.a.displays {
+		if o != d && !o.mon.Monitor.Intersects(reach) {
+			f.clearDrag(o, 0)
+			continue
+		}
+		if o != d && f.layers[o.mon.Device] == nil {
+			continue
+		}
+		l := f.show(o)
+		if l.low {
+			l.raise()
+		}
+		l.hole = 0
+		l.drag = list
+		l.dragGen++
+		// At the pace the display shows it: the strip draws a frame for
+		// every move of the pointer, many more.
+		l.pace.frame(l.win)
+	}
+}
+
+// endDrag takes a dragged card's windows away: after delay on the layer
+// of display d, the one it was dragged out of, and at once on the others.
+// A switch may take them over meanwhile to fly them on, or a new drag
+// begin.
 func (f *flights) endDrag(d *display, delay time.Duration) {
 	if f == nil {
 		return
 	}
+	for _, o := range f.a.displays {
+		if o != d {
+			f.clearDrag(o, 0)
+		}
+	}
+	f.clearDrag(d, delay)
+}
+
+// clearDrag takes the windows of a dragged card off display d's layer
+// after delay.
+func (f *flights) clearDrag(d *display, delay time.Duration) {
 	l := f.layers[d.mon.Device]
 	if l == nil || l.drag == nil {
 		return
@@ -755,6 +830,18 @@ func (l *layer) view(c *ui.Context) {
 		// Posted, it runs once this frame is done.
 		post(l.framed)
 	}
+	if debugOn {
+		t0 := time.Now()
+		if t := l.trip; t != nil && t.flying {
+			defer func() { t.stats.built(time.Since(t0)) }()
+		}
+		if len(l.drag) > 0 {
+			// A card dragged out of a strip shows here, frame by frame.
+			l.frames.frame(c.Now(), "card dragged")
+			l.frames.burst("flight layer " + l.name)
+			defer func() { l.frames.built(time.Since(t0)) }()
+		}
+	}
 	for i, f := range l.drag {
 		l.draw(c, i+len(l.list), f.still, f.from, 1, cardShade(float32(f.from.h/l.scale)), 0, 0)
 	}
@@ -779,17 +866,16 @@ func (l *layer) view(c *ui.Context) {
 			t.start = now
 		}
 		p = t.progress(now)
-		t.frames++
-		if !t.last.IsZero() {
-			t.gap = max(t.gap, now.Sub(t.last))
+		if debugOn {
+			t.stats.frame(now, progress(p))
 		}
-		t.last = now
 		if p < 1 {
-			c.AnimationFrame()
+			l.pace.frame(l.win)
 		} else if !t.arrived {
 			t.arrived = true
-			debugf("flights: %d frames in %v, longest gap %v, low=%v hole=%v",
-				t.frames, now.Sub(t.start).Round(time.Millisecond), t.gap.Round(100*time.Microsecond), l.low, l.hole != 0)
+			if debugOn {
+				l.reportTrip(t)
+			}
 			post(t.land)
 		}
 	}
@@ -882,6 +968,20 @@ func around(area, hole ui.Rect) []ui.Rect {
 		{X: x1, Y: y0, W: area.X + area.W - x1, H: y1 - y0},
 	}
 	return slices.DeleteFunc(bands, func(r ui.Rect) bool { return r.W <= 0 || r.H <= 0 })
+}
+
+// reportTrip logs how evenly the flights of trip t drew, and what they
+// drew: the size of the stills, and of the layer.
+func (l *layer) reportTrip(t *trip) {
+	px := 0
+	for _, fl := range l.list {
+		if fl.still != nil {
+			w, h := fl.still.Size()
+			px += w * h
+		}
+	}
+	t.stats.report(fmt.Sprintf("flights: %d windows, %.1f MP of stills, layer %dx%d, low=%v hole=%v",
+		len(l.list), float64(px)/1e6, l.rect.W(), l.rect.H(), l.low, l.hole != 0))
 }
 
 // draw shows a window's still at a pose given in screen pixels, casting

@@ -105,6 +105,62 @@ func layoutStrip(n int, width, height, scroll, gap float32, p panel, right bool)
 	return l
 }
 
+// slotAt is the slot a card dropped at height y goes into: before the
+// first card whose middle is below it.
+func (l stripLayout) slotAt(y float32) int {
+	for i, c := range l.cards {
+		if y < c.Y+c.H/2 {
+			return i
+		}
+	}
+	return len(l.cards)
+}
+
+// nearestSlot is the slot whose card's middle is nearest to height y: where
+// a card of the strip dragged to there goes.
+func (l stripLayout) nearestSlot(y float32) int {
+	best, dist := 0, float32(math.MaxFloat32)
+	for i, c := range l.cards {
+		if d := float32(math.Abs(float64(c.Y + c.H/2 - y))); d < dist {
+			best, dist = i, d
+		}
+	}
+	return best
+}
+
+// makeRoom places the n cards of a strip as it makes room at slot to for
+// a card: card from of its own on its way there, the others closing up
+// behind it and parting before it, or, with from -1, a card coming in from
+// another strip; to -1 makes none. It returns the slot each card shows in
+// and how many slots the strip lays out.
+func makeRoom(n, from, to int) (slots []int, total int) {
+	slots = make([]int, n)
+	for i := range slots {
+		slots[i] = i
+	}
+	switch {
+	case to < 0:
+		return slots, n
+	case from < 0:
+		for i := to; i < n; i++ {
+			slots[i]++
+		}
+		return slots, n + 1
+	}
+	for i := range slots {
+		j := i
+		if j > from {
+			j--
+		}
+		if j >= to {
+			j++
+		}
+		slots[i] = j
+	}
+	slots[from] = to
+	return slots, n
+}
+
 // maxScroll is how far a strip with this layout scrolls.
 func (l stripLayout) maxScroll(height float32) float32 {
 	return max(0, l.content-height)

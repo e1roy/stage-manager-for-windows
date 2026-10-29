@@ -128,6 +128,9 @@ type Strings struct {
 	ClickDesktop, ClickDesktopDesc, ClickDesktopNeedsHide string
 	Animation, Quality, QualityDesc                       string
 	Low, LowDesc, Medium, MediumDesc, High, HighDesc      string
+	// LightFlights names flying windows at a lower resolution, which
+	// LightFlightsDesc explains.
+	LightFlights, LightFlightsDesc string
 
 	// CompanionLabel names companions in the settings and on the cards'
 	// menus, from where the user is: the app they are using stays when one

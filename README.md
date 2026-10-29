@@ -36,6 +36,7 @@ Only the app you're using stays on the desktop. Everything else shrinks into car
 - Drag a card to the desktop, or Shift-click it, for two apps side by side.
 - Overview of every window on a display: click one to switch, or hover it to close it.
 - Drag a window to another monitor and it joins the stage there.
+- Drag a card up or down to reorder the strip, or into another monitor's strip to move the app there without opening it.
 - Fixed or floating strip, per monitor, with adjustable width, icons and spacing.
 - Right-click a card to switch to it, join the stage, split a group, or close its windows.
 - Nothing gets lost: quitting, crashing or signing out puts every window back.

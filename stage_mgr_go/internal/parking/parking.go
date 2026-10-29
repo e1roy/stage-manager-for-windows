@@ -284,7 +284,9 @@ func raise(hs []winapi.HWND) {
 }
 
 // Rehome changes where a parked window goes back to, and moves the homes
-// of its parked dialogs along.
+// of its parked dialogs along. A home on another display moves the window
+// to wait by that one instead, so that it takes that display's DPI while
+// out of sight rather than rescale as it lands.
 func (s *Service) Rehome(h winapi.HWND, home winapi.Rect) {
 	p, ok := s.parked[h]
 	if !ok {
@@ -292,12 +294,27 @@ func (s *Service) Rehome(h winapi.HWND, home winapi.Rect) {
 	}
 	home = onDesktop(home)
 	dx, dy := home.Left-p.Home.Left, home.Top-p.Home.Top
+	var sx, sy int32
+	if winapi.MonitorFromRect(home) != winapi.MonitorFromRect(p.Home) {
+		spot := spotFor(home)
+		sx, sy = spot.X-p.Spot.X, spot.Y-p.Spot.Y
+	}
 	for w, q := range s.parked {
 		if w == h || q.Owner == h {
 			q.Home = q.Home.Offset(dx, dy)
+			if sx != 0 || sy != 0 {
+				q.Spot = winapi.Point{X: q.Spot.X + sx, Y: q.Spot.Y + sy}
+				q.At = time.Now()
+				// One home for a peek goes to its new spot as it is
+				// lowered.
+				if !s.lifted[w] {
+					move(w, q.Spot)
+				}
+			}
 			s.parked[w] = q
 		}
 	}
+	s.logf("rehome %x %q to %v", h, winapi.Title(h), home)
 	s.save()
 }
 

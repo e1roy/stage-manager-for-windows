@@ -1,13 +1,14 @@
 package app
 
 import (
+	"slices"
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
+	"github.com/egoist/mygo/ui"
 )
 
 type request struct {
@@ -250,5 +251,48 @@ func TestMenuPicksCompanion(t *testing.T) {
 	tt.Frame()
 	if err := tt.ChooseMenuItem(s.a.tr().CompanionLabel); err == nil {
 		t.Fatal("an app without an executable can be a companion")
+	}
+}
+
+// Dragged down past the next card, a card takes its place.
+func TestDragDownReorders(t *testing.T) {
+	s, got, tt := testStrip(t)
+	x, y := center(s.d.layout.cards[0])
+	step := s.d.layout.extent / 10
+	tt.Move(x, y)
+	tt.Frame()
+	tt.Press(x, y)
+	tt.Frame()
+	for i := 1; i <= 10; i++ {
+		tt.Move(x, y+float32(i)*step)
+		tt.Frame()
+	}
+	if c := s.a.cardDrag; c == nil || c.aim != aimSort || c.at != 1 {
+		t.Fatalf("dragged %+v", c)
+	}
+	tt.Release(x, y+10*step)
+	tt.Frame()
+	if len(*got) != 1 || (*got)[0] != (request{actReorder, "mail"}) {
+		t.Fatalf("requests %v", *got)
+	}
+}
+
+// The strip makes room for a card coming in from another display's strip,
+// and around one of its own dragged up or down, which is drawn last.
+func TestRoomForDraggedCard(t *testing.T) {
+	s, _, _ := testStrip(t)
+	other := &display{}
+	s.a.cardDrag = &cardDrag{from: other, key: "music", aim: aimMove, to: s.d, at: 1}
+	if slots, n, order := s.room(); !slices.Equal(slots, []int{0, 2}) || n != 3 || !slices.Equal(order, []int{0, 1}) {
+		t.Fatalf("coming in: slots %v of %d, order %v", slots, n, order)
+	}
+	s.a.cardDrag = &cardDrag{from: s.d, key: "mail", aim: aimSort, to: s.d, at: 1}
+	if slots, n, order := s.room(); !slices.Equal(slots, []int{0, 0}) || n != 2 || !slices.Equal(order, []int{1, 0}) {
+		t.Fatalf("held: slots %v of %d, order %v", slots, n, order)
+	}
+	// Let go, it takes the slot it was dragged to till the strip has it.
+	s.a.cardDrag.done = true
+	if slots, _, order := s.room(); !slices.Equal(slots, []int{1, 0}) || !slices.Equal(order, []int{0, 1}) {
+		t.Fatalf("let go: slots %v, order %v", slots, order)
 	}
 }

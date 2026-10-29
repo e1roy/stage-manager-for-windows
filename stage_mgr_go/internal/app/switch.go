@@ -27,7 +27,9 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 		a.flights.interrupt(d)
 		return
 	}
+	sw := newStopwatch()
 	a.windows = a.cat.Windows()
+	sw.lap("list windows")
 	groups := a.groupsOf(d)
 	// The windows of a switch that was taken over are parked, and show on
 	// the flight layer on their way.
@@ -97,13 +99,18 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 			hs = append(hs, w.HWND)
 		}
 	}
+	sw.lap("sort")
+	sw.report("switch: starting")
 	// Each leaving window gets a fresh still to fly into its card with.
 	t0 := time.Now()
 	a.media.capture(hs, false, 150*time.Millisecond, func() {
 		debugf("switch: captured %d in %v", len(hs), time.Since(t0))
+		sw := newStopwatch()
+		defer sw.report("switch: setting the flights off")
 		// The arriving windows grow out of the cards as they show now,
 		// still turned and lifted by the pointer over them.
 		from := a.flights.cardPoses(d, arriving, true)
+		sw.lap("card poses")
 		d.model.Switch(next, time.Now())
 		// Fading where they are, the windows land in no card: theirs
 		// come in as new cards do.
@@ -116,6 +123,7 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 			d.strip.holdOpen(1200 * time.Millisecond)
 		}
 		a.redraw()
+		sw.lap("arrange")
 		// The windows fade under the one the user went to, unless that
 		// one has yet to come in from its card itself. They fly as if
 		// under one the user holds in a drag: the layer stays above all,
@@ -136,6 +144,7 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 		}
 		h := handover{a: a, d: d, departing: departing, arriving: arriving, focus: focus, activate: activate, front: front}
 		a.flights.run(d, departing, arriving, from, followed, below, hole, h.takeOff, h.land, h.stop, h.done)
+		sw.lap("flights")
 	})
 }
 
@@ -309,6 +318,8 @@ const (
 	actClose
 	actCompanion
 	actOverview // asked for by the strip's button rather than a card
+	actMove     // the card was dropped in the strip of another display
+	actReorder  // the card was dragged up or down its strip
 )
 
 // request carries out what a card asks for once the frame is built. Tests

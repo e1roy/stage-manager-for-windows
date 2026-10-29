@@ -211,3 +211,23 @@ func TestLanguage(t *testing.T) {
 		t.Fatalf("Japanese normalized to %q", s.Language)
 	}
 }
+
+// Lighter flights are on by default, for settings saved before they were
+// a choice too, and stay off once turned off.
+func TestLightFlights(t *testing.T) {
+	st := NewStore(t.TempDir())
+	if err := os.WriteFile(st.Path, []byte(`{"quality": "high"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if s := st.Load(); !s.LightFlights || s.Quality != High {
+		t.Fatalf("older settings loaded %+v", s)
+	}
+	s := Default()
+	s.LightFlights = false
+	if err := st.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	if st.Load().LightFlights {
+		t.Fatal("turned off, lighter flights came back on")
+	}
+}
