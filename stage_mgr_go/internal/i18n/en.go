@@ -48,7 +48,7 @@ var en = Strings{
 	OverviewCornerDesc: "The button over a display's bottom-left corner, on the taskbar: it shows as the pointer comes near, and opens the same overview. It appears only where a centered Windows 11 taskbar leaves that corner empty.",
 
 	WinTab:     "Win+Tab spreads out all windows",
-	WinTabDesc: "Win+Tab spreads out every window on the display you're using, as the corner button does, instead of opening Task View; press it again to put them back. Turned off, Win+Tab opens Task View.",
+	WinTabDesc: "Win+Tab spreads out every window on every display at once, each display its own, as Task View does; press it again to put them back. Turned off, Win+Tab opens Task View.",
 
 	Highlight:       "Highlight",
 	HighlightDesc:   "The border the panel and the corner button take when the pointer is over them.",

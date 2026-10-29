@@ -227,9 +227,10 @@ func (h *cornerHint) click() {
 		return
 	}
 	// The press outside the overview closes it already, as it does a
-	// menu; this is in case it did not.
-	if o := h.a.ov; o != nil && o.d == d {
-		post(func() { o.close(nil) })
+	// menu; this is in case it did not. Whatever closes one closes them
+	// all, as Task View does.
+	if o := d.ov; o != nil && o.d == d {
+		post(func() { h.a.closeOverviews(nil) })
 	}
 }
 
@@ -244,7 +245,7 @@ func (h *cornerHint) view(c *ui.Context) {
 	el := ui.Box(c.Key("corner")).Absolute().Left(0).Top(0).Size(w, ht)
 	hovered, pressed := el.Hovered(), el.Pressed()
 	if pressed && !h.pressing {
-		h.open = h.a.ov != nil && h.a.ov.phase != ovHidden
+		h.open = h.d != nil && h.d.ov != nil && h.d.ov.phase != ovHidden
 	}
 	h.pressing = pressed
 	var flash float32

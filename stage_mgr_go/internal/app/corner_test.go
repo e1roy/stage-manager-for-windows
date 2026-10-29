@@ -103,10 +103,35 @@ func TestCornerClickOpensOverview(t *testing.T) {
 	if len(got) != 1 || got[0] != actOverview {
 		t.Fatalf("requests %v", got)
 	}
-	a.ov = &overview{phase: ovOpen}
+	d.ov = &overview{phase: ovOpen}
 	tt.ClickAt(24, 24)
 	tt.Frame()
 	if len(got) != 1 {
 		t.Fatalf("a click while the overview shows asked for %v", got)
+	}
+}
+
+// One overview per display: anyOverview finds the one that shows, and
+// overviewWindow tells their windows from others', which the ones a flyout
+// is dismissed by are.
+func TestOverviewWindows(t *testing.T) {
+	one := &overview{phase: ovOpen, hwnd: 0x11}
+	hidden := &overview{phase: ovHidden, hwnd: 0x22}
+	a := &App{displays: []*display{{ov: one}, {ov: hidden}, {}}}
+	if !a.anyOverview() {
+		t.Fatal("an overview shows and anyOverview says none does")
+	}
+	if !a.overviewWindow(0x11) {
+		t.Fatal("the window of the overview showing is not recognized")
+	}
+	if !a.overviewWindow(0x22) {
+		t.Fatal("the window of an overview made but hidden is not recognized")
+	}
+	if a.overviewWindow(0) || a.overviewWindow(0x33) {
+		t.Fatal("a window that is no overview's is taken for one")
+	}
+	one.phase = ovHidden
+	if a.anyOverview() {
+		t.Fatal("no overview shows and anyOverview says one does")
 	}
 }

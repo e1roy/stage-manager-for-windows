@@ -118,6 +118,9 @@ type display struct {
 	// inOverview is set while the overview shows the display's windows:
 	// the strip's cards are out there, and show nothing in the strip.
 	inOverview bool
+	// ov spreads out this display's windows (overview.go), made the first
+	// time it opens here. Win+Tab opens one per display at once.
+	ov *overview
 }
 
 // App is Stage Manager.
@@ -183,9 +186,6 @@ type App struct {
 	sysLang    i18n.Lang // the language of Windows, for settings that follow it
 	settingsUI *settingsWindow
 	flights    *flights
-	// ov spreads out a display's windows (overview.go); made the first
-	// time it opens.
-	ov *overview
 	// panelUntil is when the strips stop showing the overview's panel
 	// after the settings sized it.
 	panelUntil time.Time
@@ -330,6 +330,17 @@ func (a *App) syncDisplays() {
 			a.release(d)
 			d.strip.close()
 			d.strip = nil
+			// So does its overview: a flyout of a display that no longer
+			// exists would stay a window for the rest of the run, and one
+			// more with every replug. Destroyed, it takes no timer with
+			// it: those it left check the window before they draw on it.
+			if o := d.ov; o != nil {
+				if o.phase != ovHidden {
+					o.abort()
+				}
+				o.win.Destroy()
+				d.ov = nil
+			}
 		}
 	}
 	a.displays = next
@@ -348,6 +359,11 @@ func (a *App) syncDisplays() {
 			}
 			d.strip.place()
 		} else if d.strip != nil {
+			// Its overview, if it shows, goes first: the windows it covers
+			// come back before the strip that shows them is gone.
+			if o := d.ov; o != nil && o.phase != ovHidden {
+				o.abort()
+			}
 			a.release(d)
 			d.strip.close()
 			d.strip = nil
@@ -456,9 +472,9 @@ func (a *App) displaysChanged() {
 	if a.quitting {
 		return
 	}
-	// The overview's windows go back to where they were measured from.
-	if a.ov != nil {
-		a.ov.abort()
+	// The overviews' windows go back to where they were measured from.
+	for _, o := range a.overviews() {
+		o.abort()
 	}
 	a.syncDisplays()
 	a.refresh()

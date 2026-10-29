@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -112,17 +113,27 @@ func (s *Service) Park(h winapi.HWND) bool {
 
 // Unpark brings windows and their parked dialogs home, above other
 // windows, the first in front.
-func (s *Service) Unpark(hs ...winapi.HWND) {
+func (s *Service) Unpark(hs ...winapi.HWND) { s.UnparkUnder(0, hs...) }
+
+// UnparkUnder is Unpark with a window to keep above the ones coming home:
+// front, if it is not 0, is raised last in the same order, so that the
+// windows it stays over do not come home on top of it. Raised apart, the
+// two would race: the raise asked for first may land after the other.
+func (s *Service) UnparkUnder(front winapi.HWND, hs ...winapi.HWND) {
 	var home []winapi.HWND
 	for _, h := range hs {
 		if s.unpark(h) {
 			home = append(home, h)
 		}
 	}
-	if len(home) > 0 {
-		s.save()
-		raise(home)
+	if len(home) == 0 {
+		return
 	}
+	s.save()
+	if front != 0 {
+		home = append([]winapi.HWND{front}, home...)
+	}
+	raise(home)
 }
 
 func (s *Service) unpark(h winapi.HWND) bool {
@@ -257,9 +268,18 @@ func place(h winapi.HWND, p winapi.Point) {
 	move(h, p)
 }
 
-// raising counts the calls to raise, for one held up by an app to give way
-// to those after it.
+// raising counts the calls to raise: the last one asked for is the order
+// that counts, and one not yet begun gives way to it.
 var raising atomic.Uint64
+
+// raiseOrder keeps the raises one at a time. They used to run together,
+// and the one asked for while another was midway through ended it there,
+// leaving the windows it had not raised yet under the ones it had: two
+// displays' overviews landing in the same frame kept the wrong window of
+// an app in front. A raise begun now finishes its order whole; those
+// asked for meanwhile wait, and all but the last give way when they get
+// their turn.
+var raiseOrder sync.Mutex
 
 // raise puts windows above the others, the first in front, their dialogs
 // coming along. Moves sent off without waiting are taken by each app when
@@ -272,10 +292,14 @@ func raise(hs []winapi.HWND) {
 	const flags = winapi.SwpNoMove | winapi.SwpNoSize | winapi.SwpNoActivate | winapi.SwpNoRedraw
 	gen := raising.Add(1)
 	go func() {
+		raiseOrder.Lock()
+		defer raiseOrder.Unlock()
+		// A newer raise was asked for since, whose order is the one that
+		// counts: this one would only flash its windows above before it.
+		if raising.Load() != gen {
+			return
+		}
 		for _, h := range slices.Backward(hs) {
-			if raising.Load() != gen {
-				return
-			}
 			if winapi.IsHung(h) || !winapi.SetWindowPos(h, winapi.HwndTop, 0, 0, 0, 0, flags) {
 				winapi.SetWindowPos(h, winapi.HwndTop, 0, 0, 0, 0, flags|winapi.SwpAsyncWindowPos)
 			}

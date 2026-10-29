@@ -49,7 +49,7 @@ var zhHant = Strings{
 	OverviewCornerDesc: "顯示器左下角、工作列上的按鈕，指標靠近時出現，按一下同樣鋪開所有視窗。只在 Windows 11 工作列置中、左下角空著時出現。",
 
 	WinTab:     "用 Win+Tab 鋪開所有視窗",
-	WinTabDesc: "按 Win+Tab 時鋪開目前顯示器的所有視窗，與按一下左下角按鈕相同，取代 Windows 的工作檢視；再按一次收起。關閉後 Win+Tab 仍開啟工作檢視。",
+	WinTabDesc: "按 Win+Tab 時鋪開所有顯示器的視窗，每台顯示器各鋪自己的，與 Windows 的工作檢視相同；再按一次收起。關閉後 Win+Tab 仍開啟工作檢視。",
 
 	Highlight:       "高亮顏色",
 	HighlightDesc:   "指標移到側邊欄底部的面板或左下角按鈕上時，邊框顯示的顏色。",
