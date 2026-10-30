@@ -157,6 +157,25 @@ func TestHiddenStripHasNoHits(t *testing.T) {
 	}
 }
 
+// A floating strip sliding out is away, for its window to hide, only once
+// it has stopped, and in a frame that asks for no other: sooner, the frame
+// left waiting would start the next slide in late and end it at once.
+func TestStripAwayOnceStopped(t *testing.T) {
+	s, _, tt := testStrip(t)
+	s.shown = false
+	tt.Frame()
+	for at := time.Duration(0); at < 3*time.Second; at += 10 * time.Millisecond {
+		if s.away {
+			if tt.FramePending() {
+				t.Fatalf("away at %v with a frame to come", at)
+			}
+			return
+		}
+		tt.Advance(10 * time.Millisecond)
+	}
+	t.Fatal("never away")
+}
+
 // The band at the bottom of the strip takes the pointer, to bring up the
 // overview's button, and a click there opens the overview. While the
 // overview shows, the band is gone.

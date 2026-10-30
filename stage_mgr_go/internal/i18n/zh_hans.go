@@ -40,9 +40,6 @@ var zhHans = Strings{
 	TiltOff:      "关闭",
 	DefaultValue: "默认值：%s，点按恢复",
 
-	SlideSpeed:     "展开与收起速度",
-	SlideSpeedDesc: "浮动的侧边栏滑出和收回的快慢。只在浮动方式下生效。",
-
 	OverviewPanel:     "所有窗口面板",
 	OverviewPanelDesc: "侧边栏底部的面板，指针移到那里时出现，点按铺开本显示器的所有窗口。宽度按卡片宽度的比例计算。",
 	Height:            "高度",
@@ -78,6 +75,8 @@ var zhHans = Strings{
 	HighDesc:         "最多约 1 GB，更多应用切回时依然清晰。",
 	LightFlights:     "高分屏上减轻动画负担",
 	LightFlightsDesc: "窗口飞行时按 100% 缩放的清晰度绘制，200% 的屏幕每帧只需画四分之一的像素，动画更流畅。飞行中略有模糊，落地后立即恢复清晰。",
+	FlightSpeed:      "展开与收起速度",
+	FlightSpeedDesc:  "窗口从侧边栏飞到舞台、以及从舞台收回侧边栏的快慢。",
 
 	CompanionLabel: "打开时不收起当前应用",
 	CompanionTip:   "勾选的应用打开窗口时，会和你正在用的应用一起留在桌面上，不会把它收进侧边栏；关掉后桌面回到原样。适合 TortoiseSVN 提交框这类用一下就关的工具。",

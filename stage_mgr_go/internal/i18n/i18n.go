@@ -104,9 +104,6 @@ type Strings struct {
 	IconSize, Spacing                        string
 	Tilt, TiltDesc, TiltOff                  string
 	DefaultValue                             string // %s: the default value
-	// SlideSpeed names how fast a floating strip comes out and goes away,
-	// which SlideSpeedDesc explains.
-	SlideSpeed, SlideSpeedDesc string
 	// OverviewPanel names the panel at the bottom of the strip that
 	// spreads out every window of the display, as Mission Control does;
 	// OverviewPanelDesc says where it is and how it is sized.
@@ -134,6 +131,9 @@ type Strings struct {
 	// LightFlights names flying windows at a lower resolution, which
 	// LightFlightsDesc explains.
 	LightFlights, LightFlightsDesc string
+	// FlightSpeed names how fast windows fly between the cards and the
+	// stage, which FlightSpeedDesc explains.
+	FlightSpeed, FlightSpeedDesc string
 
 	// CompanionLabel names companions in the settings and on the cards'
 	// menus, from where the user is: the app they are using stays when one

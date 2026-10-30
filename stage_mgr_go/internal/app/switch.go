@@ -119,8 +119,9 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 		}
 		a.arrange(d, groups, time.Now())
 		if d.strip != nil && len(departing) > 0 {
-			// Hold a floating strip open so the windows visibly land.
-			d.strip.holdOpen(1200 * time.Millisecond)
+			// Hold a floating strip open so the windows visibly land, and
+			// a moment longer.
+			d.strip.holdOpen(a.flightSpan() + 700*time.Millisecond)
 		}
 		a.redraw()
 		sw.lap("arrange")

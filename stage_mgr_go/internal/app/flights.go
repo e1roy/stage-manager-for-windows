@@ -13,6 +13,8 @@ import (
 )
 
 const (
+	// flightTime is how long windows fly between a card and the stage at
+	// the speed the settings start with (App.flightSpan).
 	flightTime = 520 * time.Millisecond
 	// A window the user left by way of the system fades where it is: as
 	// quickly as the system's own animation of the window they went to,
@@ -31,6 +33,12 @@ const (
 	// the real windows over anyway.
 	flightTimeout = 1500 * time.Millisecond
 )
+
+// flightSpan is how long windows fly between a card and the stage, at
+// the speed the settings give them.
+func (a *App) flightSpan() time.Duration {
+	return time.Duration(float64(flightTime) / a.settings.FlightSpeed)
+}
 
 // flightEase is a critically damped spring launched at its target and
 // normalised to land on exactly 1: brisk at the start, most of the way
@@ -184,7 +192,7 @@ type trip struct {
 	// the way until it flies them on.
 	stopped   bool
 	stoppedAt float64
-	span      time.Duration // flightTime, or fadeTime with nothing but fades
+	span      time.Duration // App.flightSpan, or fadeTime with nothing but fades
 	// stats measures the frames drawn while flying, for the debug log.
 	stats frameStats
 
@@ -554,7 +562,7 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 	}
 	sw.lap("app shadows")
 	defer sw.report("flights: setting off")
-	t := &trip{hold: takeOffDelay, span: flightTime}
+	t := &trip{hold: takeOffDelay, span: f.a.flightSpan()}
 	if !slices.ContainsFunc(list, func(fl flight) bool { return !fl.fadeOut }) {
 		t.span = fadeTime
 	}
@@ -641,7 +649,7 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 	d.dropPoses = nil
 	l.win.Invalidate()
 	// Should the layer not draw, the windows still change places.
-	after(takeOffDelay+flightTime+flightTimeout, func() {
+	after(takeOffDelay+t.span+flightTimeout, func() {
 		if !finished {
 			debugf("flights: timed out, held=%v flying=%v arrived=%v", t.held, t.flying, t.arrived)
 			t.takeOff()
@@ -928,7 +936,7 @@ func (l *layer) view(c *ui.Context) {
 		}
 	}
 	// The icons fade in part of the way and hold until the strip draws its own.
-	iconOp := float32(min(max((p-iconRevealPoint)*float64(flightTime)/float64(fadeQuick.Duration), 0), 1))
+	iconOp := float32(min(max((p-iconRevealPoint)*float64(t.span)/float64(fadeQuick.Duration), 0), 1))
 	if iconOp > 0 {
 		for _, b := range l.badges {
 			x := float32((b.at.x - float64(l.rect.Left)) / l.scale)

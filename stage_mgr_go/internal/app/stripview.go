@@ -116,7 +116,17 @@ func (s *strip) view(c *ui.Context) {
 		// A floating strip slides out over its display's edge.
 		out = -(w + 32) * turnSign(right)
 	}
-	root.Translate(root.AnimateTo("reveal", out, a.slide()), 0)
+	x := root.AnimateTo("reveal", out, ui.Snappy)
+	// Past where it goes, a strip sliding out is out of sight: it stops
+	// there rather than bounce back out of sight for a second more, and
+	// its window hides once a frame finds it stopped (strip.poll). The
+	// frame that stops it has already asked for the next.
+	stopped := false
+	if !s.shown && x != out && x*out >= out*out {
+		x, stopped = root.Jump("reveal", out), true
+	}
+	root.Translate(x, 0)
+	s.away = !s.shown && !stopped && root.Settled("reveal")
 	root.HandleInput(func(ev ui.InputEvent) bool {
 		if ev.Kind != ui.InputScroll {
 			return false

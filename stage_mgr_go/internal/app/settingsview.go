@@ -34,10 +34,10 @@ type settingsWindow struct {
 	// and cornerW the button over a display's bottom-left corner.
 	panelW, panelH float64
 	cornerW        float64
-	// slide is how fast a floating strip slides, as the slider sets it.
-	slide float64
-	login bool
-	icon0 *ui.Bitmap
+	// flight is how fast windows fly, as the slider sets it.
+	flight float64
+	login  bool
+	icon0  *ui.Bitmap
 	// fileIcons are the icons of the companions listed by path, by path.
 	fileIcons map[string]*ui.Bitmap
 	// notice is shown as a toast in the next frame.
@@ -97,7 +97,7 @@ func (sw *settingsWindow) load() {
 	sw.width, sw.icon, sw.tilt, sw.spacing = sw.s.Width, sw.s.IconScale, float64(sw.s.Tilt), sw.s.Spacing
 	sw.panelW, sw.panelH = sw.s.PanelWidth, sw.s.PanelHeight
 	sw.cornerW = sw.s.CornerWidth
-	sw.slide = sw.s.SlideSpeed
+	sw.flight = sw.s.FlightSpeed
 }
 
 // running returns the apps on the stages and in the strips, one per
@@ -453,16 +453,6 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 				sw.apply()
 			}
 		}, option{tr.Fixed, tr.FixedDesc, sw.mode == 0}, option{tr.Floating, tr.FloatingDesc, sw.mode == 1})
-		// A fixed strip never slides; the speed set meanwhile waits for it
-		// to float.
-		f.child(c, sw.mode == 1, tr.SlideSpeed, tr.SlideSpeedDesc, func() {
-			times := func(v float64) string { return fmt.Sprintf("%.1f×", v) }
-			if f.slider(c, tr, &sw.slide, settings.MinSlideSpeed, settings.MaxSlideSpeed, 0, def.SlideSpeed, times) {
-				sw.slide = math.Round(sw.slide*10) / 10
-				sw.s.SlideSpeed = sw.slide
-				sw.apply()
-			}
-		})
 		f.row(c, tr.Width, "", func() {
 			if f.slider(c, tr, &sw.width, settings.MinWidth, settings.MaxWidth, 0, def.Width, px) {
 				sw.width = float64(int(sw.width/10+0.5) * 10)
@@ -647,6 +637,7 @@ func (sw *settingsWindow) highlightRow(c *ui.Context, f form, tr *i18n.Strings) 
 }
 
 func (sw *settingsWindow) stagePane(c *ui.Context, f form, tr *i18n.Strings) {
+	def := settings.Default()
 	f.section(c, "", func() {
 		f.row(c, tr.HideInactive, tr.HideInactiveDesc, func() {
 			if ui.Switch(c, &sw.s.HideInactive).Changed() {
@@ -664,6 +655,14 @@ func (sw *settingsWindow) stagePane(c *ui.Context, f form, tr *i18n.Strings) {
 		})
 	})
 	f.section(c, tr.Animation, func() {
+		f.row(c, tr.FlightSpeed, tr.FlightSpeedDesc, func() {
+			times := func(v float64) string { return fmt.Sprintf("%.1f×", v) }
+			if f.slider(c, tr, &sw.flight, settings.MinFlightSpeed, settings.MaxFlightSpeed, 0, def.FlightSpeed, times) {
+				sw.flight = math.Round(sw.flight*10) / 10
+				sw.s.FlightSpeed = sw.flight
+				sw.apply()
+			}
+		})
 		f.row(c, tr.Quality, tr.QualityDesc, func() {
 			if ui.Segmented(c, &sw.quality, tr.Low, tr.Medium, tr.High).Changed() {
 				sw.s.Quality = qualities[sw.quality]

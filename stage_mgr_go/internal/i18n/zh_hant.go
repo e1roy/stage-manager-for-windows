@@ -41,9 +41,6 @@ var zhHant = Strings{
 	TiltOff:      "關閉",
 	DefaultValue: "預設值：%s，按一下還原",
 
-	SlideSpeed:     "展開與收起速度",
-	SlideSpeedDesc: "浮動的側邊欄滑出和收回的快慢。只在浮動方式下生效。",
-
 	OverviewPanel:     "所有視窗面板",
 	OverviewPanelDesc: "側邊欄底部的面板，指標移到那裡時出現，按一下即可鋪開此顯示器的所有視窗。寬度以卡片寬度的比例計算。",
 	Height:            "高度",
@@ -79,6 +76,8 @@ var zhHant = Strings{
 	HighDesc:         "最多約 1 GB，更多應用程式切回時依然清晰。",
 	LightFlights:     "高解析度螢幕上減輕動畫負擔",
 	LightFlightsDesc: "視窗飛行時以 100% 縮放的清晰度繪製，200% 的螢幕每格只需畫四分之一的像素，動畫更流暢。飛行中略有模糊，落地後立即恢復清晰。",
+	FlightSpeed:      "展開與收起速度",
+	FlightSpeedDesc:  "視窗從側邊欄飛到舞台、以及從舞台收回側邊欄的快慢。",
 
 	CompanionLabel: "開啟時不收起目前的應用程式",
 	CompanionTip:   "勾選的應用程式開啟視窗時，會和你正在使用的應用程式一起留在桌面上，不會把它收進側邊欄；關閉後桌面恢復原樣。適合 TortoiseSVN 提交視窗這類用一下就關的工具。",
