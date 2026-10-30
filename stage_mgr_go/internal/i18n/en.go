@@ -40,9 +40,6 @@ var en = Strings{
 	TiltOff:      "Off",
 	DefaultValue: "Default: %s. Click to restore.",
 
-	SlideSpeed:     "Show and hide speed",
-	SlideSpeedDesc: "How fast the floating sidebar slides in and out. Only applies to Floating.",
-
 	OverviewPanel:     "All windows panel",
 	OverviewPanelDesc: "The panel at the bottom of the sidebar shows when the pointer reaches it; click it to spread out every window on the display. Its width is a share of the cards' width.",
 	Height:            "Height",
@@ -78,6 +75,8 @@ var en = Strings{
 	HighDesc:         "Up to about 1 GB; more apps stay sharp when you switch back to them.",
 	LightFlights:     "Lighter animation on high-DPI displays",
 	LightFlightsDesc: "Windows fly as sharp as on a display scaled to 100%, so at 200%, each frame draws a quarter of the pixels and the animation stays smooth. They blur slightly in flight and are sharp again once they land.",
+	FlightSpeed:      "Switch animation speed",
+	FlightSpeedDesc:  "How fast windows fly from the sidebar to the stage and back.",
 
 	CompanionLabel: "Keep the current app when opened",
 	CompanionTip:   "When a checked app opens a window, it stays on the desktop with the app you're using instead of sending that app to the sidebar; once it's closed, the desktop is as it was. Good for tools used for a moment, like TortoiseSVN's commit dialog.",

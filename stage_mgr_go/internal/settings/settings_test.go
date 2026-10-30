@@ -233,11 +233,11 @@ func TestLightFlights(t *testing.T) {
 	}
 }
 
-// Settings saved before the strip's speed was a choice slide as they did;
+// Settings saved before the flights' speed was a choice fly as they did;
 // a speed out of range is clamped, in tenths.
-func TestSlideSpeed(t *testing.T) {
-	for in, want := range map[float64]float64{0: 1, math.NaN(): 1, 0.1: MinSlideSpeed, 9: MaxSlideSpeed, 1.74: 1.7} {
-		if got := (Settings{SlideSpeed: in}).Normalize().SlideSpeed; got != want {
+func TestFlightSpeed(t *testing.T) {
+	for in, want := range map[float64]float64{0: 1, math.NaN(): 1, 0.1: MinFlightSpeed, 9: MaxFlightSpeed, 1.74: 1.7} {
+		if got := (Settings{FlightSpeed: in}).Normalize().FlightSpeed; got != want {
 			t.Errorf("speed %v normalized to %v, want %v", in, got, want)
 		}
 	}

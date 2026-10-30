@@ -13,26 +13,7 @@ import (
 const (
 	edgeWidth = 2 // pixels at a display's edge that reveal a floating strip
 	autoHide  = 700 * time.Millisecond
-	// slideTime is how long a floating strip takes to slide in or out at
-	// the speed the settings start with: ui.Snappy's. The window hides a
-	// little before the spring settles, once the strip is past the edge.
-	slideTime    = 500 * time.Millisecond
-	slideOutTime = 450 * time.Millisecond
 )
-
-// slide is the spring a floating strip slides in and out with, at the
-// speed the settings give it.
-func (a *App) slide() ui.Animation {
-	m := ui.Snappy
-	m.Spring.Duration = time.Duration(float64(slideTime) / a.settings.SlideSpeed)
-	return m
-}
-
-// slideOut is how long after a floating strip starts out of sight its
-// window hides.
-func (a *App) slideOut() time.Duration {
-	return time.Duration(float64(slideOutTime) / a.settings.SlideSpeed)
-}
 
 // strip is the window of one display's strip: transparent, above other
 // windows, never activated, and letting clicks through wherever no card is.
@@ -49,11 +30,13 @@ type strip struct {
 	scale   float64     // the display's scale factor
 	visible bool        // the window shows
 	shown   bool        // the strip is in (a floating strip slides out)
+	// away reports that a floating strip has slid all the way out and
+	// stopped, as its last frame drew it: only then does its window hide.
+	away bool
 
 	clickThrough bool
 	lastInside   time.Time
 	holdUntil    time.Time
-	hiddenAt     time.Time
 	dragging     bool // a card is dragged
 	holding      bool // the button went down on a card and is still down
 	fullScreen   bool // a full-screen app is on the display
@@ -233,8 +216,14 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 		}
 		want := now.Sub(s.lastInside) < autoHide || now.Before(s.holdUntil) || s.dragging ||
 			(!s.d.covered && len(s.d.sets) > 0 && s.a.ready)
-		s.setShown(want, now)
-		if !s.shown && s.visible && now.Sub(s.hiddenAt) > s.a.slideOut() {
+		s.setShown(want)
+		// The window hides only once the slide has stopped. Hidden while
+		// it still moves, the window keeps the frame it asked for waiting
+		// for the display till it shows again, and draws that frame first,
+		// at the time it was asked for: the slide in starts then, seconds
+		// ago, and the next frame finds it over, the strip in at once
+		// whatever its speed.
+		if !s.shown && s.visible && s.away {
 			s.win.Hide()
 			s.visible = false
 		}
@@ -281,21 +270,18 @@ func (s *strip) approach(cur winapi.Point) {
 	s.win.Invalidate()
 }
 
-func (s *strip) setShown(v bool, now time.Time) {
+func (s *strip) setShown(v bool) {
 	if v == s.shown {
 		return
 	}
 	s.shown = v
 	debugf("strip %s shown=%v groups=%d covered=%v", s.d.mon.Device, v, len(s.d.sets), s.d.covered)
-	if v {
-		if !s.visible {
-			s.win.ShowInactive()
-			s.visible = true
-			s.applyBounds()
-		}
-	} else {
-		s.hiddenAt = now
+	if v && !s.visible {
+		s.win.ShowInactive()
+		s.visible = true
+		s.applyBounds()
 	}
+	s.away = false
 	s.win.Invalidate()
 }
 
@@ -303,7 +289,7 @@ func (s *strip) holdOpen(d time.Duration) {
 	now := time.Now()
 	s.holdUntil = now.Add(d)
 	s.lastInside = now
-	s.setShown(true, now)
+	s.setShown(true)
 }
 
 func (s *strip) setClickThrough(v bool) {
