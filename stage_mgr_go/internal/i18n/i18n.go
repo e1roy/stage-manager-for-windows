@@ -155,5 +155,5 @@ type Strings struct {
 	PickStage, JoinStage, SplitSet, CloseWindow, CloseWindows string
 
 	// The tray.
-	Settings, Quit string
+	Settings, Restart, Quit string
 }

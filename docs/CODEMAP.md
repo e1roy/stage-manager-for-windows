@@ -1,0 +1,175 @@
+# 代码地图
+
+给要改这个仓库的人（和 agent）看的导航。分工是这样：
+
+- 根目录 `AGENTS.md`：不能违反的规则、常用命令、当前已知问题。
+- 本文件：某个行为在哪、改一处要跟着改哪些、调试和测试从哪下手。
+- `stage_mgr_go/README.md`：产品是什么、怎么构建、怎么安全地跑起来。
+
+三份都只描述 `stage_mgr_go/`。仓库里其他文件（`start-stage-manager.bat`、`docs/screenshot.png`）是辅助。
+
+## 分层与依赖
+
+```
+main.go                     MyGo 生命周期、单实例、--quit / --debug-hang、数据目录
+  │
+internal/app                应用本体，全部状态只在 MyGo 主线程
+  ├─ internal/stage         纯规则：每台显示器上哪些应用在舞台、侧边栏怎么分组排序（不认识 HWND）
+  ├─ internal/settings      设置的读取、归一化、原子保存
+  ├─ internal/i18n          四种语言的文字表
+  ├─ internal/catalog       枚举窗口 → 归到应用（含 UWP 宿主）、应用名
+  ├─ internal/parking       停放 / 放回窗口 + 崩溃恢复日志
+  └─ internal/winapi        Win32 薄封装（syscall）：窗口、显示器、钩子、AppBar、静帧、DWM
+```
+
+依赖只能从上往下：
+
+| 层 | 可以做 | 不可以做 |
+| --- | --- | --- |
+| `winapi` | 直接调 Win32、持有句柄 | 持有应用状态、知道舞台或卡片 |
+| `catalog` / `parking` | 用 `winapi`，认识窗口 | 知道舞台、卡片、设置界面 |
+| `stage` / `settings` / `i18n` | 纯逻辑，可单测 | 碰 `winapi`、碰 `HWND` |
+| `app` | 组合上面全部，跑 MyGo | 把 Win32 细节散落到 UI 绘制里 |
+
+除 MyGo 和 `golang.org/x/image` 外不引入第三方依赖，不用 cgo。Windows 专用文件带 `//go:build windows`。
+
+## 目录
+
+```
+stage_mgr_go/
+  main.go                入口；单实例锁；Ctrl+C；--quit / --debug-hang
+  mygo.json              应用名、identifier、版本、图标、输出目录（build/）
+  resources/             icon.png（托盘、窗口、安装包共用）
+  internal/
+    app/                 见下表
+    winapi/              Win32 薄封装
+    catalog/             窗口枚举与归属
+    parking/             停放与恢复
+    stage/               舞台规则（有测）
+    settings/            设置（有测）
+    i18n/                界面文字（有测）
+```
+
+## internal/app 逐文件
+
+| 文件 | 关键符号 | 负责什么 | 改动时注意 |
+| --- | --- | --- | --- |
+| `app.go` | `App`、`display`、`group`、`set`、`Start`、`syncDisplays`、`refresh`、`initStage`、`applySettings`、`shutdown`、`post`/`after` | 状态中枢：显示器同步、窗口刷新、初始舞台、空闲补位、`settings` 应用 | 新状态字段加在 `App` / `display` 上，只在主线程读写；后台结果一律走 `post`/`after` |
+| `events.go` | `hookEvents`、`onWinEvent`、`onForeground`、`settleForeground`、`desktopClick`、`startPolling`、`poll`、`syncWinTab`/`winTab` | WinEvent 驱动：前台跟随、点壁纸清舞台、指针轮询（浮出侧边栏、peek、触发角）、Win+Tab 概览 | 新增拍照时机要避免拍用户正在用的窗口（JetBrains 弹窗闪一下）；调试日志有 `capture [...]` |
+| `switch.go` | `switchStage`、`handover`（`takeOff` / `land` / `stop` / `done`）、`switchRequest`、`runQueued`、`ended`、`arrange`、`action` 常量、`request`、`requestOverview`、`pick`/`join`/`closeApps`/`toggleCompanion` | 舞台切换、真实窗口交接、切换排队与打断、卡片动作分发 | 动画时长常量在 `flights.go`；改交接顺序先看 `handover` 的注释 |
+| `flights.go` | `flights`、`layer`、`flight`、`trip`、`badge`、`pose`、`shade`、`ownShadow`、`around`、`flightTime`/`takeOffDelay`/`landingDelay` | 每台显示器一层的飞行层：静帧在卡片与舞台间飞行、阴影交接、拖动卡片时的让位 | 整屏动画必须走 `pacer`；飞行层要避开被拖窗口（`hole`）；一处时序改动会牵动阴影 |
+| `pacer.go` | `pacer.frame` | 用 `DwmFlush` 按 DWM 合成节奏要帧，代替 `AnimationFrame` | 只有整屏窗口（飞行层、概览）用它，小窗口别用 |
+| `strip.go` | `strip`、`place`、`applyBounds`、`poll`、`approach`、`setShown`、`setClickThrough`、`holdOpen` | 侧边栏窗口：物理像素摆放、AppBar（固定模式）、浮动模式滑出/滑入、点击穿透 | 窗口位置是物理像素；DIP 换算只在 `toScreen` 一类地方做 |
+| `stripview.go` | `cardState`、`(*strip).view`、`(*strip).card`、`footer`、`dragPoses`、`windowStill`、`panel`/`showPanel` | 侧边栏界面：卡片、3D 透视、悬停、拖动、右键菜单、底部概览面板 | 卡片动作不要直接改模型，走 `a.request`（无头测试靠 `App.act` 截获） |
+| `carddrag.go` | `cardDrag`、`aim`（`aimBack`/`aimSort`/`aimJoin`/`aimMove`）、`aimCard`、`cardDropAt`、`makeRoom`、`joinReach`、`crossReach`、`moveSet`、`reorder` | 拖卡片的去向：回原位、侧边栏内排序、加入舞台、搬到另一台显示器的侧边栏 | 让位布局与飞行层联动，改一处要连着手动验证 |
+| `drag.go` | `drag`、`startDrag`、`dragOver`、`windowMoved`、`followMoved`、`leave`、`stripUnder`、`sendToStrip`、`sendAcross`、`dwell` | 拖真实窗口：跨显示器时那边舞台让位、松手、拖进侧边栏、Win+Shift+方向键移动后的跟随 | 只有 `HideInactive` 打开时才停放，否则只更新列表 |
+| `layout.go` | `stripLayout`、`mirror`、`panel`、`cardTilts`、`maxStacked`/`maxIcons`/`minCardScale` 等常量 | 纯几何：卡片位置与缩放、窗口叠放、图标位置、右侧镜像 | 有单测（`layout_test.go`），规则先在这里写并与测试对齐 |
+| `media.go` | `media`、`still`、`capture`、`stillHeight`、`flyBudgets`、图标缓存 | 静帧（`PrintWindow`）与图标、内存预算（按 `Quality`）、`LightFlights` | `PrintWindow` 会等目标应用绘制，只能在 goroutine 里做，并且带超时 |
+| `iconfit.go` | `iconBounds` | 按 alpha 裁掉图标四周透明边 | 有单测 |
+| `overview.go` | `overview`、`ovTile`、`overviewPhase`、`openOverview(s)`、`closeOverviews`、`closeWindow`、`accent` | “所有窗口”概览（类 Mission Control）：每台显示器一个窗口，铺开本显示器窗口，点选切换、悬停关闭 | 多显示器同步开关；超时（`overviewTimeout`）必须保证停放的窗口回来；焦点窗口设计见 `newOverview` 注释 |
+| `corner.go` | `cornerHint`、`cornerRect`、`cornerNearness`、`hotCorner`/`cornerReach`/`cornerLinger` | Win11 左下角触发角：不抢焦点的小窗口，靠近显示标记，点击开概览 | 只有 `winapi.TaskbarCornerFree()` 为真时才盖；判定有单测 |
+| `peek.go` | `peekStart`、`watchTaskbar`、`peekClass` | 任务栏缩略图 peek 时临时放回被停放的窗口 | 只在指针停在该按钮的缩略图上时放回，避免一次放回太多 |
+| `settingsview.go` | `settingsWindow`、`generalPane`/`stripPane`/`stagePane`/`companionsPane`/`aboutPane`、`apply`、`load` | 设置窗口（Mica，标签页为通用 / 侧边栏 / 舞台 / 例外 / 关于），编辑副本后立即应用 | 新设置项：字段 + `Default` + `Normalize` + `Equal`/`Clone` + 对应 pane + `applySettings` |
+| `tray.go` | `setUpTray`、`trayMenu` | 托盘图标：左键开设置，右键菜单（找回屏幕外的窗口 / 设置 / 重启 / 退出；重启走 `mygo.App.Relaunch`，先按退出流程放回窗口、释放单实例锁再启动新进程） | 侧边栏和概览都是挂在托盘上的 MyGo flyout |
+| `debug.go` | `debugf`、`logToFile`、`watchMainThread`、`DebugHang`、`frameStats`、`stopwatch`、`timed`、`tookLong` | 调试日志、看门狗、帧统计、主线程慢任务计时 | 日志文件名和格式见下文；`tookLong` 会打印主线程超过 8ms 的任务 |
+
+测试文件都和被测代码同包：`layout_test.go`、`stripview_test.go`、`set_test.go`、`corner_test.go`、`flights_test.go`、`iconfit_test.go`、`peek_test.go`、`snapshot_test.go`。
+
+## 核心数据结构
+
+- `App`（`app.go`）：`settings` / `store`、`cat`（窗口目录）、`park`（停放）、`media`（静帧与图标）、`displays`、`windows`（最近一次列出的窗口）、`busy` + `running` + `queued`（切换状态）、`drag` / `cardDrag`、`flights`、`tray`、`settingsUI`。
+- `display`（`app.go`）：一台显示器的 `mon`、纯逻辑模型 `model stage.Display`、`strip` 窗口、`sets`（卡片，顶在前）、`onStage`、`cards`（每张卡片的帧间状态）、`scroll`、`layout`、`landing`、`dropPoses`、以 `ov` 表示的概览。
+- `group`：一个应用在这台显示器上的窗口，按 z 序，`z` 是它最前面那扇窗口在应用之间的位置。`set`：一张卡片，可能包含多个一起上/下舞台的应用；`windows` 前面是每个应用的窗口，后面是其余窗口。
+- `cardState`（`stripview.go`）：卡片在帧间要记住的拖动偏移、松手去向、飞行起点（`poses`）、`tilt`/`lift`。
+- `strip`（`strip.go`）：窗口与其物理矩形、缩放、`shown`/`away`、`clickThrough`、命中的卡片矩形（DIP）、浮动模式的边缘计时。
+- `flights` / `layer` / `flight`（`flights.go`）：每台显示器一层或两层（`under` 放应用自绘阴影），`flight` 是从 `from` 到 `to` 的一扇窗口；`trip` 是一次飞行的一组。
+- `parking.Service`：`Park` / `Unpark` / `UnparkUnder` / `Rehome` / `Lift` / `Lower` / `RestoreAll` / `CollectEscaped` / `Recover` / `Chase` / `Settle`，每次变动写 `parked-windows.json`。
+- `stage.Display`：舞台上应用的有序列表、侧边栏的卡片分组、`above`（从哪张卡片上来的）、`recent`（回退用）、`changedAt`（`Settling` 靠它）。
+- `catalog.Catalog`：`Windows()`（可见的应用窗口，z 序）、`Movable()`（所有可能被移走的窗口）、`Name()`；`catalog.ShadowWindow` 找应用自绘的阴影窗口。
+
+## 关键流程
+
+### 启动
+
+`main.go` 取数据目录 → `app.Start`：加载设置 → `park.Recover()`（上次崩溃留下的窗口先放回）→ 启动看门狗 → 托盘 → 飞行层 → `syncDisplays` → `hookEvents` → `startPolling` → 400ms 后 `initStage`（等 AppBar 占位生效再量舞台）→ 1500ms 的兜底 `refresh` tick。
+
+### 一次刷新
+
+`refresh`（事件驱动经 `refreshSoon` 提前）重新列窗口 → 每个显示器 `groupsOf` → `parkStrays`（`HideInactive` 时把不在舞台的窗口停放）→ `reparkEscaped` → 重建 `sets`/`onStage` → 重绘侧边栏。`refill` 处理“舞台的应用全关掉了”，按 `recent` 让上一个应用回来。
+
+### 一次切换
+
+1. 触发：卡片 → `request(actPick)`；Alt+Tab/任务栏 → `onForeground`；新窗口 → `settleForeground`；点壁纸 → `switchStage(d, nil, …)`。
+2. `switchStage` 算 departing / arriving；`busy` 时放进 `queued` 并 `flights.interrupt`（空中的窗口原地掉头）。
+3. `media.capture` 在 goroutine 给离场窗口拍静帧（带超时）。
+4. 更新 `d.model.Switch` → `arrange` → `flights.run`。
+5. `handover.takeOff`（停放离场/激活到场）→ `land`（放回到场窗口）→ `stop`/`done` → `runQueued` / `settleForeground`。
+
+### 拖动真实窗口
+
+`EventSystemMoveSizeStart` → `startDrag`；跨到另一台显示器 → `dragOver`（等 `dwell` 后那边舞台让位）；`EventSystemMoveSizeEnd` → `windowMoved`：留在本显示器就保持，落到另一台就加入那边的舞台（`sendAcross`），松手在侧边栏带内则 `sendToStrip`。
+
+### 拖动卡片
+
+`stripview` 记录 `cardState`；`carddrag` 每帧算 `aim`：`aimBack`（几乎没动）、`aimSort`（本侧边栏排序）、`aimJoin`（拖过 `joinReach` 加入舞台）、`aimMove`（跨过 `crossReach` 进另一台显示器的侧边栏）。让位布局在执行前就按目标位置算好，卡片在侧边栏内排序时不交给飞行层。
+
+### 概览与 Win+Tab
+
+`requestOverview` → `openOverview`：`newOverview` 造窗口，把本显示器窗口计入 `tiles`、停放后飞行铺开；`close` 选中的窗口切到舞台，其余回卡片；`closeWindow` 悬停关闭。Win+Tab 由 `winapi/keyboard.go` 的低级键盘钩子截获，`post` 回主线程后对每台显示器各开一个概览，任意一处关闭全部关闭。
+
+### 退出与崩溃恢复
+
+`shutdown` → `park.RestoreAll()`（在关窗口之前）。看门狗 5 秒无响应时直接按日志放回所有窗口并写 `hang-*.log`，主线程恢复后按当前舞台重新停放。
+
+## 常见改动落点
+
+| 想做的事 | 改这里 | 别忘 |
+| --- | --- | --- |
+| 新增一个设置项 | `settings.Settings`、`Default()`、`Normalize()`（范围）、`Equal`/`Clone`（引用类型）、`settingsview.go` 对应 pane、`app.applySettings` | 配 i18n 文字；`settings_test.go` 加归一化用例 |
+| 新增界面文字 | `i18n.Strings` 加字段 + `zh_hans`/`zh_hant`/`en`/`ja` 四张表 | `TestComplete` 检查缺失与格式动词 |
+| 新增 Win32 调用 | `internal/winapi`，通用 DLL/proc 放 `procs.go`，专用的就近声明 | 保持无状态；不要在 `stage`/`settings` 里调 |
+| 改卡片外观或布局 | `layout.go`（纯几何，先写测试）+ `stripview.go`（绘制） | 右侧镜像要一起测 |
+| 改切换动画节奏 | `flights.go` 的 `flightTime`/`takeOffDelay`/`landingDelay`/`fadeTime`，`switch.go` 的 `handover` | 录屏逐帧看阴影有没有跳 |
+| 新增卡片动作 | `switch.go` 的 `action` 常量、`request`、具体函数；`stripview.go` 菜单里发起 | `App.act` 让无头测试能截获 |
+| 改概览 | `overview.go`（布局常量、`ovTile.at`、`close`/`land`） | 超时必须保证窗口放回；多显示器同步 |
+| 改舞台规则 | `stage.go` + `stage_test.go` | 不要在 `app` 里写规则判断 |
+
+## 调试
+
+| 环境变量 | 作用 |
+| --- | --- |
+| `STAGEMANAGER_APP_FILTER` | 只管理这些 exe（逗号分隔），开发时不会动到你自己的窗口 |
+| `STAGEMANAGER_DATA_DIR` | 设置、停放日志、调试日志的目录（默认 `%LOCALAPPDATA%\Stage Manager`） |
+| `STAGEMANAGER_DEBUG` | 输出决策日志到控制台和 `debug.log`（上次的 `debug.prev.log`）；此时第二个实例传 `--debug-hang` 可卡住主线程 12 秒验证看门狗 |
+| `STAGEMANAGER_SNAPSHOT_DIR` | `go test ./internal/app -run TestSnapshots` 把侧边栏和设置窗口渲染成 PNG |
+| `MYGO_FRAME_STATS` | MyGo 把耗时超过 8ms 的帧的构建/布局/绘制/提交耗时打进日志（`start-stage-manager.bat` 会开） |
+
+日志里值得先看的行：`flights: ... N frames in ..., longest gap ...`、`strip ...:`、`flight layer ...:`、`overview ...:`、`main thread: X took T`、`... took T: a 1ms, b 2ms`、`capture [...]`。
+
+## 测试
+
+| 包 / 文件 | 覆盖 |
+| --- | --- |
+| `stage` | 舞台与侧边栏规则、`Prune`/`Insert`/`Move`/`Split` |
+| `settings` | 归一化、旧设置迁移、保存与读取 |
+| `i18n` | 四种语言字段齐全、格式动词一致 |
+| `app/layout` | 卡片布局、叠放、镜像、图标位置 |
+| `app/stripview` | 无头渲染卡片与面板，经 `App.act` 截获动作 |
+| `app/set` | 跨应用卡片的窗口顺序 |
+| `app/corner` | 触发角几何、靠近程度、点击开概览 |
+| `app/flights` | `around` 给被拖窗口让出的“洞” |
+| `app/iconfit`、`app/peek` | 图标裁边、peek 的按钮匹配 |
+| `app/snapshot` | 需要 `STAGEMANAGER_SNAPSHOT_DIR`，否则跳过 |
+| `winapi/monitor` | 显示器几何与 DPI |
+
+没有自动化测试、必须手动验证的：`catalog`、`parking`、飞行动画、窗口交接、跨显示器拖动、拖动卡片。清单见 `AGENTS.md` 的“测试”一节。
+
+## 容易踩的坑
+
+- 主线程不能做可能阻塞的事（`PrintWindow`、等待别的进程、长循环）。看门狗会在 5 秒后直接动手。
+- 不要用锁“修”并发：后台结果用 `post`/`after` 回主线程；唯一例外是 Win+Tab 的低速键盘钩子线程。
+- 隐藏窗口一律走 `parking.Service`，不要自己 `SetWindowPos` 移出桌面，否则崩溃后窗口回不来。
+- 坐标：系统侧物理像素，MyGo 窗口内 DIP，换算只在 `strip.toScreen`、`mon.Scale()` 一类地方。
+- 整屏动画用 `pacer`；飞行层空了以后要留 2 秒（`layerLinger`），不要在动画进行中显示整屏窗口。
+- 拖动中的窗口上面不要压飞行层（系统很少把被压住的画面送上屏幕），用 `hole` 避开。
+- 卡片显示的是静帧，停放中的窗口不会更新；`PrintWindow` 拍不到内容时退化成图标卡片。

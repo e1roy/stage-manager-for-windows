@@ -97,6 +97,7 @@ var zhHans = Strings{
 	CloseWindows:   "关闭全部窗口",
 
 	Settings: "设置…",
+	Restart:  "重启",
 	Quit:     "退出",
 
 	Troubleshooting:       "故障排除",

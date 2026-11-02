@@ -17,8 +17,8 @@
 - 手动最小化的窗口交给任务栏：它离开舞台，也不在侧边栏出现，从任务栏还原后重新成为舞台
 - 点击卡片：当前应用飞进侧边栏、占据被点卡片的位置；被点的应用从卡片里飞回原处
 - Alt+Tab、任务栏、新打开的窗口会立即成为该显示器的舞台
-- 把卡片拖到桌面：该应用加入当前舞台，与已有应用并排
-- 右键卡片：切换到舞台 / 加入当前舞台 / 拆开组合 / 关闭窗口
+- 把卡片拖到桌面、按住 Shift 点击卡片：该应用加入当前舞台，与已有应用并排
+- 右键卡片：切换到舞台 / 加入当前舞台 / 拆开组合 / 关闭窗口 / 设为随从应用
 - “所有窗口”概览，像 macOS 的 Mission Control：铺开本显示器的所有窗口，点一个就切换过去，鼠标移上去可以直接关掉它
 - 打开概览的三个入口：侧边栏底部的面板、显示器左下角的按钮、Win+Tab（与 Windows 的任务视图一样，所有显示器同时各铺开自己的窗口，任一处收起就全部收起）
 - 点击壁纸：清空该显示器的舞台（可关闭）
@@ -32,18 +32,19 @@
 - 停放的窗口保持大小与状态，退出、崩溃、注销时全部放回（崩溃靠日志恢复）
 - 从任务栏缩略图预览（peek）时，被停放的窗口临时放回
 - 随从应用：设置里列出的程序不抢舞台，而是并排加入当前舞台
-- 设置分标签页；界面语言简体中文、繁体中文、英文、日文，默认跟随 Windows 显示语言
+- 设置分五个标签页（通用 / 侧边栏 / 舞台 / 例外 / 关于）：语言、开机启动、每台显示器的开关与左右、侧边栏宽度与图标间距、卡片倾斜、飞行速度、飞行画质与“高分屏上减轻动画负担”、概览面板与触发角按钮尺寸、Win+Tab 接管、强调色
+- 界面语言简体中文、繁体中文、英文、日文，默认跟随 Windows 显示语言
 - 托盘图标：左键打开设置，右键菜单（找回屏幕外的窗口、设置、退出）
 - `StageManagerForWindows.exe --quit` 让正在运行的实例退出并放回所有窗口（安装/卸载时使用）
 - 不收集任何数据，不联网
 
-## 架构
+## 代码结构
 
 ```
 main.go                     入口：单实例、--quit、启动 app
 internal/
   winapi/    Win32 薄封装（syscall，无状态）：窗口、显示器、WinEvent 钩子、
-             子类化、AppBar、PrintWindow 静帧、图标、版本信息
+             子类化、AppBar、PrintWindow 静帧、DWM 缩略图、图标、版本信息
   catalog/   枚举并过滤应用窗口，识别所属应用（含 UWP 宿主），应用名
   parking/   把窗口停到桌面之外 / 放回，带崩溃恢复日志
   stage/     纯逻辑：每台显示器的舞台与侧边栏顺序（有单元测试）
@@ -52,10 +53,10 @@ internal/
   app/       Stage Manager for Windows 本体，全部在 MyGo 主线程上运行
     app.go          显示器同步、刷新、初始舞台、游离/逃逸窗口处理
     events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询、Win+Tab 打开概览
-    switch.go       舞台切换与真实窗口的交接
-    flights.go      飞行层（每台显示器一个）
+    switch.go       舞台切换、真实窗口交接、切换排队与卡片动作
+    flights.go      飞行层（每台显示器一个）与阴影交接
     pacer.go        整屏动画按 DWM 合成节奏要帧
-    drag.go         拖动窗口：跨显示器让位、拖进侧边栏、键盘移动
+    drag.go         拖动窗口：跨显示器让位、拖进侧边栏、移动后的跟随
     carddrag.go     拖动卡片：侧边栏内排序、搬到另一台显示器的侧边栏、加入舞台
     overview.go     “所有窗口”概览（类 Mission Control）
     corner.go       显示器左下角打开概览的按钮
@@ -63,10 +64,14 @@ internal/
     strip.go        侧边栏窗口：放置、AppBar、浮动显示/隐藏、点击穿透
     stripview.go    侧边栏界面（卡片、透视、悬停、拖动、右键菜单）
     layout.go       纯几何：卡片位置、窗口叠放、图标位置（有单元测试）
-    media.go        静帧与图标缓存
+    media.go        静帧与图标缓存、内存预算
+    iconfit.go      裁掉图标四周的透明边
     settingsview.go 设置窗口
     tray.go         托盘图标与托盘菜单
+    debug.go        调试日志、看门狗、帧统计
 ```
+
+要改代码先读 [../docs/CODEMAP.md](../docs/CODEMAP.md)：那里有逐文件的符号表、核心数据结构、一次切换/一次拖动/概览的完整流程，以及“想改什么该动哪里”的对照表。
 
 **线程模型。** 所有状态只在 MyGo 主线程上读写：WinEvent 钩子在主线程安装、在主线程回调；定时器、截图 goroutine 的结果都通过 `mygo.RunOnMain` 回到主线程。截图（`PrintWindow` 会等目标应用自己绘制）只在 goroutine 里做，并有超时，卡死的应用不会拖住切换。接管 Win+Tab 的低级键盘钩子是例外：它在独立线程上跑自己的消息循环，回调只把按键 `post` 回主线程，主线程再忙也不会拖慢全系统的键盘输入。
 
@@ -78,25 +83,34 @@ internal/
 
 ## 构建与运行
 
-需要 Go 1.27.3 以上（`GOTOOLCHAIN=auto` 时会自动下载）。
+需要 Go 1.27.3 以上（`GOTOOLCHAIN=auto` 时会自动下载），MyGo 版本见 `go.mod`。
 
 ```powershell
 cd stage_mgr_go
+go build ./...                # 编译
+go vet ./...                  # 静态检查
+go test ./...                 # 单元测试与无头界面测试
+go tool mygo vet .            # MyGo 的 UI 生命周期检查，改 UI 后必须跑
 go run .                      # 开发运行
 go tool mygo dev              # 改代码自动重编译重启
-go test ./...                 # 单元测试与无头界面测试
-go tool mygo vet .            # 检查 UI 生命周期问题
 go tool mygo build            # build/windows-amd64/StageManagerForWindows.exe 和安装包
 ```
+
+提交前 `go build ./... && go vet ./... && go test ./... && go tool mygo vet .` 全部通过。版本号在 `mygo.json` 里，发布时按需要加 `0.0.1`；`mygo build` 会把它写进 exe 的版本资源（关于页读的就是它）。
+
+根目录的 `start-stage-manager.bat` 会先让旧实例 `--quit`，再 `mygo build` 并启动 exe，同时打开 `STAGEMANAGER_DEBUG` 和 `MYGO_FRAME_STATS`，适合看真实动画的日志。
 
 开发时可用的环境变量：
 
 | 变量 | 作用 |
 | --- | --- |
 | `STAGEMANAGER_APP_FILTER` | 只管理这些可执行文件（逗号分隔，如 `notepad,mspaint`），测试时不会动到你自己的窗口 |
-| `STAGEMANAGER_DATA_DIR` | 设置和停放日志的目录（默认 `%LOCALAPPDATA%\Stage Manager`） |
-| `STAGEMANAGER_DEBUG` | 输出决策日志；此时第二个实例传 `--debug-hang` 可故意卡住主线程 12 秒，用来检验看门狗 |
+| `STAGEMANAGER_DATA_DIR` | 设置、停放日志和调试日志的目录（默认 `%LOCALAPPDATA%\Stage Manager`） |
+| `STAGEMANAGER_DEBUG` | 输出决策日志到控制台和 `debug.log`（上次的 `debug.prev.log`）；此时第二个实例传 `--debug-hang` 可故意卡住主线程 12 秒，用来检验看门狗 |
 | `STAGEMANAGER_SNAPSHOT_DIR` | 让 `go test ./internal/app -run TestSnapshots` 把侧边栏和设置界面渲染成 PNG |
+| `MYGO_FRAME_STATS` | MyGo 把耗时超过 8ms 的帧的构建/布局/绘制/提交耗时打进日志 |
+
+结束实例用 `StageManagerForWindows.exe --quit` 或 Ctrl+C，让停放的窗口回到桌面。**不要直接结束进程**；万一强杀了，下次启动会按 `parked-windows.json` 恢复。
 
 ## 已知限制
 
@@ -104,3 +118,4 @@ go tool mygo build            # build/windows-amd64/StageManagerForWindows.exe �
 - 用 `PrintWindow` 拍不到内容的窗口（部分游戏、受 DRM 保护的视频）显示为带图标的磨砂卡片。
 - 以管理员身份运行的应用，非管理员的 Stage Manager for Windows 可能无法移动或激活它们。
 - 置顶窗口不参与舞台，浮在最上层。
+- 拍静帧会让少数应用闪一下（已确认的有 JetBrains IDE）；现在同一进程内的焦点变化不拍照，新增拍照时机要避开用户正在用的窗口。
