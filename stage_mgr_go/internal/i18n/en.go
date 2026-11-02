@@ -84,9 +84,16 @@ var en = Strings{
 
 	Tagline: "Organizes your windows the way Stage Manager does on macOS",
 	Version: "Version %s",
-	Privacy: "Collects no data and never goes online.",
+	Privacy: "Collects no data, and goes online only to check GitHub for updates.",
 	Website: "Project page",
 	Issues:  "Report an issue",
+
+	NewVersion:       "Version %s is available",
+	Download:         "Download",
+	UpdateUnknown:    "Couldn't check for updates.",
+	SeeReleases:      "See the latest release",
+	CheckUpdates:     "Check for updates automatically",
+	CheckUpdatesDesc: "Asks GitHub for the latest release every few hours. When there is a newer version, a red dot appears on the tray icon and on About. No personal data is sent.",
 
 	EmptyStrip:     "No apps off the stage",
 	EmptyStripHint: "Apps you open show up here",

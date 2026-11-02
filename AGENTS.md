@@ -66,12 +66,13 @@ stage_mgr_go/
       keyboard.go     Win+Tab 低级键盘钩子（独立线程，只 post 回主线程）
       capture.go      PrintWindow 静帧；thumbnail.go 是 DWM 缩略图（自绘阴影、peek）
       taskbar.go      任务栏按钮（peek 用）；taskbarcorner.go 是 WindowsBuild / TaskbarCornerFree / IsTaskbar
-      process.go / version.go / locale.go
+      process.go / version.go / locale.go；proxy.go 读注册表里的系统代理（SystemProxy）
     catalog/   枚举/过滤应用窗口，识别所属应用（含 UWP 宿主），应用显示名；STAGEMANAGER_APP_FILTER 在这里生效
     parking/   停放/放回窗口 + 崩溃恢复日志（Park/Unpark/Rehome/Lift/Recover/CollectEscaped）
     stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）
     settings/  设置读取、归一化、原子保存（有单测）
     i18n/      界面文字：简体中文、繁体中文、英文、日文各一张 Strings 表，FromLANGID 把 Windows 显示语言映射过来（有单测）
+    update/    向 GitHub 查询最新 release（`Latest`）、比较版本号（`Newer`），只读不安装；proxy.go 解析 Windows 系统代理（v2rayN、Clash 设的那种），代理连不上时直连（有单测）
     app/       Stage Manager for Windows 本体，全部运行在 MyGo 主线程
       app.go          App/display/group/set 结构、Start、显示器同步、refresh、初始舞台、游离/逃逸窗口
       events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询、Win+Tab 打开概览
@@ -90,7 +91,8 @@ stage_mgr_go/
       corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览
       settingsview.go 设置窗口（通用/侧边栏/舞台/例外/关于 五个标签页）
       tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
-      *_test.go       无头测试：layout、stripview、set、corner、flights、iconfit、peek、snapshot
+      update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里查 GitHub，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点
+      *_test.go       无头测试：layout、stripview、set、corner、flights、iconfit、peek、update、snapshot
 ```
 
 ## 核心流程：一次舞台切换
@@ -122,7 +124,7 @@ stage_mgr_go/
 
 ## 测试
 
-- 有单测的：`stage`、`settings`、`i18n`、`winapi/monitor`，以及 `app` 下的 `layout`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`set`、`corner`、`flights`、`iconfit`、`peek`、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
+- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`set`、`corner`、`flights`、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
 - `catalog`、`parking`、飞行动画、窗口交接**没有自动化测试**，改动后需要手动验证：
   - 固定模式和浮动模式各切换几次，包括快速连点打断正在进行的切换；
   - 多显示器（不同 DPI）下切换、把窗口拖到另一台显示器、把窗口拖进侧边栏；

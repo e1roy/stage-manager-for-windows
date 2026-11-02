@@ -149,6 +149,15 @@ type Strings struct {
 	Version          string // %s: the version
 	Privacy, License string
 	Website, Issues  string
+	// NewVersion tells a release newer than the one running, on the about
+	// pane and in the tray's menu; Download opens its page. CheckUpdates
+	// names looking for one, which CheckUpdatesDesc explains.
+	NewVersion                     string // %s: the newer version
+	Download                       string
+	// UpdateUnknown says the last check could not reach GitHub, and
+	// SeeReleases links to its releases to look by hand.
+	UpdateUnknown, SeeReleases string
+	CheckUpdates, CheckUpdatesDesc string
 
 	// The strip.
 	EmptyStrip, EmptyStripHint                                string

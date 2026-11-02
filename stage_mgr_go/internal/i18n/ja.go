@@ -86,9 +86,16 @@ var ja = Strings{
 
 	Tagline: "macOS のステージマネージャのように Windows のウインドウを整理します",
 	Version: "バージョン %s",
-	Privacy: "データを一切収集せず、ネットにも接続しません。",
+	Privacy: "データを一切収集しません。ネットに接続するのはアップデートを GitHub で確認するときだけです。",
 	Website: "プロジェクトページ",
 	Issues:  "問題を報告",
+
+	NewVersion:       "新しいバージョン %s があります",
+	Download:         "ダウンロード",
+	UpdateUnknown:    "アップデートを確認できませんでした。",
+	SeeReleases:      "最新版を見る",
+	CheckUpdates:     "アップデートを自動的に確認",
+	CheckUpdatesDesc: "数時間ごとに GitHub で最新のリリースを確認します。新しいバージョンがあると、通知領域のアイコンと「情報」に赤い点が付きます。個人データは送信しません。",
 
 	EmptyStrip:     "ステージ外にアプリはありません",
 	EmptyStripHint: "開いたアプリがここに表示されます",

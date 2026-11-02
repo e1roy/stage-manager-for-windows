@@ -60,6 +60,7 @@ Works on Windows 10 and 11 (64-bit).
 - **Settings**: left-click the tray icon. Choose whether the strip is Fixed (always takes its edge) or Floating (hides when covered, comes back when you push the mouse to that edge), put it on the left or the right of each display, turn a display's strip off, and adjust width, icon size, spacing, tilt, flight speed and quality, language and launch at login.
 - **Split a group**: right-click its card.
 - **Restart / Quit**: right-click the tray icon → Restart or Quit. Both put every window back first; Restart then starts Stage Manager again.
+- **Updates**: Stage Manager checks GitHub for a new release every few hours. When one is out, a red dot appears on the tray icon and on Settings → About; click "Download" there, or the first item of the tray menu, to open the release page. Turn it off in Settings → About.
 
 ## Known issues
 
@@ -81,7 +82,7 @@ See [stage_mgr_go/README.md](stage_mgr_go/README.md) for building and running it
 
 ## Other
 
-No network access, no data collection. [MIT License](LICENSE).
+No data collection. The only network access is checking GitHub for new releases, which you can turn off. [MIT License](LICENSE).
 
 ## Acknowledgements
 

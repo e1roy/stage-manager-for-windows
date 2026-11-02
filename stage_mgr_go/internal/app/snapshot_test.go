@@ -13,6 +13,7 @@ import (
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/update"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 	"github.com/egoist/mygo/ui"
 )
@@ -212,6 +213,26 @@ func TestSnapshots(t *testing.T) {
 	a.settings.Language = i18n.SimplifiedChinese
 	sw.tab = 1
 	shoot("settings-wide.png", sw.view, 1100, 600, nil)
+	// A newer release puts a red dot on the about pane's icon, and its
+	// version on the pane.
+	a.latest = update.Release{Version: "9.9.9", URL: repo + "/releases/tag/9.9.9"}
+	for _, i := range []int{0, aboutTab} {
+		sw.tab = i
+		shoot(fmt.Sprintf("settings-update-%d.png", i), sw.view, 620, 1000, nil)
+		shoot(fmt.Sprintf("settings-update-dark-%d.png", i), dark, 620, 1000, nil)
+	}
+	a.latest = update.Release{}
+	// Without a network, the pane says it could not tell.
+	a.checkFailed = true
+	sw.tab = aboutTab
+	shoot("settings-update-failed.png", sw.view, 620, 1000, nil)
+	a.checkFailed = false
+	// The tray icon with the dot, as the tray shows it.
+	if icon, err := os.ReadFile(filepath.Join("..", "..", "resources", "icon.png")); err == nil {
+		if data, err := dotted(icon, dottedSize); err == nil {
+			os.WriteFile(filepath.Join(dir, "tray-update.png"), data, 0o644)
+		}
+	}
 }
 
 func fakeWindow(w, h int, bg color.RGBA, k int) *image.RGBA {
