@@ -54,7 +54,13 @@ type strip struct {
 	frames frameStats
 }
 
-var appBarMessage uint32
+var (
+	appBarMessage uint32
+	// taskbarCreated is broadcast to top-level windows when Explorer
+	// starts again: the shell it brings knows no app bars, so a fixed
+	// strip's band would be gone and maximized windows would cover it.
+	taskbarCreated uint32
+)
 
 func newStrip(a *App, d *display) *strip {
 	s := &strip{a: a, d: d}
@@ -78,6 +84,7 @@ func newStrip(a *App, d *display) *strip {
 	winapi.SetTransitionsDisabled(s.hwnd, true)
 	if appBarMessage == 0 {
 		appBarMessage = winapi.RegisterWindowMessage("Stage Manager.AppBar")
+		taskbarCreated = winapi.RegisterWindowMessage("TaskbarCreated")
 	}
 	s.bar = winapi.AppBar{Wnd: s.hwnd, Callback: appBarMessage}
 	winapi.Subclass(s.hwnd, s.message)
@@ -143,6 +150,19 @@ func (s *strip) message(msg uint32, wParam, lParam uintptr) (uintptr, bool) {
 		// Signing out or shutting down: windows go back before the
 		// session ends, as they would on quitting.
 		s.a.shutdown()
+		return 0, false
+	}
+	if msg == taskbarCreated && taskbarCreated != 0 {
+		// Explorer restarted. The strip window is unowned, so it hears the
+		// broadcast even while a floating strip is hidden.
+		debugf("strip %s: Explorer restarted, reserving the band again", s.d.mon.Device)
+		s.bar.Forget()
+		s.fullScreen = false
+		post(func() {
+			if !s.a.quitting && s.d.strip == s {
+				s.place()
+			}
+		})
 		return 0, false
 	}
 	if msg != appBarMessage || appBarMessage == 0 {

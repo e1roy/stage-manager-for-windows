@@ -169,6 +169,11 @@ func (a *AppBar) Reserve(monitor Rect, width int32, right bool) Rect {
 // Registered reports whether the band is reserved.
 func (a *AppBar) Registered() bool { return a.registered }
 
+// Forget drops the reservation without telling the shell: after Explorer
+// restarts, the new shell knows no app bars, and the next Reserve has to
+// register the window again.
+func (a *AppBar) Forget() { a.registered = false }
+
 // Remove gives the band back.
 func (a *AppBar) Remove() {
 	if !a.registered {

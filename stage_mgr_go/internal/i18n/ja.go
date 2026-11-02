@@ -99,6 +99,7 @@ var ja = Strings{
 	CloseWindows:   "すべてのウインドウを閉じる",
 
 	Settings: "設定…",
+	Restart:  "再起動",
 	Quit:     "終了",
 
 	Troubleshooting:       "トラブルシューティング",

@@ -26,6 +26,9 @@ func (a *App) trayMenu() *mygo.Menu {
 		{Label: tr.Rescue, Click: func(*mygo.MenuItem, *mygo.Window) { a.rescueOffscreen() }},
 		{Label: tr.Settings, Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
 		mygo.Separator(),
+		// Relaunch quits as Quit does, putting every parked window back,
+		// and starts the app again once the single instance lock is free.
+		{Label: tr.Restart, Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Relaunch() }},
 		{Label: tr.Quit, Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
 	})
 }

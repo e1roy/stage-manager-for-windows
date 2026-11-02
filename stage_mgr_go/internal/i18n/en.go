@@ -97,6 +97,7 @@ var en = Strings{
 	CloseWindows:   "Close all windows",
 
 	Settings: "Settings…",
+	Restart:  "Restart",
 	Quit:     "Quit",
 
 	Troubleshooting:       "Troubleshooting",

@@ -12,8 +12,9 @@ Stage Manager for Windows：在 Windows 10/11 上复刻 macOS“台前调度”�
 | --- | --- |
 | `stage_mgr_go/` | **唯一在维护的实现**。纯 Go + [MyGo](https://github.com/egoist/mygo)，无 cgo、无 WebView。 |
 | `StageManager/`、`installer/`、`.github/workflows/`、`start-stagebar.bat` | 旧的 C# WPF 版，已从工作区删除（git 中为 staged deletion）。不要复活，也不要照着它改。 |
-| `README.md`、`README.zh-CN.md`（根目录） | 部分内容仍在描述 C# 版（.NET 构建、Inno Setup、`%LOCALAPPDATA%\StageManager`）。**构建与架构以 `stage_mgr_go/README.md` 为准。** |
+| `README.md`、`README.zh-CN.md`（根目录） | 面向用户：功能、安装、用法、已知问题、致谢（英文/中文两版，改功能时要一起改）。构建、架构与调试在 `stage_mgr_go/README.md`。 |
 | `其他项目参考代码/` | 第三方参考项目（StageManagerForWindows，C#），只读参考，**未纳入版本控制，不要 `git add`**。 |
+| `docs/CODEMAP.md` | **动手改代码前先读**：逐文件的符号表、核心数据结构、启动/刷新/切换/拖动/概览的流程、常见改动落点、调试与测试地图。 |
 | `.codebuddy/plans/` | 之前做过的问题分析（如阴影跳变），排查同类问题前值得一读。 |
 | `start-stage-manager.bat` | 本地一键：先 `--quit` 旧实例，再编译并启动 `build/windows-amd64/StageManagerForWindows.exe`。 |
 
@@ -51,34 +52,45 @@ go run .
 
 ## 代码地图
 
+逐文件的符号、核心数据结构、完整流程和“改什么动哪里”的对照表在 **`docs/CODEMAP.md`**；下面是压缩版。
+
 ```
 stage_mgr_go/
   main.go            入口：单实例锁、--quit / --debug-hang、Ctrl+C、数据目录
-  mygo.json          应用名、版本、图标、输出目录
+  mygo.json          应用名、版本、图标、输出目录；mygo build 把版本写进 exe 的资源
   internal/
-    winapi/    Win32 薄封装（syscall），无状态。新的系统调用加在这里；通用 DLL/proc 在 procs.go，专用的（COM、version.dll、DWM 缩略图）就近声明在各自文件里
+    winapi/    Win32 薄封装（syscall），无状态。新的系统调用加在这里；通用 DLL/proc 在 procs.go，专用的就近声明
+      window.go       HWND/Rect/Point、窗口查询与移动、激活、z 序
+      monitor.go      显示器枚举与几何、Scale()
+      hooks.go        WinEvent 事件常量与 HookWinEvents
+      keyboard.go     Win+Tab 低级键盘钩子（独立线程，只 post 回主线程）
+      capture.go      PrintWindow 静帧；thumbnail.go 是 DWM 缩略图（自绘阴影、peek）
+      taskbar.go      任务栏按钮（peek 用）；taskbarcorner.go 是 WindowsBuild / TaskbarCornerFree / IsTaskbar
+      process.go / version.go / locale.go
     catalog/   枚举/过滤应用窗口，识别所属应用（含 UWP 宿主），应用显示名；STAGEMANAGER_APP_FILTER 在这里生效
-    parking/   停放/放回窗口 + 崩溃恢复日志
+    parking/   停放/放回窗口 + 崩溃恢复日志（Park/Unpark/Rehome/Lift/Recover/CollectEscaped）
     stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）
     settings/  设置读取、归一化、原子保存（有单测）
     i18n/      界面文字：简体中文、繁体中文、英文、日文各一张 Strings 表，FromLANGID 把 Windows 显示语言映射过来（有单测）
     app/       Stage Manager for Windows 本体，全部运行在 MyGo 主线程
-      app.go          App/display/group/set 结构、显示器同步、refresh、初始舞台、游离/逃逸窗口
+      app.go          App/display/group/set 结构、Start、显示器同步、refresh、初始舞台、游离/逃逸窗口
       events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询、Win+Tab 打开概览
-      drag.go         拖动窗口：拖到另一台显示器时那边的舞台让位、松手、拖进侧边栏、键盘移动窗口
+      drag.go         拖动窗口：拖到另一台显示器时那边的舞台让位、松手、拖进侧边栏、Win+Shift+方向键后的跟随
       carddrag.go     拖动卡片：松手去向（aim：回原位/侧边栏内排序/加入舞台/搬到另一台显示器的侧边栏）、让位布局、moveSet/reorder
-      switch.go       舞台切换、真实窗口交接（handover）、切换排队/打断、卡片动作
+      switch.go       舞台切换、真实窗口交接（handover）、切换排队/打断、卡片动作（action/request）
       flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
       pacer.go        按 DWM 合成节奏（DwmFlush）要帧，飞行层和概览用它代替 AnimationFrame
       strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透
-      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单
-      layout.go       纯几何：卡片布局、窗口叠放、图标位置（有单测）
-      media.go        静帧（PrintWindow）与图标缓存、内存预算
+      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、底部概览面板
+      layout.go       纯几何：卡片布局、窗口叠放、图标位置、右侧镜像（有单测）
+      media.go        静帧（PrintWindow）与图标缓存、内存预算（Quality / LightFlights）
       iconfit.go      裁掉图标四周透明边
       peek.go         任务栏缩略图 peek 时临时放回被停放的窗口
       overview.go     “所有窗口”概览（类 Mission Control）：侧边栏底部按钮打开，铺开本显示器所有窗口，点选切换舞台；Win+Tab 时每个显示器各开一个（与 Windows 任务视图一致），任意一个收起时全部收起
       corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览
-      settingsview.go 设置窗口；tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
+      settingsview.go 设置窗口（通用/侧边栏/舞台/例外/关于 五个标签页）
+      tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
+      *_test.go       无头测试：layout、stripview、set、corner、flights、iconfit、peek、snapshot
 ```
 
 ## 核心流程：一次舞台切换
@@ -106,11 +118,11 @@ stage_mgr_go/
 
 - 注释用英文完整句子，说明“为什么”和与 macOS/Windows 行为的对应关系，而不是复述代码。参考 `switch.go`、`flights.go` 的写法。
 - 命名短而具体（`park`、`fg`、`air`、`landing`），常量旁注明取值理由（如 `takeOffDelay`）。
-- 文档（README、本文件）用中文。
+- 文档（README、本文件、`docs/CODEMAP.md`）用中文。改了用户看得见的行为了：同步两份根 README 的功能列表；新增/移动/改名了文件或流程：同步本文件的代码地图和 `docs/CODEMAP.md`。
 
 ## 测试
 
-- 有单测的：`stage`、`settings`、`i18n`、`app/layout`、`app/stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`app/iconfit`、`app/peek`、`winapi/monitor`。
+- 有单测的：`stage`、`settings`、`i18n`、`winapi/monitor`，以及 `app` 下的 `layout`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`set`、`corner`、`flights`、`iconfit`、`peek`、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
 - `catalog`、`parking`、飞行动画、窗口交接**没有自动化测试**，改动后需要手动验证：
   - 固定模式和浮动模式各切换几次，包括快速连点打断正在进行的切换；
   - 多显示器（不同 DPI）下切换、把窗口拖到另一台显示器、把窗口拖进侧边栏；
@@ -120,7 +132,7 @@ stage_mgr_go/
 
 ## 当前进行中 / 已知问题
 
-- 飞行起飞与落地时窗口阴影“嘭”一下跳变：飞行代理的假阴影与真实 DWM 阴影在交接帧叠加。相关代码在 `flights.go`（`takeOffDelay`、`landingDelay`、`ownShadow`、`shade`）和 `switch.go` 的 `handover`。最近一次提交 `wip: checkpoint before shadow handover fixes` 就是为此做的检查点。
+- 飞行起飞与落地时窗口阴影“嘭”一下跳变：飞行代理的假阴影与真实 DWM 阴影在交接帧叠加。相关代码在 `flights.go`（`takeOffDelay`、`landingDelay`、`ownShadow`、`shade`）和 `switch.go` 的 `handover`；改这里的时序要录屏逐帧确认。
 - 侧边栏显示的是离场时的静帧（Windows 不绘制桌面外的窗口）；`PrintWindow` 拍不到内容的窗口显示为带图标的磨砂卡片。
 - 以管理员权限运行的窗口，非管理员的 Stage Manager for Windows 可能无法移动或激活。
 - 拖动窗口时，飞行层不能压到被拖窗口下面：那样系统很少把飞行层的画面送上屏幕，约 700ms 只有 30–40 帧。现在飞行层留在最上层，每帧避开被拖窗口所在的区域（`flights.go` 的 `hole`），看起来像从它下面飞过。`STAGEMANAGER_DEBUG` 下每次飞行结束记一行 `flights: ...: N frames in ..., longest gap ...`，排查卡顿先看这一行。
@@ -139,4 +151,5 @@ stage_mgr_go/
 - `.bat` 文件保持 CRLF（见 `.gitattributes`），且 bat 里有中文，开头需要 `chcp 65001`。
 
 ## 打包
-打包时候, 如无明确说明, 版本号增加`0.0.1`, 增加一个最小的版本
+
+如无明确说明，发布时把 `stage_mgr_go/mygo.json` 的 `version` 加 `0.0.1`（最小递增），再 `go tool mygo build`。

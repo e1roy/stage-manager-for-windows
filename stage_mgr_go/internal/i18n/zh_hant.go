@@ -98,6 +98,7 @@ var zhHant = Strings{
 	CloseWindows:   "關閉所有視窗",
 
 	Settings: "設定…",
+	Restart:  "重新啟動",
 	Quit:     "結束",
 
 	Troubleshooting:       "疑難排解",
