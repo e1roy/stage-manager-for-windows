@@ -242,3 +242,23 @@ func TestFlightSpeed(t *testing.T) {
 		}
 	}
 }
+
+// Checking for updates is on by default, for settings saved before it was
+// a choice too, and stays off once turned off.
+func TestCheckUpdates(t *testing.T) {
+	st := NewStore(t.TempDir())
+	if err := os.WriteFile(st.Path, []byte(`{"winTab": false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if s := st.Load(); !s.CheckUpdates {
+		t.Fatalf("older settings loaded %+v", s)
+	}
+	s := Default()
+	s.CheckUpdates = false
+	if err := st.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	if st.Load().CheckUpdates {
+		t.Fatal("turned off, checking for updates came back on")
+	}
+}

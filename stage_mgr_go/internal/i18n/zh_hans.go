@@ -84,9 +84,16 @@ var zhHans = Strings{
 
 	Tagline: "像 macOS 台前调度一样整理 Windows 的窗口",
 	Version: "版本 %s",
-	Privacy: "不收集任何数据，也不联网。",
+	Privacy: "不收集任何数据；只在检查更新时访问 GitHub。",
 	Website: "项目主页",
 	Issues:  "反馈问题",
+
+	NewVersion:       "发现新版本 %s",
+	Download:         "前往下载",
+	UpdateUnknown:    "无法检测新版本，",
+	SeeReleases:      "前往查询最新版",
+	CheckUpdates:     "自动检查更新",
+	CheckUpdatesDesc: "每隔几小时向 GitHub 查询最新发布的版本，有新版本时托盘图标和「关于」上会出现红点。不发送任何个人数据。",
 
 	EmptyStrip:     "舞台之外没有应用",
 	EmptyStripHint: "打开的应用会出现在这里",

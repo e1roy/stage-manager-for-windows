@@ -15,6 +15,7 @@ import (
 	"github.com/e1roy/stage_manager_for_windows/internal/parking"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/stage"
+	"github.com/e1roy/stage_manager_for_windows/internal/update"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 	"github.com/egoist/mygo"
 )
@@ -186,6 +187,15 @@ type App struct {
 	sysLang    i18n.Lang // the language of Windows, for settings that follow it
 	settingsUI *settingsWindow
 	flights    *flights
+	// latest is a release newer than the one running, found by
+	// checkUpdate (update.go); checking is set while a check is on its
+	// way, and checkFailed after the last one could not reach GitHub;
+	// dotted and dotIcon are the red dot on the tray icon and in its menu.
+	latest      update.Release
+	checking    bool
+	checkFailed bool
+	dotted   []byte
+	dotIcon  *mygo.MenuIcon
 	// panelUntil is when the strips stop showing the overview's panel
 	// after the settings sized it.
 	panelUntil time.Time
@@ -219,6 +229,7 @@ func Start(o Options) *App {
 	a.park.Recover()
 	watchMainThread(o.DataDir)
 	a.setUpTray()
+	a.startUpdateChecks()
 	a.flights = newFlights(a)
 	a.syncDisplays()
 	a.hookEvents()
@@ -789,10 +800,16 @@ func (a *App) applySettings(s settings.Settings) {
 	if old.Quality != s.Quality || old.LightFlights != s.LightFlights {
 		a.media.apply(s)
 	}
+	// Turned off, the red dot goes at once; turned on, it comes back if
+	// the last check found a release, and a check looks again.
+	if old.CheckUpdates != s.CheckUpdates {
+		a.showUpdate()
+		a.checkUpdate()
+	}
 	if old.Language != s.Language {
-		if a.tray != nil {
-			a.tray.SetMenu(a.trayMenu())
-		}
+		// The menu, and the tooltip of a new version, say it in the new
+		// words.
+		a.showUpdate()
 		if a.settingsUI != nil {
 			a.settingsUI.win.SetTitle(a.tr().SettingsTitle)
 		}

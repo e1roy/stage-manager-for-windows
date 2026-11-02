@@ -28,7 +28,7 @@ internal/app                应用本体，全部状态只在 MyGo 主线程
 | --- | --- | --- |
 | `winapi` | 直接调 Win32、持有句柄 | 持有应用状态、知道舞台或卡片 |
 | `catalog` / `parking` | 用 `winapi`，认识窗口 | 知道舞台、卡片、设置界面 |
-| `stage` / `settings` / `i18n` | 纯逻辑，可单测 | 碰 `winapi`、碰 `HWND` |
+| `stage` / `settings` / `i18n` / `update` | 纯逻辑，可单测 | 碰 `winapi`、碰 `HWND` |
 | `app` | 组合上面全部，跑 MyGo | 把 Win32 细节散落到 UI 绘制里 |
 
 除 MyGo 和 `golang.org/x/image` 外不引入第三方依赖，不用 cgo。Windows 专用文件带 `//go:build windows`。
@@ -48,6 +48,7 @@ stage_mgr_go/
     stage/               舞台规则（有测）
     settings/            设置（有测）
     i18n/                界面文字（有测）
+    update/              GitHub 最新 release、版本比较、系统代理解析（有测）
 ```
 
 ## internal/app 逐文件
@@ -71,9 +72,10 @@ stage_mgr_go/
 | `peek.go` | `peekStart`、`watchTaskbar`、`peekClass` | 任务栏缩略图 peek 时临时放回被停放的窗口 | 只在指针停在该按钮的缩略图上时放回，避免一次放回太多 |
 | `settingsview.go` | `settingsWindow`、`generalPane`/`stripPane`/`stagePane`/`companionsPane`/`aboutPane`、`apply`、`load` | 设置窗口（Mica，标签页为通用 / 侧边栏 / 舞台 / 例外 / 关于），编辑副本后立即应用 | 新设置项：字段 + `Default` + `Normalize` + `Equal`/`Clone` + 对应 pane + `applySettings` |
 | `tray.go` | `setUpTray`、`trayMenu` | 托盘图标：左键开设置，右键菜单（找回屏幕外的窗口 / 设置 / 重启 / 退出；重启走 `mygo.App.Relaunch`，先按退出流程放回窗口、释放单实例锁再启动新进程） | 侧边栏和概览都是挂在托盘上的 MyGo flyout |
+| `update.go` | `startUpdateChecks`、`checkUpdate`、`newer`、`showUpdate`、`openRelease`、`dotted`/`paintDot`、`firstCheck`/`checkEvery` | 检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `winapi.SystemProxy()`（Go 默认只认环境变量代理，不认 v2rayN 等设置的系统代理）后调 `update.Latest`，结果 `post` 回主线程存进 `a.latest`；有新版本时托盘图标换成带红点的 64px 版本、tooltip 和菜单第一项写新版本号，设置窗口“关于”标签与页面按 `a.newer()` 画红点 | 关掉 `CheckUpdates` 立即去掉红点；`go run` 没有版本号时不联网；网络不通时状态不变，只置 `checkFailed`，“关于”页显示“无法检测新版本，前往查询最新版”，下次打开设置时重试 |
 | `debug.go` | `debugf`、`logToFile`、`watchMainThread`、`DebugHang`、`frameStats`、`stopwatch`、`timed`、`tookLong` | 调试日志、看门狗、帧统计、主线程慢任务计时 | 日志文件名和格式见下文；`tookLong` 会打印主线程超过 8ms 的任务 |
 
-测试文件都和被测代码同包：`layout_test.go`、`stripview_test.go`、`set_test.go`、`corner_test.go`、`flights_test.go`、`iconfit_test.go`、`peek_test.go`、`snapshot_test.go`。
+测试文件都和被测代码同包：`layout_test.go`、`stripview_test.go`、`set_test.go`、`corner_test.go`、`flights_test.go`、`iconfit_test.go`、`peek_test.go`、`update_test.go`、`snapshot_test.go`。
 
 ## 核心数据结构
 
@@ -91,7 +93,7 @@ stage_mgr_go/
 
 ### 启动
 
-`main.go` 取数据目录 → `app.Start`：加载设置 → `park.Recover()`（上次崩溃留下的窗口先放回）→ 启动看门狗 → 托盘 → 飞行层 → `syncDisplays` → `hookEvents` → `startPolling` → 400ms 后 `initStage`（等 AppBar 占位生效再量舞台）→ 1500ms 的兜底 `refresh` tick。
+`main.go` 取数据目录 → `app.Start`：加载设置 → `park.Recover()`（上次崩溃留下的窗口先放回）→ 启动看门狗 → 托盘 → 检查更新的定时器（`startUpdateChecks`）→ 飞行层 → `syncDisplays` → `hookEvents` → `startPolling` → 400ms 后 `initStage`（等 AppBar 占位生效再量舞台）→ 1500ms 的兜底 `refresh` tick。
 
 ### 一次刷新
 
@@ -153,12 +155,13 @@ stage_mgr_go/
 | `stage` | 舞台与侧边栏规则、`Prune`/`Insert`/`Move`/`Split` |
 | `settings` | 归一化、旧设置迁移、保存与读取 |
 | `i18n` | 四种语言字段齐全、格式动词一致 |
+| `update` | 版本号比较、解析 GitHub release 响应与失败情形、系统代理（`ProxyServer`/`ProxyOverride`）解析、经代理请求、代理失效时直连 |
 | `app/layout` | 卡片布局、叠放、镜像、图标位置 |
 | `app/stripview` | 无头渲染卡片与面板，经 `App.act` 截获动作 |
 | `app/set` | 跨应用卡片的窗口顺序 |
 | `app/corner` | 触发角几何、靠近程度、点击开概览 |
 | `app/flights` | `around` 给被拖窗口让出的“洞” |
-| `app/iconfit`、`app/peek` | 图标裁边、peek 的按钮匹配 |
+| `app/iconfit`、`app/peek`、`app/update` | 图标裁边、peek 的按钮匹配、托盘红点图标 |
 | `app/snapshot` | 需要 `STAGEMANAGER_SNAPSHOT_DIR`，否则跳过 |
 | `winapi/monitor` | 显示器几何与 DPI |
 

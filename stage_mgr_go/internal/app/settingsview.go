@@ -47,6 +47,11 @@ type settingsWindow struct {
 }
 
 func (a *App) openSettings() {
+	// The last check could not reach GitHub: the about pane tries again,
+	// rather than wait hours for the next.
+	if a.checkFailed {
+		a.checkUpdate()
+	}
 	if sw := a.settingsUI; sw != nil {
 		sw.win.Show()
 		winapi.Activate(winapi.HWND(sw.win.NativeHandle()))
@@ -149,6 +154,13 @@ var settingsIcons = []*ui.SVG{
 	lineIcon(`<path d="M15 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4"/><rect x="9" y="9" width="12" height="12" rx="2"/>`),
 	lineIcon(`<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.01"/>`),
 }
+
+// aboutTab is the about pane's index in settingsIcons, the last.
+const aboutTab = 4
+
+// uiDotColor is dotColor, the red dot of a newer release, as the panes
+// paint it.
+var uiDotColor = ui.RGBA(dotColor.R, dotColor.G, dotColor.B, 1)
 
 var (
 	appIcon    = lineIcon(`<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/>`)
@@ -325,7 +337,14 @@ func (sw *settingsWindow) view(c *ui.Context) {
 						tab.Background(t.Text.Alpha(0.04))
 					}
 					tab.Children(func() {
-						ui.Icon(c, settingsIcons[i]).FontSize(22).TextColor(fg)
+						ui.Box(c).Size(22, 22).Children(func() {
+							ui.Icon(c, settingsIcons[i]).FontSize(22).TextColor(fg)
+							// A newer release puts the tray icon's red dot
+							// on the about pane's icon too.
+							if _, ok := sw.a.newer(); ok && i == aboutTab {
+								ui.Box(c).Absolute().Top(-1).Right(-3).Size(8, 8).Radius(4).Background(uiDotColor)
+							}
+						})
 						ui.Text(c, name).FontSize(12).TextColor(fg).SingleLine()
 					})
 				}
@@ -346,7 +365,7 @@ func (sw *settingsWindow) view(c *ui.Context) {
 					sw.stagePane(c, f, tr)
 				case 3:
 					sw.companionsPane(c, f, tr)
-				case 4:
+				case aboutTab:
 					sw.aboutPane(c, f, tr)
 				}
 			})
@@ -795,6 +814,18 @@ func (sw *settingsWindow) aboutPane(c *ui.Context, f form, tr *i18n.Strings) {
 		ui.Text(c, "Stage Manager").FontSize(24).Bold()
 		ui.Text(c, tr.Tagline).TextColor(t.TextMuted).TextAlign(ui.Center)
 		ui.Text(c, fmt.Sprintf(tr.Version, mygo.App.Version())).FontSize(12).TextColor(t.TextMuted).Margin(6, 0, 0, 0)
+		if r, ok := sw.a.newer(); ok {
+			ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
+				ui.Box(c).Size(8, 8).Radius(4).Background(uiDotColor)
+				ui.Text(c, fmt.Sprintf(tr.NewVersion, r.Version)).FontSize(12)
+				ui.Link(c, tr.Download, r.URL).FontSize(12).Margin(0, 0, 0, 4)
+			})
+		} else if sw.a.unchecked() {
+			ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
+				ui.Text(c, tr.UpdateUnknown).FontSize(12).TextColor(t.TextMuted)
+				ui.Link(c, tr.SeeReleases, repo+"/releases/latest").FontSize(12)
+			})
+		}
 		ui.Row(c).Gap(18).Margin(14, 0, 0, 0).Children(func() {
 			ui.Link(c, tr.Website, repo)
 			ui.Link(c, tr.Issues, repo+"/issues")
@@ -803,6 +834,13 @@ func (sw *settingsWindow) aboutPane(c *ui.Context, f form, tr *i18n.Strings) {
 		ui.Row(c).Gap(6).Children(func() {
 			ui.Text(c, "© 2026 Renkai ·").FontSize(12).TextColor(t.TextMuted)
 			ui.Link(c, tr.License, repo+"/blob/main/LICENSE").FontSize(12)
+		})
+	})
+	f.section(c, "", func() {
+		f.row(c, tr.CheckUpdates, tr.CheckUpdatesDesc, func() {
+			if ui.Switch(c, &sw.s.CheckUpdates).Changed() {
+				sw.apply()
+			}
 		})
 	})
 }

@@ -127,6 +127,10 @@ type Settings struct {
 	// little on the way; the window is sharp once it lands. It is on
 	// unless turned off, settings from before it included.
 	LightFlights bool `json:"lightFlights"`
+	// CheckUpdates asks GitHub now and then for a newer release, which a
+	// red dot on the tray icon and on the about pane tells. It is on
+	// unless turned off, settings from before it included.
+	CheckUpdates bool `json:"checkUpdates"`
 	// Companions lists apps whose windows join the stage rather than take
 	// it: tools used for a moment beside the app that opened them, as
 	// TortoiseSVN's commit dialog is beside the file manager it was opened
@@ -186,6 +190,7 @@ func Default() Settings {
 		Accent:             AccentDefault,
 		Quality:            Low,
 		LightFlights:       true,
+		CheckUpdates:       true,
 		// TortoiseSVN's and TortoiseGit's dialogs all come from these.
 		Companions: []string{"tortoiseproc", "tortoisegitproc"},
 	}

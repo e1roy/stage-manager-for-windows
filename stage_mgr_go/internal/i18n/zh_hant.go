@@ -85,9 +85,16 @@ var zhHant = Strings{
 
 	Tagline: "像 macOS 幕前調度一樣整理 Windows 的視窗",
 	Version: "版本 %s",
-	Privacy: "不收集任何資料，也不連網。",
+	Privacy: "不收集任何資料；只在檢查更新時連線到 GitHub。",
 	Website: "專案首頁",
 	Issues:  "回報問題",
+
+	NewVersion:       "有新版本 %s",
+	Download:         "前往下載",
+	UpdateUnknown:    "無法檢查新版本，",
+	SeeReleases:      "前往查詢最新版",
+	CheckUpdates:     "自動檢查更新",
+	CheckUpdatesDesc: "每隔幾小時向 GitHub 查詢最新發布的版本，有新版本時通知區域圖示和「關於」上會出現紅點。不傳送任何個人資料。",
 
 	EmptyStrip:     "舞台以外沒有應用程式",
 	EmptyStripHint: "開啟的應用程式會出現在這裡",
