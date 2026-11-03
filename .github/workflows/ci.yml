@@ -98,6 +98,9 @@ jobs:
       run:
         working-directory: . # assets/, not the module
     steps:
+      # For release-notes/<version>.md: the notes are not in the artifact.
+      - uses: actions/checkout@v7
+
       - uses: actions/download-artifact@v7
         with:
           path: assets
