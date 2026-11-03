@@ -97,7 +97,7 @@ stage_mgr_go/
       glass.go        概览面板（及合体的触发角）的毛玻璃：面板从看不见到出现的那一刻，在 goroutine 里 `CaptureScreen` 截下按钮后面的屏幕，缩小后做三次盒式模糊（近似高斯，耗时与半径无关），面板和触发角各画它的一段；不透明度与模糊半径是设置项 `PanelOpacity` / `PanelBlur`（纯算法有单测）
       settingsview.go 设置窗口（通用/侧边栏/舞台/例外/关于 五个标签页）
       tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
-      update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `.version`，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点，页面同时显示本地版本和最新版本（`a.published`）
+      update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `.version`，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点，页面同时显示本地版本和最新版本（`a.published`），旁边有立即再查一次的按钮（检查中置灰）
       *_test.go       无头测试：layout、lineup、stripview、staged、set、corner、flights、iconfit、peek、update、snapshot
 ```
 

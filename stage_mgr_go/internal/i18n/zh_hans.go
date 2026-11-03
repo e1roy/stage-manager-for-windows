@@ -1,7 +1,7 @@
 package i18n
 
 var zhHans = Strings{
-	SettingsTitle: "Stage Manager 设置",
+	SettingsTitle: "台前调度设置",
 	TabGeneral:    "通用",
 	TabStrip:      "侧边栏",
 	TabStage:      "舞台",
@@ -39,7 +39,7 @@ var zhHans = Strings{
 	Tilt:         "立体透视",
 	TiltDesc:     "卡片像 macOS 一样侧向转动，悬停时转向你。数值越大越倾斜，0 为关闭。",
 	TiltOff:      "关闭",
-	DefaultValue: "默认值：%s，点按恢复",
+	DefaultValue: "默认值：%s，点击恢复",
 
 	CardsAtTip:       "整列卡片的中心放在侧边栏从上到下的哪个位置。",
 	CardsAtMid:       "50%（默认）",
@@ -54,20 +54,20 @@ var zhHans = Strings{
 	CardsAtCrowdDesc: "不会盖住底部的概览面板，放不下时可以滚动。",
 
 	OverviewPanel:     "所有窗口面板",
-	OverviewPanelDesc: "侧边栏底部的面板，指针移到那里时出现，点按铺开本显示器的所有窗口。宽度按卡片宽度的比例计算。",
+	OverviewPanelDesc: "侧边栏底部的面板，指针移到那里时出现，点击铺开本显示器的所有窗口。宽度按卡片宽度的比例计算。",
 	Height:            "高度",
 	Opacity:           "不透明度",
 	Blur:              "背景模糊",
 	BlurOff:           "关闭",
 
 	OverviewCorner:     "左下角按钮",
-	OverviewCornerDesc: "显示器左下角、任务栏上的按钮，指针靠近时出现，点按同样铺开所有窗口。只在 Windows 11 任务栏居中、左下角空着时出现。",
+	OverviewCornerDesc: "显示器左下角、任务栏上的按钮，指针靠近时出现，点击同样铺开所有窗口。只在 Windows 11 任务栏居中、左下角空着时出现。",
 
 	WinTab:     "用 Win+Tab 铺开所有窗口",
 	WinTabDesc: "按 Win+Tab 时铺开所有显示器的窗口，每台显示器各铺自己的，与 Windows 的任务视图相同；再按一次收起。关闭后 Win+Tab 仍打开任务视图。",
 
 	Highlight:       "高亮颜色",
-	HighlightDesc:   "指针移到边栏底部的面板或左下角按钮上时，边框显示的颜色。",
+	HighlightDesc:   "指针移到侧边栏底部的面板或左下角按钮上时，边框显示的颜色。",
 	HighlightNone:   "无",
 	HighlightBlue:   "蓝",
 	HighlightPurple: "紫",
@@ -98,9 +98,11 @@ var zhHans = Strings{
 	CompanionTip:   "勾选的应用打开窗口时，会和你正在用的应用一起留在桌面上，不会把它收进侧边栏；关掉后桌面回到原样。适合 TortoiseSVN 提交框这类用一下就关的工具。",
 	Programs:       "程序",
 
+	AppName:       "台前调度",
 	Tagline:       "像 macOS 台前调度一样整理 Windows 的窗口",
 	Version:       "本地版本 %s",
 	LatestVersion: "最新版本 %s",
+	CheckNow:      "立即检查",
 	Privacy:       "不收集任何数据；只在检查更新时访问 GitHub。",
 	Website:       "项目主页",
 	Issues:        "反馈问题",

@@ -2,7 +2,7 @@ package i18n
 
 // zhHant follows the words of Windows in Taiwan: 視窗, 螢幕, 應用程式.
 var zhHant = Strings{
-	SettingsTitle: "Stage Manager 設定",
+	SettingsTitle: "幕前調度設定",
 	TabGeneral:    "一般",
 	TabStrip:      "側邊欄",
 	TabStage:      "舞台",
@@ -99,9 +99,11 @@ var zhHant = Strings{
 	CompanionTip:   "勾選的應用程式開啟視窗時，會和你正在使用的應用程式一起留在桌面上，不會把它收進側邊欄；關閉後桌面恢復原樣。適合 TortoiseSVN 提交視窗這類用一下就關的工具。",
 	Programs:       "程式",
 
+	AppName:       "幕前調度",
 	Tagline:       "像 macOS 幕前調度一樣整理 Windows 的視窗",
 	Version:       "本機版本 %s",
 	LatestVersion: "最新版本 %s",
+	CheckNow:      "立即檢查",
 	Privacy:       "不收集任何資料；只在檢查更新時連線到 GitHub。",
 	Website:       "專案首頁",
 	Issues:        "回報問題",

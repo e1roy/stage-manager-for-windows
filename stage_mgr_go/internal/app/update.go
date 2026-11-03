@@ -58,6 +58,8 @@ func (a *App) checkUpdate() {
 		return
 	}
 	a.checking = true
+	// The about pane's button greys out until the check is done.
+	a.redrawSettings()
 	// The goroutine makes the dotted icon too, which takes a while at the
 	// 1024 pixels of the icon; trayIcon never changes.
 	src := a.trayIcon
@@ -79,10 +81,8 @@ func (a *App) checkUpdate() {
 			debugf("update: %v", err)
 			post(func() {
 				a.checking = false
-				if !a.checkFailed {
-					a.checkFailed = true
-					a.redrawSettings()
-				}
+				a.checkFailed = true
+				a.redrawSettings()
 			})
 			return
 		}
@@ -100,8 +100,9 @@ func (a *App) checkUpdate() {
 			if a.checkFailed || found != a.published {
 				a.checkFailed = false
 				a.published = found
-				a.redrawSettings()
 			}
+			// The about pane's button comes back, and says what it found.
+			a.redrawSettings()
 			if icon != nil {
 				a.dotted = icon
 			}
@@ -141,7 +142,7 @@ func (a *App) redrawSettings() {
 func (a *App) showUpdate() {
 	r, ok := a.newer()
 	if a.tray != nil {
-		icon, tip := a.trayIcon, "Stage Manager"
+		icon, tip := a.trayIcon, a.tr().AppName
 		if ok {
 			if a.dotted != nil {
 				icon = a.dotted

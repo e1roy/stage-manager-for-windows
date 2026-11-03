@@ -11,7 +11,7 @@ func (a *App) setUpTray() {
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		ID:      "stagebar",
 		Icon:    a.trayIcon,
-		ToolTip: "Stage Manager",
+		ToolTip: a.tr().AppName,
 		Menu:    a.trayMenu(),
 	})
 	if err != nil {
