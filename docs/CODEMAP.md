@@ -49,7 +49,7 @@ stage_mgr_go/
     stage/               舞台规则（有测）
     settings/            设置（有测）
     i18n/                界面文字（有测）
-    update/              GitHub 最新 release、版本比较、系统代理解析（有测）
+    update/              读 `.version` 得到最新版本、版本比较、系统代理解析（有测）
 ```
 
 ## internal/app 逐文件
@@ -65,7 +65,7 @@ stage_mgr_go/
 | `stripview.go` | `cardState`、`(*strip).view`、`(*strip).card`、`footer`、`dragPoses`、`windowStill`、`panel`/`showPanel`、`previousStage`/`previousMark`、`cardCloseSize` | 侧边栏界面：卡片、3D 透视、悬停、拖动、右键菜单、底部概览面板；悬停时最前窗口右上角出现圆形关闭按钮（`closeButton`，灰色半透明，指针移上去变红），点击 `actClose` 关掉整张卡片的窗口（组合里的全部），按钮画在卡片的窗口层里随卡片倾斜、缩放；上一个舞台（`stage.Display.Previous()`，任何方式离开舞台都算）的卡片套主题色虚线框（关掉主题色时为白色）（`settings.MarkPrevious`，默认开），虚线框画在卡片的窗口层里，随卡片倾斜、缩放，落地前不显示，几何在 `layout.go` 的 `markRect` | 卡片动作不要直接改模型，走 `a.request`（无头测试靠 `App.act` 截获） |
 | `carddrag.go` | `cardDrag`、`aim`（`aimBack`/`aimSort`/`aimJoin`/`aimMove`）、`aimCard`、`cardDropAt`、`makeRoom`、`joinReach`、`crossReach`、`moveSet`、`reorder` | 拖卡片的去向：回原位、侧边栏内排序、加入舞台、搬到另一台显示器的侧边栏 | 让位布局与飞行层联动，改一处要连着手动验证 |
 | `drag.go` | `drag`、`startDrag`、`dragOver`、`windowMoved`、`followMoved`、`leave`、`stripUnder`、`sendToStrip`、`sendAcross`、`dwell` | 拖真实窗口：跨显示器时那边舞台让位、松手、拖进侧边栏、Win+Shift+方向键移动后的跟随 | 只有 `HideInactive` 打开时才停放，否则只更新列表 |
-| `layout.go` | `stripLayout`、`layoutLineup`、`markRect`、`fitIn`、`mirror`、`panel`、`cardTilts`、`maxStacked`/`maxIcons`/`minCardScale` 等常量 | 纯几何：卡片位置与缩放、窗口叠放、图标位置、右侧镜像；`head` 让卡片避开侧边栏顶部的舞台窗口列表；`markRect` 是“上一个舞台”虚线框，跟随卡片倾斜和缩放 | 有单测（`layout_test.go`），规则先在这里写并与测试对齐 |
+| `layout.go` | `stripLayout`、`layoutLineup`、`markRect`、`fitIn`、`mirror`、`panel`、`cardTilts`、`maxStacked`/`maxIcons`/`minCardScale` 等常量 | 纯几何：卡片位置与缩放、窗口叠放、图标位置、右侧镜像；`head` 让卡片避开侧边栏顶部的舞台窗口列表，`at`（设置 `CardsAt`，30%–70%，默认 50%）是卡片组中心在侧边栏上下的位置：卡片仍按整屏的 `at` 处摆放，离列表不到一个卡片间距时才往下让，让到保持一个间距为止、最多到列表下方剩余空间的 `at` 处（卡片少或列表短时不动；动的时候靠 `cardMotion` 滑过去）；`markRect` 是“上一个舞台”虚线框，跟随卡片倾斜和缩放 | 有单测（`layout_test.go`），规则先在这里写并与测试对齐 |
 | `media.go` | `media`、`still`、`capture`、`stillHeight`、`flyBudgets`、图标缓存 | 静帧（`PrintWindow`）与图标、内存预算（按 `Quality`）、`LightFlights` | `PrintWindow` 会等目标应用绘制，只能在 goroutine 里做，并且带超时 |
 | `iconfit.go` | `iconBounds` | 按 alpha 裁掉图标四周透明边 | 有单测 |
 | `lineup.go` | `lineup`、`lineThumb`、`lineTint`、`stageWindows`、`lineupFor`、`lineupView`/`lineTile`/`lineMore`、`placeThumbs`、`sampleTints`、`overLineup`、`bringForward`、`unstage`、`lineupLift`、`closeButton`（卡片和小框共用的圆形关闭按钮） | 舞台窗口列表（`settings.StageList`，默认开）：舞台有 2 个以上窗口时在侧边栏顶部从上到下列出独立的小框（外面不再包一层），每个小框是序号 `1/N` + 图标 + 标题 + DWM 实时缩略图，当前窗口（`a.fg.prev`，否则最前的）用强调色描边；点击 `actFront`，悬停出现关闭按钮 `actClose`，右键可 `actUnstage`；小框在指针下按 `lineupLift`（6%）绕中心放大、阴影加深，DWM 缩略图同步放大；放不下时最后一行“还有 N 个”打开概览 | 缩略图是 DWM 画在侧边栏窗口之上的，MyGo 画的东西（包括 tooltip）会被盖住，所以不用 tooltip；位置每帧随 `reveal` 平移手动同步；顺序在帧间保持稳定（按应用、再按首次出现），点击改变 z 序时列表不跳；几何在 `layout.go` 的 `layoutLineup`，卡片经 `layoutStrip` 的 `head` 参数让出顶部 |
@@ -74,9 +74,9 @@ stage_mgr_go/
 | `corner.go` | `cornerHint`、`cornerRect`、`cornerNearness`/`boundsNearness`、`cornerBounds`、`joinable`/`strip.setJoined`、`jointView`、`display.flash`、`panelEdge`、`hotCorner`/`cornerReach`/`cornerLinger` | Win11 左下角触发角：不抢焦点的小窗口，靠近显示标记，点击开概览。侧边栏在左侧、任务栏在底部时与侧边栏的概览面板合成一个按钮（`strip.joined`）：面板（`stripview.go: jointFooter`，几何在 `layout.go: jointButton/jointBand/jointGlyph`）贴左边和任务栏顶，触发角从任务栏顶到屏幕底、与面板同宽；悬停/按下经 `strip.footHover/footPress` 与 `cornerHint.hover/pressing` 互通并互相 `redraw`，点击的闪光按 `display.flashAt` 同步；靠近程度都用侧边栏的 `strip.near` | 只有 `winapi.TaskbarCornerFree()` 为真时才盖（轮询里按 1s 缓存，`taskbarCornerFree`）；`a.poll` 先轮询侧边栏再 `watchCorner`，合体时触发角跟着面板出现；合体后 `CornerWidth` 不起作用；判定有单测 |
 | `glass.go` | `glass`、`strip.frost`/`reblur`/`buttonScreen`、`frostImage`、`shrinkBy`、`gaussBoxes`、`boxBlur`、`panelFill`、`glassSigma` | 概览面板与合体触发角的毛玻璃：面板从隐藏到出现时（`stripview.go: footer` 里的 `strip.frosted`）在 goroutine 里截下按钮及四周（按最大模糊留边）的屏幕，缩小 1–8 倍后三次横竖盒式模糊（running sum，近似高斯），裁出按钮部分转成 `ui.Bitmap`；面板画上半段，合体触发角画下半段（`Clip` + 圆角）。设置改模糊时 `reblur` 用存下的原图重做 | 只在面板完全隐藏后才重新截，避免把自己截进去；无头测试没有窗口时不截（`s.win == nil`）；算法有单测和 benchmark |
 | `peek.go` | `peekStart`、`watchTaskbar`、`peekClass` | 任务栏缩略图 peek 时临时放回被停放的窗口 | 只在指针停在该按钮的缩略图上时放回，避免一次放回太多 |
-| `settingsview.go` | `settingsWindow`、`generalPane`/`stripPane`/`stagePane`/`companionsPane`/`aboutPane`、`apply`、`load` | 设置窗口（Mica，标签页为通用 / 侧边栏 / 舞台 / 例外 / 关于），编辑副本后立即应用；侧边栏页管舞台窗口列表与“上一个舞台”标记，关于页管检查更新并显示红点 | 新设置项：字段 + `Default` + `Normalize` + `Equal`/`Clone` + 对应 pane + `applySettings` |
+| `settingsview.go` | `settingsWindow`、`generalPane`/`stripPane`/`stagePane`/`companionsPane`/`aboutPane`、`apply`、`load`、`form.row`/`rowTip`/`info`（标题后的 ⓘ，悬停弹出分条说明） | 设置窗口（Mica，标签页为通用 / 侧边栏 / 舞台 / 例外 / 关于），编辑副本后立即应用；侧边栏页管舞台窗口列表与“上一个舞台”标记，关于页管检查更新并显示红点 | 新设置项：字段 + `Default` + `Normalize` + `Equal`/`Clone` + 对应 pane + `applySettings` |
 | `tray.go` | `setUpTray`、`trayMenu` | 托盘图标：左键开设置，右键菜单（找回屏幕外的窗口 / 设置 / 重启 / 退出；重启走 `mygo.App.Relaunch`，先按退出流程放回窗口、释放单实例锁再启动新进程）；有新版本时最上面多一项“新版本 x.y.z…”，带红点图标，点击打开发布页 | 侧边栏和概览都是挂在托盘上的 MyGo flyout |
-| `update.go` | `startUpdateChecks`、`checkUpdate`、`newer`、`showUpdate`、`openRelease`、`dotted`/`paintDot`、`firstCheck`/`checkEvery` | 检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `winapi.SystemProxy()`（Go 默认只认环境变量代理，不认 v2rayN 等设置的系统代理）后调 `update.Latest`，结果 `post` 回主线程存进 `a.latest`；有新版本时托盘图标换成带红点的 64px 版本、tooltip 和菜单第一项写新版本号，设置窗口“关于”标签与页面按 `a.newer()` 画红点 | 关掉 `CheckUpdates` 立即去掉红点；`go run` 没有版本号时不联网；网络不通时状态不变，只置 `checkFailed`，“关于”页显示“无法检测新版本，前往查询最新版”，下次打开设置时重试 |
+| `update.go` | `startUpdateChecks`、`checkUpdate`、`newer`、`showUpdate`、`openRelease`、`dotted`/`paintDot`、`firstCheck`/`checkEvery` | 检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `winapi.SystemProxy()`（Go 默认只认环境变量代理，不认 v2rayN 等设置的系统代理）后调 `update.Latest`（读 `main` 上 `.version` 的 raw 文件，`update.VersionURL`），结果 `post` 回主线程：读到的最新版本存进 `a.published`，比当前新的再存进 `a.latest`；有新版本时托盘图标换成带红点的 64px 版本、tooltip 和菜单第一项写新版本号，设置窗口“关于”标签与页面按 `a.newer()` 画红点；“关于”页同时列出本地版本和最新版本（最新版本旁有红点和“前往下载”，或灰字） | 关掉 `CheckUpdates` 立即去掉红点；`go run` 没有版本号时不联网；网络不通时状态不变，只置 `checkFailed`，“关于”页显示“无法检测新版本，前往查询最新版”，下次打开设置时重试 |
 | `debug.go` | `debugf`、`logToFile`、`watchMainThread`、`DebugHang`、`frameStats`、`stopwatch`、`timed`、`tookLong` | 调试日志、看门狗、帧统计、主线程慢任务计时 | 日志文件名和格式见下文；`tookLong` 会打印主线程超过 8ms 的任务 |
 
 测试文件都和被测代码同包：`layout_test.go`、`lineup_test.go`、`tint_test.go`、`stripview_test.go`、`set_test.go`、`corner_test.go`、`flights_test.go`、`iconfit_test.go`、`peek_test.go`、`update_test.go`、`snapshot_test.go`。
@@ -130,7 +130,7 @@ stage_mgr_go/
 
 ### 检查更新与重启
 
-`startUpdateChecks`：启动 10s 后第一次 `checkUpdate`，之后每 `checkEvery`（6h）一次。它读 `winapi.SystemProxy()`，在 goroutine 里调 `update.Latest`（15s 超时），结果 `post` 回主线程：写 `a.latest` / `a.checkFailed`，需要时用 `dotted()` 生成带红点的 64px 托盘图标，托盘菜单与“关于”页据此显示红点。`go run`（没有版本号）或设置里关掉 `CheckUpdates` 时不联网。重启是托盘菜单里的 `mygo.App.Relaunch()`：先按退出流程放回窗口、释放单实例锁，再启动新进程。
+`startUpdateChecks`：启动 10s 后第一次 `checkUpdate`，之后每 `checkEvery`（6h）一次。它读 `winapi.SystemProxy()`，在 goroutine 里调 `update.Latest`（15s 超时；请求 `raw.githubusercontent.com` 上 `main` 分支根目录的 `.version`，只有一行版本号，不走 api.github.com 的每 IP 每小时 60 次限流；发版时它和 `mygo.json` 一起改，CI 核对），结果 `post` 回主线程：写 `a.published` / `a.latest` / `a.checkFailed`，需要时用 `dotted()` 生成带红点的 64px 托盘图标，托盘菜单与“关于”页据此显示红点。`go run`（没有版本号）或设置里关掉 `CheckUpdates` 时不联网。重启是托盘菜单里的 `mygo.App.Relaunch()`：先按退出流程放回窗口、释放单实例锁，再启动新进程。
 
 ### 退出与崩溃恢复
 
@@ -145,7 +145,7 @@ stage_mgr_go/
 | 新增 Win32 调用 | `internal/winapi`，通用 DLL/proc 放 `procs.go`，专用的就近声明 | 保持无状态；不要在 `stage`/`settings` 里调 |
 | 改卡片外观或布局 | `layout.go`（纯几何，先写测试）+ `stripview.go`（绘制） | 右侧镜像要一起测 |
 | 改舞台窗口列表 | `layout.go` 的 `layoutLineup` + `lineup.go`（尺寸、`lineupLift`、`sampleTints` 的节奏） | DWM 缩略图会盖住它下面的 MyGo 内容；`flights.cardPoses` 也要用同一个 `head` |
-| 改更新检查 | `app/update.go` 的 `firstCheck`/`checkEvery`/`checkTimeout`/`dotted`，`internal/update` | 网络请求只在 goroutine；`go run` 没有版本号，不联网 |
+| 改更新检查 | `app/update.go` 的 `firstCheck`/`checkEvery`/`checkTimeout`/`dotted`，`internal/update`（`VersionURL`、`ReleasesURL`） | 网络请求只在 goroutine；`go run` 没有版本号，不联网；`.version` 的格式或位置变了，旧版本读不到，会显示“无法检测新版本” |
 | 改托盘菜单 | `tray.go` 的 `trayMenu` | 文字走 `a.tr()`；重启用 `mygo.App.Relaunch()`，不要自己起进程 |
 | 改切换动画节奏 | `flights.go` 的 `flightTime`/`takeOffDelay`/`landingDelay`/`fadeTime`，`switch.go` 的 `handover` | 录屏逐帧看阴影有没有跳 |
 | 新增卡片动作 | `switch.go` 的 `action` 常量、`request`、具体函数；`stripview.go` 菜单里发起 | `App.act` 让无头测试能截获 |
@@ -171,7 +171,7 @@ stage_mgr_go/
 | `stage` | 舞台与侧边栏规则、`Prune`/`Insert`/`Move`/`Split` |
 | `settings` | 归一化、旧设置迁移、保存与读取 |
 | `i18n` | 四种语言字段齐全、格式动词一致 |
-| `update` | 版本号比较、解析 GitHub release 响应与失败情形、系统代理（`ProxyServer`/`ProxyOverride`）解析、经代理请求、代理失效时直连 |
+| `update` | 版本号比较、解析 `.version`（带 BOM、换行、`v` 前缀）与失败情形（限流、404、不是版本号的页面）、系统代理（`ProxyServer`/`ProxyOverride`）解析、经代理请求、代理失效时直连 |
 | `app/layout` | 卡片布局、叠放、镜像、图标位置 |
 | `app/tint` | 主色：橙/蓝标题栏 + 彩色代码的深色编辑器、白底、灰/黑/白、零星彩色字；OKLCH 换算；不同色相底色明度一致；锁屏纯色判定 |
 | `app/lineup` | 舞台窗口列表的几何（放不下时“还有 N 个”）、卡片让出顶部、顺序稳定、点击/右键/关闭按钮发出的动作、关闭开关与概览时隐藏 |

@@ -34,12 +34,12 @@
 - 停放的窗口保持大小与状态，退出、崩溃、注销时全部放回（崩溃靠日志恢复）
 - 从任务栏缩略图预览（peek）时，被停放的窗口临时放回
 - 随从应用：设置里列出的程序不抢舞台，而是并排加入当前舞台
-- 设置分五个标签页（通用 / 侧边栏 / 舞台 / 例外 / 关于）：语言、开机启动、每台显示器的开关与左右、侧边栏宽度与图标间距、卡片倾斜、舞台窗口列表与“上一个舞台”标记、飞行速度、飞行画质与“高分屏上减轻动画负担”、概览面板尺寸、不透明度与背景模糊、触发角按钮尺寸、Win+Tab 接管、强调色、检查更新
+- 设置分五个标签页（通用 / 侧边栏 / 舞台 / 例外 / 关于）：语言、开机启动、每台显示器的开关与左右、侧边栏宽度与图标间距、卡片上下位置、卡片倾斜、舞台窗口列表与“上一个舞台”标记、飞行速度、飞行画质与“高分屏上减轻动画负担”、概览面板尺寸、不透明度与背景模糊、触发角按钮尺寸、Win+Tab 接管、强调色、检查更新
 - 界面语言简体中文、繁体中文、英文、日文，默认跟随 Windows 显示语言
 - 托盘图标：左键打开设置，右键菜单（找回屏幕外的窗口、设置、重启、退出）
-- 检查更新：启动 10 秒后、之后每 6 小时向 GitHub 查询最新 release，比当前版本新时托盘图标、托盘菜单和设置里的“关于”出现红点（设置 → 关于里可关）
+- 检查更新：启动 10 秒后、之后每 6 小时读一次 GitHub 上的 `.version`，比当前版本新时托盘图标、托盘菜单和设置里的“关于”出现红点；“关于”里同时显示本地版本和最新版本（设置 → 关于里可关）
 - `StageManagerForWindows.exe --quit` 让正在运行的实例退出并放回所有窗口（安装/卸载时使用）
-- 不收集任何数据；只在检查更新时访问 GitHub API
+- 不收集任何数据；只在检查更新时访问 GitHub
 
 ## 代码结构
 
@@ -53,7 +53,7 @@ internal/
   stage/     纯逻辑：每台显示器的舞台与侧边栏顺序（有单元测试）
   settings/  设置的读取、归一化、原子保存（有单元测试）
   i18n/      界面文字：四种语言各一张表（有单元测试）
-  update/    向 GitHub 查询最新 release、比较版本号、解析系统代理（有单元测试）
+  update/    读 `.version` 得到最新版本、比较版本号、解析系统代理（有单元测试）
   app/       Stage Manager for Windows 本体，全部在 MyGo 主线程上运行
     app.go          显示器同步、刷新、初始舞台、游离/逃逸窗口处理
     events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询、Win+Tab 打开概览
@@ -104,9 +104,9 @@ go tool mygo dev              # 改代码自动重编译重启
 go tool mygo build            # build/windows-amd64/StageManagerForWindows.exe 和安装包
 ```
 
-提交前 `go build ./... && go vet ./... && go test ./... && go tool mygo vet .` 全部通过。版本号在 `mygo.json` 里，发布时按需要加 `0.0.1`；`mygo build` 会把它写进 exe 的版本资源（关于页读的就是它）。
+提交前 `go build ./... && go vet ./... && go test ./... && go tool mygo vet .` 全部通过。版本号在 `mygo.json` 里，发布时按需要加 `0.0.1`，同时把根目录的 `.version`（检查更新读它）改成同一个版本号；`mygo build` 会把它写进 exe 的版本资源（关于页读的就是它）。
 
-CI（`.github/workflows/ci.yml`）在 push 到 `main` 和 PR 时跑同样的检查，再 `mygo build` 打包，把 exe 和安装包留成该次运行的 artifact。推版本 tag（`git push origin 0.2.15`，tag 要和 `mygo.json` 的 `version` 一致）时更近一步：产物按版本命名，直接发成 release，说明取 `release-notes/<版本>.md`。
+CI（`.github/workflows/ci.yml`）在 push 到 `main` 和 PR 时跑同样的检查，再 `mygo build` 打包，把 exe 和安装包留成该次运行的 artifact。推版本 tag（`git push origin 0.2.15`，tag、`.version` 和 `mygo.json` 的 `version` 要一致，CI 会核对）时更近一步：产物按版本命名，直接发成 release，说明取 `release-notes/<版本>.md`。
 
 根目录的 `start-stage-manager.bat` 会先让旧实例 `--quit`，再 `mygo build` 并启动 exe，同时打开 `STAGEMANAGER_DEBUG` 和 `MYGO_FRAME_STATS`，适合看真实动画的日志。
 

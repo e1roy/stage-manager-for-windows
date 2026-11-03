@@ -36,7 +36,7 @@ const (
 // "something new" on a light or a dark taskbar alike.
 var dotColor = color.NRGBA{R: 0xff, G: 0x3b, B: 0x30, A: 0xff}
 
-// startUpdateChecks asks GitHub for the latest release soon after the
+// startUpdateChecks asks GitHub for the latest version soon after the
 // start and then every checkEvery, while the settings allow it.
 func (a *App) startUpdateChecks() {
 	after(firstCheck, a.checkUpdate)
@@ -71,7 +71,7 @@ func (a *App) checkUpdate() {
 		// and off as it starts and quits.
 		server, bypass := winapi.SystemProxy()
 		debugf("update: system proxy %q, bypass %q", server, bypass)
-		r, err := update.Latest(ctx, update.LatestAPI, update.SystemProxy(server, bypass))
+		r, err := update.Latest(ctx, update.VersionURL, update.SystemProxy(server, bypass))
 		if err != nil {
 			// Offline, or GitHub out of reach: as if there had been no
 			// check, whatever the last one found stays. The about pane
@@ -94,10 +94,12 @@ func (a *App) checkUpdate() {
 				debugf("update: tray icon: %v", err)
 			}
 		}
+		found := r
 		post(func() {
 			a.checking = false
-			if a.checkFailed {
+			if a.checkFailed || found != a.published {
 				a.checkFailed = false
+				a.published = found
 				a.redrawSettings()
 			}
 			if icon != nil {

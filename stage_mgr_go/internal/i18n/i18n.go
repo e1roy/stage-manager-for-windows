@@ -102,8 +102,20 @@ type Strings struct {
 	Width                                    string
 	WidthValue                               string // %.0f: DIPs
 	IconSize, Spacing                        string
+	CardsAt                                  string // how far down the strip the cards sit, as a share
 	Tilt, TiltDesc, TiltOff                  string
 	DefaultValue                             string // %s: the default value
+
+	// CardsAtTip opens the tip of the info mark beside CardsAt, which says
+	// what the setting is; the pairs after it are its points, a label and
+	// what it means.
+	CardsAtTip                     string
+	CardsAtMid, CardsAtMidDesc     string
+	CardsAtDown, CardsAtDownDesc   string
+	CardsAtUp, CardsAtUpDesc       string
+	CardsAtList, CardsAtListDesc   string
+	CardsAtCrowd, CardsAtCrowdDesc string
+
 	// OverviewPanel names the panel at the bottom of the strip that
 	// spreads out every window of the display, as Mission Control does;
 	// OverviewPanelDesc says where it is and how it is sized.
@@ -149,11 +161,12 @@ type Strings struct {
 	CompanionByName string // %s: the executable's name
 
 	Tagline          string
-	Version          string // %s: the version
+	Version          string // %s: the version running, as "Local version %s"
+	LatestVersion    string // %s: the newest published version
 	Privacy, License string
 	Website, Issues  string
-	// NewVersion tells a release newer than the one running, on the about
-	// pane and in the tray's menu; Download opens its page. CheckUpdates
+	// NewVersion tells a release newer than the one running, in the tray's
+	// menu; Download opens its page, beside LatestVersion on the about pane. CheckUpdates
 	// names looking for one, which CheckUpdatesDesc explains.
 	NewVersion string // %s: the newer version
 	Download   string

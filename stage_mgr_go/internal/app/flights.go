@@ -415,7 +415,7 @@ func (f *flights) cardPoses(d *display, ws []catalog.Window, live bool) map[wina
 		want[w.HWND] = true
 	}
 	right := s.right()
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), f.a.panel(), s.lineupFor(d.viewW, d.viewH).extent, right)
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), f.a.panel(), s.lineupFor(d.viewW, d.viewH).extent, float32(f.a.settings.CardsAt), right)
 	rest, _ := cardTilts(f.a.settings.Tilt)
 	for i, set := range d.sets {
 		tilt, lift := rest, float32(1)
@@ -441,7 +441,7 @@ func (f *flights) landingIcons(d *display) []badge {
 		return nil
 	}
 	right := s.right()
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), f.a.panel(), s.lineupFor(d.viewW, d.viewH).extent, right)
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), f.a.panel(), s.lineupFor(d.viewW, d.viewH).extent, float32(f.a.settings.CardsAt), right)
 	var out []badge
 	for i, set := range d.sets {
 		if !d.landingOf(set) {

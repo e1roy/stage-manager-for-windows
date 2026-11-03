@@ -146,6 +146,20 @@ func TestSpacing(t *testing.T) {
 	}
 }
 
+func TestCardsAt(t *testing.T) {
+	for in, want := range map[float64]float64{0: 0.5, 0.1: MinCardsAt, 0.9: MaxCardsAt, 0.634: 0.63, math.NaN(): 0.5} {
+		if s := (Settings{CardsAt: in}).Normalize(); s.CardsAt != want {
+			t.Fatalf("cards at %v normalized to %v", in, s.CardsAt)
+		}
+	}
+	// Settings from before it was a setting keep the cards in the middle.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"width": 240}`), 0o644)
+	if got := NewStore(dir).Load().CardsAt; got != 0.5 {
+		t.Fatalf("loaded cards at %v", got)
+	}
+}
+
 func TestPanel(t *testing.T) {
 	s := (Settings{PanelWidth: 3, PanelHeight: 2}).Normalize()
 	if s.PanelWidth != MaxPanelWidth || s.PanelHeight != MinPanelHeight {

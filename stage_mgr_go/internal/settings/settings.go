@@ -61,6 +61,11 @@ const (
 	MaxIconScale = 1.6
 	MaxTilt      = 10
 	MaxSpacing   = 80
+	// The cards sit from a little above the middle of a strip to well
+	// below it, where the hand is: further up is a reach, and further down
+	// leaves the cards no room to be anywhere but at the bottom.
+	MinCardsAt = 0.3
+	MaxCardsAt = 0.7
 	// The overview's panel is a share of the cards' width, and so many
 	// DIPs tall.
 	MinPanelWidth  = 0.2
@@ -107,6 +112,12 @@ type Settings struct {
 	// Tilt is how far the cards turn in 3D, as the macOS strip's do, from
 	// 0, flat, to MaxTilt.
 	Tilt int `json:"tilt"`
+	// CardsAt is where the middle of a strip's cards goes, as a share of the
+	// way down it: 0.5, the middle, as on macOS, or lower, nearer to the
+	// taskbar and the hand. Below the list of the stage's windows, it is a
+	// share of the way down from the list instead, as far as the cards have
+	// to keep away from it.
+	CardsAt float64 `json:"cardsAt"`
 	// PanelWidth and PanelHeight size the panel at the bottom of a strip
 	// that opens the overview: its width a share of the cards', so it
 	// follows the strip's width, and its height in DIPs.
@@ -205,6 +216,7 @@ func Default() Settings {
 		IconScale:          1,
 		Spacing:            20,
 		Tilt:               DefaultTilt,
+		CardsAt:            0.5,
 		PanelWidth:         1,
 		PanelHeight:        38,
 		PanelOpacity:       0.55,
@@ -259,6 +271,11 @@ func (s Settings) Normalize() Settings {
 	}
 	s.Spacing = math.Round(min(max(s.Spacing, 0), MaxSpacing))
 	s.Tilt = min(max(s.Tilt, 0), MaxTilt)
+	// It cannot be 0, so 0 is one missing from older settings.
+	if s.CardsAt == 0 || math.IsNaN(s.CardsAt) {
+		s.CardsAt = Default().CardsAt
+	}
+	s.CardsAt = math.Round(min(max(s.CardsAt, MinCardsAt), MaxCardsAt)*100) / 100
 	// Neither can be 0, so 0 is one missing from older settings.
 	if s.PanelWidth == 0 || math.IsNaN(s.PanelWidth) {
 		s.PanelWidth = Default().PanelWidth

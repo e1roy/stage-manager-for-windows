@@ -49,19 +49,19 @@ func TestBypassed(t *testing.T) {
 	}
 }
 
-// The release comes through the proxy when one is named.
+// The version comes through the proxy when one is named.
 func TestLatestThroughProxy(t *testing.T) {
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A proxy is asked for the whole URL.
-		if r.URL.Host != "api.github.invalid" {
+		if r.URL.Host != "raw.github.invalid" {
 			http.Error(w, "not proxied", http.StatusBadGateway)
 			return
 		}
-		w.Write([]byte(`{"tag_name": "0.3.0", "html_url": "https://example.com/0.3.0"}`))
+		w.Write([]byte("0.3.0\n"))
 	}))
 	defer proxy.Close()
 	u, _ := url.Parse(proxy.URL)
-	r, err := Latest(context.Background(), "http://api.github.invalid/releases/latest", func(*http.Request) (*url.URL, error) { return u, nil })
+	r, err := Latest(context.Background(), "http://raw.github.invalid/.version", func(*http.Request) (*url.URL, error) { return u, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestLatestThroughProxy(t *testing.T) {
 // A proxy left in the settings by a client that has quit is passed by.
 func TestLatestPastDeadProxy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"tag_name": "0.3.1", "html_url": "https://example.com/0.3.1"}`))
+		w.Write([]byte("0.3.1\n"))
 	}))
 	defer srv.Close()
 	// A port nothing listens on any more.

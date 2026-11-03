@@ -195,10 +195,13 @@ type App struct {
 	settingsUI *settingsWindow
 	flights    *flights
 	// latest is a release newer than the one running, found by
-	// checkUpdate (update.go); checking is set while a check is on its
-	// way, and checkFailed after the last one could not reach GitHub;
-	// dotted and dotIcon are the red dot on the tray icon and in its menu.
+	// checkUpdate (update.go), and published the newest release it has
+	// found at all, newer or not, for the about pane to show; checking is
+	// set while a check is on its way, and checkFailed after the last one
+	// could not reach GitHub; dotted and dotIcon are the red dot on the
+	// tray icon and in its menu.
 	latest      update.Release
+	published   update.Release
 	checking    bool
 	checkFailed bool
 	dotted      []byte
@@ -823,10 +826,10 @@ func (a *App) applySettings(s settings.Settings) {
 	}
 	// syncDisplays below moves a strip to its new side; its cards turn the
 	// other way as it draws again. The panel's size moves the cards too,
-	// as the list of the stage's windows does, and the accent is drawn on
+	// as where they sit and the list of the stage's windows do, and the accent is drawn on
 	// the panels, the corner button and that list. The mark of the stage
 	// last left is drawn on its card.
-	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || !maps.Equal(old.Sides, s.Sides) ||
+	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || old.CardsAt != s.CardsAt || !maps.Equal(old.Sides, s.Sides) ||
 		old.PanelWidth != s.PanelWidth || old.PanelHeight != s.PanelHeight || old.Accent != s.Accent ||
 		old.PanelOpacity != s.PanelOpacity ||
 		old.StageList != s.StageList || old.MarkPrevious != s.MarkPrevious {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
 	"github.com/e1roy/stage_manager_for_windows/internal/settings"
+	"github.com/e1roy/stage_manager_for_windows/internal/update"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -28,8 +29,9 @@ type settingsWindow struct {
 	width float64
 	icon  float64
 	tilt  float64
-	// spacing is the gap between cards, as the slider sets it.
-	spacing float64
+	// spacing is the gap between cards, as the slider sets it, and
+	// cardsAt how far down the strip they sit.
+	spacing, cardsAt float64
 	// panelW and panelH size the overview's panel, as the sliders set them,
 	// and cornerW the button over a display's bottom-left corner.
 	panelW, panelH float64
@@ -101,6 +103,7 @@ func (sw *settingsWindow) load() {
 	}
 	sw.quality = slices.Index(qualities, sw.s.Quality)
 	sw.width, sw.icon, sw.tilt, sw.spacing = sw.s.Width, sw.s.IconScale, float64(sw.s.Tilt), sw.s.Spacing
+	sw.cardsAt = sw.s.CardsAt
 	sw.panelW, sw.panelH = sw.s.PanelWidth, sw.s.PanelHeight
 	sw.panelOp, sw.blur = sw.s.PanelOpacity, sw.s.PanelBlur
 	sw.cornerW = sw.s.CornerWidth
@@ -167,6 +170,7 @@ var uiDotColor = ui.RGBA(dotColor.R, dotColor.G, dotColor.B, 1)
 var (
 	appIcon    = lineIcon(`<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/>`)
 	removeIcon = lineIcon(`<path d="M6 6l12 12M18 6L6 18"/>`)
+	infoIcon   = lineIcon(`<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.01"/>`)
 )
 
 // lineIcon makes a 24×24 outline icon of the shapes in body.
@@ -211,17 +215,31 @@ func (f form) section(c *ui.Context, title string, rows func(), trailing ...func
 }
 
 func (f form) row(c *ui.Context, title, desc string, control func(), opts ...option) {
-	f.rowAt(c, false, title, desc, control, opts...)
+	f.rowAt(c, false, title, desc, nil, control, opts...)
+}
+
+// rowTip is a row whose title has an info mark after it in place of a
+// description: the row stays as short as those around it, and the mark
+// explains the setting point by point, as tip does, to one who wants it.
+func (f form) rowTip(c *ui.Context, title string, tip *tip, control func()) {
+	f.rowAt(c, false, title, "", tip, control)
+}
+
+// tip is what an info mark explains: a line saying what the setting is,
+// then its points, each a label and what it means.
+type tip struct {
+	lead   string
+	points []option
 }
 
 // child is a row of a setting that only applies while the one above it is
 // on, dimmed while it is off. It keeps the left edge every row's text
 // shares rather than indent under it.
 func (f form) child(c *ui.Context, on bool, title, desc string, control func()) {
-	f.rowAt(c, !on, title, desc, control)
+	f.rowAt(c, !on, title, desc, nil, control)
 }
 
-func (f form) rowAt(c *ui.Context, dim bool, title, desc string, control func(), opts ...option) {
+func (f form) rowAt(c *ui.Context, dim bool, title, desc string, tip *tip, control func(), opts ...option) {
 	t := f.t
 	fg := t.Text
 	if dim {
@@ -229,7 +247,14 @@ func (f form) rowAt(c *ui.Context, dim bool, title, desc string, control func(),
 	}
 	ui.Row(c).Padding(14, rowPadX).Gap(18).AlignItems(ui.Center).MinHeight(64).Children(func() {
 		ui.Column(c).Grow(1).Shrink(1).Gap(3).Children(func() {
-			ui.Text(c, title).TextColor(fg)
+			if tip == nil {
+				ui.Text(c, title).TextColor(fg)
+			} else {
+				ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
+					ui.Text(c, title).TextColor(fg)
+					f.info(c, tip)
+				})
+			}
 			if desc != "" {
 				ui.Text(c, desc).FontSize(12).TextColor(t.TextMuted)
 			}
@@ -252,6 +277,36 @@ func (f form) rowAt(c *ui.Context, dim bool, title, desc string, control func(),
 			})
 		})
 		control()
+	})
+}
+
+// info is the mark after a row's title that shows its tip while the
+// pointer rests on it: below it, a card of the window's own look rather
+// than the dark strip of a tooltip, as it is a few lines to read, with the
+// labels of the points in a column of their own so they read at a glance.
+func (f form) info(c *ui.Context, tp *tip) {
+	t := f.t
+	mark := ui.Box(c).Shrink(0)
+	fg := t.TextMuted
+	if mark.Hovered() {
+		fg = t.Accent
+	}
+	mark.Children(func() { ui.Icon(c, infoIcon).FontSize(16).TextColor(fg) })
+	ui.TooltipBase(c, mark, func(el ui.Element) {
+		el.AttachTo(mark, ui.AnchorTopLeft, ui.AnchorBottomLeft).Margin(6, 0, 0, -12)
+		el.Width(380).Padding(12, 14).Radius(8).Background(t.Surface).Border(1, t.Border).
+			Shadow(0, 4, 16, 0, ui.RGBA(0, 0, 0, 0.18)).TextColor(t.Text).FontSize(12)
+		el.Children(func() {
+			ui.Column(c).Gap(8).Children(func() {
+				ui.Text(c, tp.lead)
+				ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(12).GapY(6).Children(func() {
+					for _, p := range tp.points {
+						ui.Text(c, p.label).Bold()
+						ui.Text(c, p.text).TextColor(t.TextMuted)
+					}
+				})
+			})
+		})
 	})
 }
 
@@ -493,8 +548,22 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 				sw.apply()
 			}
 		})
+		pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
+		cardsAt := &tip{tr.CardsAtTip, []option{
+			{label: tr.CardsAtMid, text: tr.CardsAtMidDesc},
+			{label: tr.CardsAtDown, text: tr.CardsAtDownDesc},
+			{label: tr.CardsAtUp, text: tr.CardsAtUpDesc},
+			{label: tr.CardsAtList, text: tr.CardsAtListDesc},
+			{label: tr.CardsAtCrowd, text: tr.CardsAtCrowdDesc},
+		}}
+		f.rowTip(c, tr.CardsAt, cardsAt, func() {
+			if f.slider(c, tr, &sw.cardsAt, settings.MinCardsAt, settings.MaxCardsAt, 0, def.CardsAt, pct) {
+				sw.cardsAt = math.Round(sw.cardsAt*100) / 100
+				sw.s.CardsAt = sw.cardsAt
+				sw.apply()
+			}
+		})
 		f.row(c, tr.IconSize, "", func() {
-			pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
 			if f.slider(c, tr, &sw.icon, settings.MinIconScale, settings.MaxIconScale, 0, def.IconScale, pct) {
 				sw.s.IconScale = sw.icon
 				sw.apply()
@@ -854,17 +923,21 @@ func (sw *settingsWindow) aboutPane(c *ui.Context, f form, tr *i18n.Strings) {
 		ui.Text(c, "Stage Manager").FontSize(24).Bold()
 		ui.Text(c, tr.Tagline).TextColor(t.TextMuted).TextAlign(ui.Center)
 		ui.Text(c, fmt.Sprintf(tr.Version, mygo.App.Version())).FontSize(12).TextColor(t.TextMuted).Margin(6, 0, 0, 0)
+		// The version released last, as the last check found it: with a
+		// red dot and the way to it when it is newer than the one running.
 		if r, ok := sw.a.newer(); ok {
 			ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
 				ui.Box(c).Size(8, 8).Radius(4).Background(uiDotColor)
-				ui.Text(c, fmt.Sprintf(tr.NewVersion, r.Version)).FontSize(12)
+				ui.Text(c, fmt.Sprintf(tr.LatestVersion, r.Version)).FontSize(12)
 				ui.Link(c, tr.Download, r.URL).FontSize(12).Margin(0, 0, 0, 4)
 			})
 		} else if sw.a.unchecked() {
 			ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
 				ui.Text(c, tr.UpdateUnknown).FontSize(12).TextColor(t.TextMuted)
-				ui.Link(c, tr.SeeReleases, repo+"/releases/latest").FontSize(12)
+				ui.Link(c, tr.SeeReleases, update.ReleasesURL).FontSize(12)
 			})
+		} else if v := sw.a.published.Version; v != "" && sw.a.settings.CheckUpdates {
+			ui.Text(c, fmt.Sprintf(tr.LatestVersion, v)).FontSize(12).TextColor(t.TextMuted)
 		}
 		ui.Row(c).Gap(18).Margin(14, 0, 0, 0).Children(func() {
 			ui.Link(c, tr.Website, repo)
