@@ -142,6 +142,10 @@ func (a *App) onForeground(h winapi.HWND) {
 		}
 	}
 	a.fg.prev = catalog.RootOwner(h)
+	if a.settings.StageList {
+		// The list of the stage's windows rings the one the user is in.
+		a.redraw()
+	}
 	debugf("foreground %x %q at %v iconic=%v parked=%v", h, winapi.ClassName(h), winapi.WindowRect(h), winapi.IsIconic(h), a.park.IsParked(catalog.RootOwner(h)))
 	if catalog.IsDesktop(h) {
 		// Clicking the wallpaper sends the stage to the strip, as on macOS.

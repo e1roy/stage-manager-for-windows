@@ -152,16 +152,26 @@ type Strings struct {
 	// NewVersion tells a release newer than the one running, on the about
 	// pane and in the tray's menu; Download opens its page. CheckUpdates
 	// names looking for one, which CheckUpdatesDesc explains.
-	NewVersion                     string // %s: the newer version
-	Download                       string
+	NewVersion string // %s: the newer version
+	Download   string
 	// UpdateUnknown says the last check could not reach GitHub, and
 	// SeeReleases links to its releases to look by hand.
-	UpdateUnknown, SeeReleases string
+	UpdateUnknown, SeeReleases     string
 	CheckUpdates, CheckUpdatesDesc string
 
 	// The strip.
 	EmptyStrip, EmptyStripHint                                string
 	PickStage, JoinStage, SplitSet, CloseWindow, CloseWindows string
+	// StageList names the list of the stage's windows at the top of the
+	// strip, which StageListDesc explains. StageListMore counts the
+	// windows it has no room for, and BringToFront and SendToStrip are its
+	// menu's.
+	StageList, StageListDesc  string
+	StageListMore             string // %d: how many more
+	BringToFront, SendToStrip string
+	// MarkPrevious names the dashed outline on the card of the stage last
+	// left, which MarkPreviousDesc explains.
+	MarkPrevious, MarkPreviousDesc string
 
 	// The tray.
 	Settings, Restart, Quit string

@@ -34,6 +34,8 @@ Only the app you're using stays on the desktop. Everything else shrinks into car
 - The rest are grouped by app into cards, on the left or the right edge.
 - Click a card to switch; Alt+Tab and the taskbar work as usual.
 - Drag a card to the desktop, or Shift-click it, for two apps side by side.
+- The card of the stage you just left gets a dashed outline, so after a detour to another app you can see at a glance what you were in the middle of. It can be turned off in Settings → Strip.
+- List of the stage's windows: when the stage holds more than one window, small live thumbnails of them are listed top to bottom at the top of the strip, numbered 1/N, the active one highlighted, each tile tinted with the main color its window shows (black, white and gray left out), so windows of one app, such as VS Code windows with different title bar colors, tell apart at a glance. Click one to bring it to the front, hover to close it, or right-click to send its app to the strip. It can be turned off in Settings → Strip.
 - Overview of every window on a display: click one to switch, or hover it to close it. Win+Tab opens it on every display at once, as Task View does, and so does a button over the display's bottom-left corner.
 - Drag a window to another monitor and it joins the stage there.
 - Drag a card up or down to reorder the strip, or into another monitor's strip to move the app there without opening it.

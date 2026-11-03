@@ -318,6 +318,10 @@ const (
 	actOverview // asked for by the strip's button rather than a card
 	actMove     // the card was dropped in the strip of another display
 	actReorder  // the card was dragged up or down its strip
+	// A window of the list of the stage's windows (lineup.go), as a set
+	// of its own, asks for these.
+	actFront   // to come in front of the others on the stage
+	actUnstage // for its app to leave the stage for the strip
 )
 
 // request carries out what a card asks for once the frame is built. Tests
@@ -341,6 +345,10 @@ func (a *App) request(act action, d *display, s *set) {
 			a.closeApps(s)
 		case actCompanion:
 			a.toggleCompanion(s)
+		case actFront:
+			a.bringForward(s.front())
+		case actUnstage:
+			a.unstage(d, s)
 		}
 	})
 }

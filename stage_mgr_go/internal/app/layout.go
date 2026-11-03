@@ -75,25 +75,30 @@ type stripLayout struct {
 	extent  float32   // distance from one card to the next
 }
 
-func layoutStrip(n int, width, height, scroll, gap float32, p panel, right bool) stripLayout {
+// head is how far from the top the cards keep clear of the list of the
+// stage's windows (layoutLineup), 0 with none.
+func layoutStrip(n int, width, height, scroll, gap float32, p panel, head float32, right bool) stripLayout {
 	pw := max(width-stripPadLeft-stripPadRight, 40)
 	ph := min(pw*0.66, 172)
 	extent := ph + gap
-	// The lowest a card may end: above the panel's band.
+	// The highest a card may start, below the list, and the lowest it may
+	// end: above the panel's band.
+	top := max(stripMargin, head)
 	foot := p.h + footerInset
 	bottom := height - stripMargin - foot
-	avail := max(bottom-stripMargin, 1)
+	avail := max(bottom-top, 1)
 	s := float32(1)
 	if n > 0 {
 		s = min(max(avail/(float32(n)*extent-gap), minCardScale), 1)
 	}
 	l := stripLayout{scale: s, extent: extent * s}
 	total := float32(n)*extent*s - gap*s
-	l.content = total + 2*stripMargin + foot
-	// Centered on the display, as on macOS, unless that reaches the band.
-	y0 := min((height-total)/2, bottom-total)
+	l.content = total + top + stripMargin + foot
+	// Centered on the display, as on macOS, unless that reaches the list
+	// or the band.
+	y0 := max(min((height-total)/2, bottom-total), top)
 	if total > avail {
-		y0 = stripMargin - scroll
+		y0 = top - scroll
 	}
 	for i := 0; i < n; i++ {
 		card := ui.Rect{X: stripPadLeft, Y: y0 + float32(i)*extent*s, W: pw * s, H: ph * s}
@@ -208,6 +213,21 @@ func (s *set) stack(card ui.Rect, right bool) []ui.Rect {
 		aspects[i] = w.Aspect()
 	}
 	return stackWindows(card, aspects, right)
+}
+
+// markRect is where the dashed outline of the stage last left goes around
+// the windows of its card, stack, front first: a little out from all of
+// them, its corners rounding as far again as the front window's do.
+func markRect(stack []ui.Rect) (ui.Rect, float32) {
+	x0, y0 := stack[0].X, stack[0].Y
+	x1, y1 := x0+stack[0].W, y0+stack[0].H
+	for _, r := range stack[1:] {
+		x0, y0 = min(x0, r.X), min(y0, r.Y)
+		x1, y1 = max(x1, r.X+r.W), max(y1, r.Y+r.H)
+	}
+	pad := max(stack[0].H*0.05, 4)
+	r := ui.Rect{X: x0 - pad, Y: y0 - pad, W: x1 - x0 + 2*pad, H: y1 - y0 + 2*pad}
+	return r, max(stack[0].H*0.045, 3) + pad
 }
 
 // lifted is r, in card, scaled by lift around the middle of the card's
@@ -387,4 +407,89 @@ func splitRows(byY []int, n int, items []overviewItem) [][]int {
 		at += k
 	}
 	return rows
+}
+
+// The list of the windows on a display's stage (lineup.go) shows at the top
+// of its strip, over the column the cards take, once the stage has more
+// than one window: a tile for each, with nothing around them. Every tile
+// has the same height, a line of its place in the list, its app's icon and
+// title over its picture, as Alt+Tab gives windows one height, so the list
+// reads as a column rather than a jumble of shapes.
+const (
+	lineupTop      = 12   // from the strip's top edge
+	lineupCaption  = 20   // a tile's line of place, icon and title
+	lineupInset    = 4    // between a tile's edge and its picture
+	lineupGap      = 6    // between tiles
+	lineupMore     = 24   // the line that counts those with no room
+	lineupThumbMax = 64   // a picture's height, at most
+	lineupThumbMin = 30   // and at least, before windows go uncounted
+	lineupShare    = 0.42 // of the strip's height the list may take: the cards keep the rest
+	lineupClear    = 14   // between the list and the first card
+)
+
+// lineupLayout places the list of the stage's windows in a strip.
+type lineupLayout struct {
+	box    ui.Rect   // what the list takes, tiles and all; empty with no list
+	tiles  []ui.Rect // the windows that have room, top first
+	thumbs []ui.Rect // where the picture of each is fitted, in its tile
+	more   ui.Rect   // the line that counts the rest; empty when all have room
+	extent float32   // how far from the strip's top the cards keep clear, 0 with no list
+}
+
+// layoutLineup lays out the list of n windows in a strip of the given
+// size. A stage of one window has no list: it would only repeat what is
+// on the screen. The pictures shrink to make room for more windows, and
+// past the least they shrink to, the rest are counted on a line of their
+// own rather than scrolled to, which would hide them as well.
+func layoutLineup(n int, width, height float32, right bool) lineupLayout {
+	if n < 2 {
+		return lineupLayout{}
+	}
+	cw := max(width-stripPadLeft-stripPadRight, 40)
+	room := height * lineupShare
+	tile := func(th float32) float32 { return lineupCaption + th + lineupInset }
+	th := min(cw*0.45, lineupThumbMax)
+	shown := n
+	if need := float32(n)*(tile(th)+lineupGap) - lineupGap; need > room {
+		th = max((room+lineupGap)/float32(n)-lineupGap-lineupCaption-lineupInset, lineupThumbMin)
+		if need = float32(n)*(tile(th)+lineupGap) - lineupGap; need > room {
+			shown = min(max(int((room-lineupMore)/(tile(th)+lineupGap)), 1), n-1)
+		}
+	}
+	x := float32(stripPadLeft)
+	var l lineupLayout
+	y := float32(lineupTop)
+	for i := 0; i < shown; i++ {
+		t := ui.Rect{X: x, Y: y, W: cw, H: tile(th)}
+		l.tiles = append(l.tiles, t)
+		l.thumbs = append(l.thumbs, ui.Rect{X: t.X + lineupInset, Y: t.Y + lineupCaption, W: t.W - 2*lineupInset, H: th})
+		y += t.H + lineupGap
+	}
+	if shown < n {
+		l.more = ui.Rect{X: x, Y: y, W: cw, H: lineupMore}
+		y += lineupMore + lineupGap
+	}
+	l.box = ui.Rect{X: x, Y: lineupTop, W: cw, H: y - lineupGap - lineupTop}
+	l.extent = l.box.Y + l.box.H + lineupClear
+	if right {
+		within := ui.Rect{W: width}
+		l.box, l.more = mirror(l.box, within), mirror(l.more, within)
+		for i := range l.tiles {
+			l.tiles[i], l.thumbs[i] = mirror(l.tiles[i], within), mirror(l.thumbs[i], within)
+		}
+	}
+	return l
+}
+
+// fitIn is the largest rectangle of the given aspect, width over height,
+// centered in area.
+func fitIn(area ui.Rect, aspect float64) ui.Rect {
+	if aspect <= 0 || area.W <= 0 || area.H <= 0 {
+		return area
+	}
+	w, h := area.W, area.W/float32(aspect)
+	if h > area.H {
+		w, h = area.H*float32(aspect), area.H
+	}
+	return ui.Rect{X: area.X + (area.W-w)/2, Y: area.Y + (area.H-h)/2, W: w, H: h}
 }

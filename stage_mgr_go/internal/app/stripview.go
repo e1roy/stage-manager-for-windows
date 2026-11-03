@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
@@ -98,16 +99,19 @@ func (s *strip) view(c *ui.Context) {
 	}
 	right := s.right()
 	gap, p := float32(a.settings.Spacing), a.panel()
-	l := layoutStrip(len(d.sets), w, h, d.scroll, gap, p, right)
+	// The cards keep below the list of the stage's windows.
+	staged := s.stageWindows()
+	line := layoutLineup(len(staged), w, h, right)
+	l := layoutStrip(len(d.sets), w, h, d.scroll, gap, p, line.extent, right)
 	if d.scroll > l.maxScroll(h) {
 		d.scroll = l.maxScroll(h)
-		l = layoutStrip(len(d.sets), w, h, d.scroll, gap, p, right)
+		l = layoutStrip(len(d.sets), w, h, d.scroll, gap, p, line.extent, right)
 	}
 	d.layout = l
 	slots, n, order := s.room()
 	shown := l
 	if n != len(d.sets) {
-		shown = layoutStrip(n, w, h, d.scroll, gap, p, right)
+		shown = layoutStrip(n, w, h, d.scroll, gap, p, line.extent, right)
 	}
 
 	root := ui.Box(c).Absolute().Left(0).Top(0).Size(w, h)
@@ -135,7 +139,8 @@ func (s *strip) view(c *ui.Context) {
 		return true
 	})
 	hits := s.hits[:0]
-	footer := ui.Rect{}
+	footer, list := ui.Rect{}, ui.Rect{}
+	s.previous = s.previousStage()
 	root.Children(func() {
 		if n == 0 && a.ready {
 			emptyHint(c, a.tr(), w, h)
@@ -148,8 +153,11 @@ func (s *strip) view(c *ui.Context) {
 		if a.ready && !d.inOverview {
 			footer = s.footer(c, w, h)
 		}
+		// Over the cards, should they scroll up to it. DWM draws the
+		// pictures over the window, so they slide with it by hand.
+		list = s.lineupView(c, line, staged, x)
 	})
-	s.hits, s.footerHit = hits, footer
+	s.hits, s.footerHit, s.lineupHit = hits, footer, list
 }
 
 // footer draws the panel at the bottom of the strip that opens the
@@ -454,6 +462,7 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 		windows := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).
 			TransformOrigin(originX, 0.5).Scale(lift, lift).RotateY(tilt * sign).Perspective(cardPerspective).Opacity(shown)
 		windows.Children(func() {
+			s.previousMark(c, g, stack)
 			for i := len(stack) - 1; i >= 0; i-- {
 				s.windowStill(c, g, i, stack[i])
 			}
@@ -490,6 +499,41 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	}
 	return el.Bounds()
 }
+
+// previousStage returns the first app of the set the stage last left, as
+// its card is marked (settings.MarkPrevious), or "" for none. Any way off
+// the stage counts, a click on a card, Alt+Tab, the taskbar or the
+// wallpaper: whichever way the user went off on a detour, the mark shows
+// the way back.
+func (s *strip) previousStage() string {
+	if !s.a.settings.MarkPrevious {
+		return ""
+	}
+	if prev := s.d.model.Previous(); len(prev) > 0 {
+		return prev[0]
+	}
+	return ""
+}
+
+// previousMark draws a dashed outline around a card's windows if its set
+// is the stage last left, fading in and out as the mark moves to another
+// card. It is drawn with the windows, so it turns and lifts as they do,
+// and shows no sooner than they land.
+func (s *strip) previousMark(c *ui.Context, g *set, stack []ui.Rect) {
+	marked := s.previous != "" && slices.ContainsFunc(g.apps, func(app *group) bool { return app.app == s.previous })
+	r, radius := markRect(stack)
+	el := ui.Box(c.Key("previous")).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).
+		Radius(radius).Border(2, markColor).BorderStyle(ui.BorderDashed)
+	el.Opacity(el.AnimateTo("shown", b2f(marked), markFade))
+}
+
+var (
+	// markColor is the dashed outline of the stage last left: white, as
+	// the cards' labels are, rather than the accent, which marks the
+	// window in front in the list of the stage's windows.
+	markColor = ui.RGBA(255, 255, 255, 0.85)
+	markFade  = ui.Animation{Duration: 240 * time.Millisecond}
+)
 
 // motion says what moves in the strip, for the debug log.
 func (s *strip) motion() string {

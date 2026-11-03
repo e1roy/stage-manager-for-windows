@@ -188,6 +188,34 @@ func TestWinTab(t *testing.T) {
 	}
 }
 
+func TestStageList(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	// Settings from before the stage's list was a setting show it.
+	os.WriteFile(path, []byte(`{"width": 240}`), 0o644)
+	if !NewStore(dir).Load().StageList {
+		t.Fatal("settings without stageList loaded it off")
+	}
+	os.WriteFile(path, []byte(`{"stageList": false}`), 0o644)
+	if NewStore(dir).Load().StageList {
+		t.Fatal("stageList turned off loaded on")
+	}
+}
+
+func TestMarkPrevious(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	// Settings from before the mark was a setting show it.
+	os.WriteFile(path, []byte(`{"width": 240}`), 0o644)
+	if !NewStore(dir).Load().MarkPrevious {
+		t.Fatal("settings without markPrevious loaded it off")
+	}
+	os.WriteFile(path, []byte(`{"markPrevious": false}`), 0o644)
+	if NewStore(dir).Load().MarkPrevious {
+		t.Fatal("markPrevious turned off loaded on")
+	}
+}
+
 func TestAccent(t *testing.T) {
 	for in, want := range map[string]string{
 		"":        AccentDefault, // settings from before the accent had a choice

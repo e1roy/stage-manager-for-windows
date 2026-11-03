@@ -61,12 +61,14 @@ stage_mgr_go/
 | `flights.go` | `flights`、`layer`、`flight`、`trip`、`badge`、`pose`、`shade`、`ownShadow`、`around`、`flightTime`/`takeOffDelay`/`landingDelay` | 每台显示器一层的飞行层：静帧在卡片与舞台间飞行、阴影交接、拖动卡片时的让位 | 整屏动画必须走 `pacer`；飞行层要避开被拖窗口（`hole`）；一处时序改动会牵动阴影 |
 | `pacer.go` | `pacer.frame` | 用 `DwmFlush` 按 DWM 合成节奏要帧，代替 `AnimationFrame` | 只有整屏窗口（飞行层、概览）用它，小窗口别用 |
 | `strip.go` | `strip`、`place`、`applyBounds`、`poll`、`approach`、`setShown`、`setClickThrough`、`holdOpen` | 侧边栏窗口：物理像素摆放、AppBar（固定模式）、浮动模式滑出/滑入、点击穿透 | 窗口位置是物理像素；DIP 换算只在 `toScreen` 一类地方做 |
-| `stripview.go` | `cardState`、`(*strip).view`、`(*strip).card`、`footer`、`dragPoses`、`windowStill`、`panel`/`showPanel` | 侧边栏界面：卡片、3D 透视、悬停、拖动、右键菜单、底部概览面板 | 卡片动作不要直接改模型，走 `a.request`（无头测试靠 `App.act` 截获） |
+| `stripview.go` | `cardState`、`(*strip).view`、`(*strip).card`、`footer`、`dragPoses`、`windowStill`、`panel`/`showPanel`、`previousStage`/`previousMark` | 侧边栏界面：卡片、3D 透视、悬停、拖动、右键菜单、底部概览面板；上一个舞台（`stage.Display.Previous()`，任何方式离开舞台都算）的卡片套白色虚线框（`settings.MarkPrevious`，默认开），虚线框画在卡片的窗口层里，随卡片倾斜、缩放，落地前不显示，几何在 `layout.go` 的 `markRect` | 卡片动作不要直接改模型，走 `a.request`（无头测试靠 `App.act` 截获） |
 | `carddrag.go` | `cardDrag`、`aim`（`aimBack`/`aimSort`/`aimJoin`/`aimMove`）、`aimCard`、`cardDropAt`、`makeRoom`、`joinReach`、`crossReach`、`moveSet`、`reorder` | 拖卡片的去向：回原位、侧边栏内排序、加入舞台、搬到另一台显示器的侧边栏 | 让位布局与飞行层联动，改一处要连着手动验证 |
 | `drag.go` | `drag`、`startDrag`、`dragOver`、`windowMoved`、`followMoved`、`leave`、`stripUnder`、`sendToStrip`、`sendAcross`、`dwell` | 拖真实窗口：跨显示器时那边舞台让位、松手、拖进侧边栏、Win+Shift+方向键移动后的跟随 | 只有 `HideInactive` 打开时才停放，否则只更新列表 |
 | `layout.go` | `stripLayout`、`mirror`、`panel`、`cardTilts`、`maxStacked`/`maxIcons`/`minCardScale` 等常量 | 纯几何：卡片位置与缩放、窗口叠放、图标位置、右侧镜像 | 有单测（`layout_test.go`），规则先在这里写并与测试对齐 |
 | `media.go` | `media`、`still`、`capture`、`stillHeight`、`flyBudgets`、图标缓存 | 静帧（`PrintWindow`）与图标、内存预算（按 `Quality`）、`LightFlights` | `PrintWindow` 会等目标应用绘制，只能在 goroutine 里做，并且带超时 |
 | `iconfit.go` | `iconBounds` | 按 alpha 裁掉图标四周透明边 | 有单测 |
+| `lineup.go` | `lineup`、`lineThumb`、`stageWindows`、`lineupFor`、`lineupView`/`lineTile`/`lineMore`、`placeThumbs`、`overLineup`、`bringForward`、`unstage` | 舞台窗口列表（`settings.StageList`，默认开）：舞台有 2 个以上窗口时在侧边栏顶部从上到下列出独立的小框（外面不再包一层），每个小框是序号 `1/N` + 图标 + 标题 + DWM 实时缩略图，当前窗口（`a.fg.prev`，否则最前的）用强调色描边；点击 `actFront`，悬停出现关闭按钮 `actClose`，右键可 `actUnstage`；放不下时最后一行“还有 N 个”打开概览 | 缩略图是 DWM 画在侧边栏窗口之上的，MyGo 画的东西（包括 tooltip）会被盖住，所以不用 tooltip；位置每帧随 `reveal` 平移手动同步；顺序在帧间保持稳定（按应用、再按首次出现），点击改变 z 序时列表不跳；几何在 `layout.go` 的 `layoutLineup`，卡片经 `layoutStrip` 的 `head` 参数让出顶部 |
+| `tint.go` | `dominantColor`、`hue`、`toOklch`、`tileTint`、`blank` | 列表小框的底色：`lineup.sampleTints` 每 3s（以及缩略图移动或变大小后 250ms）在 goroutine 里用 `winapi.CaptureScreen` 复制侧边栏上那块缩略图的屏幕像素（DWM 已合成好的，不让应用自己重画，不会闪），按色相直方图找主色：排除近黑、近白和灰，越鲜艳权重越大，上下 10%（标题栏、状态栏）×2.5；彩色像素不足 1.2% 视为没有主色，用默认底色。主色在 OKLCH 里定成同样的明度 0.34，白字在任何色相上都看得清；颜色变化 400ms 渐变 | 侧边栏不在屏幕上、飞行中、概览中不取色；锁屏时复制出来是纯色（`blank`），保留原来的颜色 |
 | `overview.go` | `overview`、`ovTile`、`overviewPhase`、`openOverview(s)`、`closeOverviews`、`closeWindow`、`accent` | “所有窗口”概览（类 Mission Control）：每台显示器一个窗口，铺开本显示器窗口，点选切换、悬停关闭 | 多显示器同步开关；超时（`overviewTimeout`）必须保证停放的窗口回来；焦点窗口设计见 `newOverview` 注释 |
 | `corner.go` | `cornerHint`、`cornerRect`、`cornerNearness`、`hotCorner`/`cornerReach`/`cornerLinger` | Win11 左下角触发角：不抢焦点的小窗口，靠近显示标记，点击开概览 | 只有 `winapi.TaskbarCornerFree()` 为真时才盖；判定有单测 |
 | `peek.go` | `peekStart`、`watchTaskbar`、`peekClass` | 任务栏缩略图 peek 时临时放回被停放的窗口 | 只在指针停在该按钮的缩略图上时放回，避免一次放回太多 |
@@ -75,7 +77,7 @@ stage_mgr_go/
 | `update.go` | `startUpdateChecks`、`checkUpdate`、`newer`、`showUpdate`、`openRelease`、`dotted`/`paintDot`、`firstCheck`/`checkEvery` | 检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `winapi.SystemProxy()`（Go 默认只认环境变量代理，不认 v2rayN 等设置的系统代理）后调 `update.Latest`，结果 `post` 回主线程存进 `a.latest`；有新版本时托盘图标换成带红点的 64px 版本、tooltip 和菜单第一项写新版本号，设置窗口“关于”标签与页面按 `a.newer()` 画红点 | 关掉 `CheckUpdates` 立即去掉红点；`go run` 没有版本号时不联网；网络不通时状态不变，只置 `checkFailed`，“关于”页显示“无法检测新版本，前往查询最新版”，下次打开设置时重试 |
 | `debug.go` | `debugf`、`logToFile`、`watchMainThread`、`DebugHang`、`frameStats`、`stopwatch`、`timed`、`tookLong` | 调试日志、看门狗、帧统计、主线程慢任务计时 | 日志文件名和格式见下文；`tookLong` 会打印主线程超过 8ms 的任务 |
 
-测试文件都和被测代码同包：`layout_test.go`、`stripview_test.go`、`set_test.go`、`corner_test.go`、`flights_test.go`、`iconfit_test.go`、`peek_test.go`、`update_test.go`、`snapshot_test.go`。
+测试文件都和被测代码同包：`layout_test.go`、`lineup_test.go`、`tint_test.go`、`stripview_test.go`、`set_test.go`、`corner_test.go`、`flights_test.go`、`iconfit_test.go`、`peek_test.go`、`update_test.go`、`snapshot_test.go`。
 
 ## 核心数据结构
 
@@ -131,6 +133,7 @@ stage_mgr_go/
 | 新增界面文字 | `i18n.Strings` 加字段 + `zh_hans`/`zh_hant`/`en`/`ja` 四张表 | `TestComplete` 检查缺失与格式动词 |
 | 新增 Win32 调用 | `internal/winapi`，通用 DLL/proc 放 `procs.go`，专用的就近声明 | 保持无状态；不要在 `stage`/`settings` 里调 |
 | 改卡片外观或布局 | `layout.go`（纯几何，先写测试）+ `stripview.go`（绘制） | 右侧镜像要一起测 |
+| 改舞台窗口列表 | `layout.go` 的 `layoutLineup` + `lineup.go` | DWM 缩略图会盖住它下面的 MyGo 内容；`flights.cardPoses` 也要用同一个 `head` |
 | 改切换动画节奏 | `flights.go` 的 `flightTime`/`takeOffDelay`/`landingDelay`/`fadeTime`，`switch.go` 的 `handover` | 录屏逐帧看阴影有没有跳 |
 | 新增卡片动作 | `switch.go` 的 `action` 常量、`request`、具体函数；`stripview.go` 菜单里发起 | `App.act` 让无头测试能截获 |
 | 改概览 | `overview.go`（布局常量、`ovTile.at`、`close`/`land`） | 超时必须保证窗口放回；多显示器同步 |
@@ -157,7 +160,9 @@ stage_mgr_go/
 | `i18n` | 四种语言字段齐全、格式动词一致 |
 | `update` | 版本号比较、解析 GitHub release 响应与失败情形、系统代理（`ProxyServer`/`ProxyOverride`）解析、经代理请求、代理失效时直连 |
 | `app/layout` | 卡片布局、叠放、镜像、图标位置 |
-| `app/stripview` | 无头渲染卡片与面板，经 `App.act` 截获动作 |
+| `app/tint` | 主色：橙/蓝标题栏 + 彩色代码的深色编辑器、白底、灰/黑/白、零星彩色字；OKLCH 换算；不同色相底色明度一致；锁屏纯色判定 |
+| `app/lineup` | 舞台窗口列表的几何（放不下时“还有 N 个”）、卡片让出顶部、顺序稳定、点击/右键/关闭按钮发出的动作、关闭开关与概览时隐藏 |
+| `app/stripview` | 无头渲染卡片与面板，经 `App.act` 截获动作；上一个舞台的标记跟随切换、关掉设置后消失 |
 | `app/set` | 跨应用卡片的窗口顺序 |
 | `app/corner` | 触发角几何、靠近程度、点击开概览 |
 | `app/flights` | `around` 给被拖窗口让出的“洞” |
