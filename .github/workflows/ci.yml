@@ -29,9 +29,9 @@ jobs:
     # A Windows app built with Win32 syscalls: build and test on Windows.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: stage_mgr_go/go.mod
           cache-dependency-path: stage_mgr_go/go.sum
@@ -61,7 +61,7 @@ jobs:
           Get-Content mygo.json
           Get-ChildItem build/windows-amd64 | Format-Table Name, Length
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: StageManagerForWindows-windows-amd64
           path: |
