@@ -5,7 +5,10 @@ name: ci
 # as artifacts of the run. Pushing a version tag (0.2.15, or v0.2.15) goes one
 # step further and publishes both as a release, named the way earlier releases
 # are: StageManagerForWindows.<version>.amd64.exe and
-# StageManagerForWindows.Setup.<version>.amd64.exe.
+# StageManagerForWindows.Setup.<version>.amd64.exe. Started by hand with
+# publish_tag set to a release that already exists, it builds the branch as it
+# is now and replaces that release's files, under the same version: no tag, and
+# no new release.
 
 on:
   push:
@@ -15,6 +18,11 @@ on:
     tags: ["*.*.*", "v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: Existing release whose files this build replaces (e.g. 0.2.18); empty to only package
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -60,6 +68,16 @@ jobs:
               throw "Tag $tag does not match version $version in mygo.json: bump it, commit, and tag again."
             }
           }
+          # A release whose files a manual run replaces keeps its version, so
+          # the build's version has to be that release's, or the files would
+          # not say what the release says.
+          $publish = "${{ inputs.publish_tag }}"
+          if ($publish) {
+            $tag = $publish.TrimStart('v')
+            if ($tag -ne $version) {
+              throw "publish_tag $publish does not match version $version in mygo.json: the release's files would not be this build's."
+            }
+          }
 
       # What AGENTS.md requires before a commit, in the same order.
       - name: Build
@@ -97,7 +115,9 @@ jobs:
   release:
     name: Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    # A tag publishes a release; a manual run with publish_tag set replaces
+    # the files of one that is already there.
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_tag != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -113,27 +133,36 @@ jobs:
           path: assets
 
       # mygo names its output after the app; releases name it after the version.
+      # A tag names its own release; a manual run names the one it replaces.
       - name: Name the assets as earlier releases do
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          tag="${{ inputs.publish_tag }}"
+          [ -n "$tag" ] || tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
           mv assets/StageManagerForWindows.exe "assets/StageManagerForWindows.${version}.amd64.exe"
           mv "assets/stagemanagerforwindows-setup-${version}-amd64.exe" \
              "assets/StageManagerForWindows.Setup.${version}.amd64.exe"
+          {
+            echo "RELEASE_TAG=$tag"
+            echo "RELEASE_VERSION=$version"
+          } >> "$GITHUB_ENV"
 
       # A hand-written release-notes/<version>.md wins, which is how the notes
-      # stay Chinese and English; without one, GitHub lists what changed.
+      # stay Chinese and English; without one, GitHub lists what changed. A
+      # release that is already there keeps its notes: only its files change.
       - name: Publish the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          if [ -f "release-notes/${version}.md" ]; then
-            gh release create "$GITHUB_REF_NAME" assets/*.exe \
-              --title "$version" --notes-file "release-notes/${version}.md"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" assets/*.exe --clobber
+          elif [ -f "release-notes/${RELEASE_VERSION}.md" ]; then
+            gh release create "$RELEASE_TAG" assets/*.exe \
+              --title "$RELEASE_VERSION" --notes-file "release-notes/${RELEASE_VERSION}.md"
           else
-            gh release create "$GITHUB_REF_NAME" assets/*.exe \
-              --title "$version" --generate-notes
+            gh release create "$RELEASE_TAG" assets/*.exe \
+              --title "$RELEASE_VERSION" --generate-notes
           fi
