@@ -315,3 +315,30 @@ func TestRoomForDraggedCard(t *testing.T) {
 		t.Fatalf("let go: slots %v, order %v", slots, order)
 	}
 }
+
+// The card of the stage last left is marked, whichever way the stage
+// changed, and none is with the setting off.
+func TestMarksPreviousStage(t *testing.T) {
+	s, _, tt := testStrip(t)
+	if s.previous != "" {
+		t.Fatalf("%q marked before any switch", s.previous)
+	}
+	now := time.Now()
+	s.d.model.Strip([]string{"mail", "notes", "code"})
+	s.d.model.Switch([]string{"code"}, now)
+	s.d.model.Switch([]string{"notes"}, now)
+	tt.Frame()
+	if s.previous != "code" {
+		t.Fatalf("marked %q, want code", s.previous)
+	}
+	s.d.model.Switch([]string{"mail"}, now)
+	tt.Frame()
+	if s.previous != "notes" {
+		t.Fatalf("marked %q, want notes", s.previous)
+	}
+	s.a.settings.MarkPrevious = false
+	tt.Frame()
+	if s.previous != "" {
+		t.Fatalf("marked %q with the setting off", s.previous)
+	}
+}

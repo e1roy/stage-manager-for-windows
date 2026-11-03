@@ -530,6 +530,20 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 			}
 		})
 	})
+	// What the strip shows besides the cards: the windows on the stage,
+	// and which card is the stage last left.
+	f.section(c, "", func() {
+		f.row(c, tr.StageList, tr.StageListDesc, func() {
+			if ui.Switch(c, &sw.s.StageList).Changed() {
+				sw.apply()
+			}
+		})
+		f.row(c, tr.MarkPrevious, tr.MarkPreviousDesc, func() {
+			if ui.Switch(c, &sw.s.MarkPrevious).Changed() {
+				sw.apply()
+			}
+		})
+	})
 	sw.panelSection(c, f, tr)
 	sw.cornerSection(c, f, tr)
 	// The third way into the overview, after the panel and the corner.

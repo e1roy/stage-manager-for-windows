@@ -11,7 +11,8 @@ Stage Manager for Windows：在 Windows 10/11 上复刻 macOS“台前调度”�
 | 路径 | 状态 |
 | --- | --- |
 | `stage_mgr_go/` | **唯一在维护的实现**。纯 Go + [MyGo](https://github.com/egoist/mygo)，无 cgo、无 WebView。 |
-| `StageManager/`、`installer/`、`.github/workflows/`、`start-stagebar.bat` | 旧的 C# WPF 版，已从工作区删除（git 中为 staged deletion）。不要复活，也不要照着它改。 |
+| `StageManager/`、`installer/`、`start-stagebar.bat` | 旧的 C# WPF 版，已从工作区删除（git 中为 staged deletion）。不要复活，也不要照着它改。 |
+| `.github/workflows/ci.yml` | **Go 版的 CI**：push 到 `main` 和 PR 时跑 build / vet / `mygo vet` / test，再 `mygo build` 并把 exe 与安装包上传成 artifact。发布仍然手动做（见文末“打包”）。 |
 | `README.md`、`README.zh-CN.md`（根目录） | 面向用户：功能、安装、用法、已知问题、致谢（英文/中文两版，改功能时要一起改）。构建、架构与调试在 `stage_mgr_go/README.md`。 |
 | `其他项目参考代码/` | 第三方参考项目（StageManagerForWindows，C#），只读参考，**未纳入版本控制，不要 `git add`**。 |
 | `docs/CODEMAP.md` | **动手改代码前先读**：逐文件的符号表、核心数据结构、启动/刷新/切换/拖动/概览的流程、常见改动落点、调试与测试地图。 |
@@ -82,17 +83,19 @@ stage_mgr_go/
       flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
       pacer.go        按 DWM 合成节奏（DwmFlush）要帧，飞行层和概览用它代替 AnimationFrame
       strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透
-      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、底部概览面板
+      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、底部概览面板、上一个舞台的虚线框（`MarkPrevious`）
       layout.go       纯几何：卡片布局、窗口叠放、图标位置、右侧镜像（有单测）
       media.go        静帧（PrintWindow）与图标缓存、内存预算（Quality / LightFlights）
       iconfit.go      裁掉图标四周透明边
       peek.go         任务栏缩略图 peek 时临时放回被停放的窗口
+      lineup.go       舞台窗口列表：舞台有多个窗口时在侧边栏顶部列出它们的 DWM 实时缩略图（不用 PrintWindow），点击移到最前、悬停关闭、右键收进侧边栏；开关是 `StageList`
+      tint.go         舞台窗口列表小框的底色：从屏幕上该窗口的缩略图取色，排除黑/白/灰后按色相直方图找主色，标题栏/状态栏一带加权，再在 OKLCH 里压成同样深的底色（纯逻辑，有单测）
       overview.go     “所有窗口”概览（类 Mission Control）：侧边栏底部按钮打开，铺开本显示器所有窗口，点选切换舞台；Win+Tab 时每个显示器各开一个（与 Windows 任务视图一致），任意一个收起时全部收起
       corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览
       settingsview.go 设置窗口（通用/侧边栏/舞台/例外/关于 五个标签页）
       tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
       update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里查 GitHub，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点
-      *_test.go       无头测试：layout、stripview、set、corner、flights、iconfit、peek、update、snapshot
+      *_test.go       无头测试：layout、lineup、stripview、set、corner、flights、iconfit、peek、update、snapshot
 ```
 
 ## 核心流程：一次舞台切换
@@ -124,7 +127,7 @@ stage_mgr_go/
 
 ## 测试
 
-- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`set`、`corner`、`flights`、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
+- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`lineup`、`tint`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`set`、`corner`、`flights`、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
 - `catalog`、`parking`、飞行动画、窗口交接**没有自动化测试**，改动后需要手动验证：
   - 固定模式和浮动模式各切换几次，包括快速连点打断正在进行的切换；
   - 多显示器（不同 DPI）下切换、把窗口拖到另一台显示器、把窗口拖进侧边栏；
@@ -155,3 +158,5 @@ stage_mgr_go/
 ## 打包
 
 如无明确说明，发布时把 `stage_mgr_go/mygo.json` 的 `version` 加 `0.0.1`（最小递增），再 `go tool mygo build`。
+
+CI（`.github/workflows/ci.yml`）只负责把这两步跑一遍并留下 artifact，不会建 release：发布说明是中英双语的，资产名 `StageManagerForWindows.<版本>.amd64.exe` / `StageManagerForWindows.Setup.<版本>.amd64.exe` 也是手写的，别让 CI 代劳。

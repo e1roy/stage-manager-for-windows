@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
@@ -96,6 +97,16 @@ func TestSnapshots(t *testing.T) {
 		x, y := center(d.layout.cards[1])
 		tt.Move(x, y)
 	})
+	// Back from 画图 to Notepad, the card of 画图 is marked as the stage
+	// last left.
+	names := []string{}
+	for _, g := range groups {
+		names = append(names, g.app)
+	}
+	d.model.Strip(names)
+	d.model.Switch([]string{"画图"}, time.Now())
+	d.model.Switch([]string{"Notepad"}, time.Now())
+	shoot("strip-previous.png", s.view, 220, 1000, nil)
 	// The same strip on the right of its display, its mirror image.
 	a.settings.Sides = map[string]settings.Side{d.mon.Device: settings.Right}
 	shoot("strip-right.png", s.view, 220, 1000, nil)
@@ -136,6 +147,67 @@ func TestSnapshots(t *testing.T) {
 		tt.Move(center(footerButton(220, 1000, a.panel(), false)))
 	})
 	a.settings.PanelWidth, a.settings.PanelHeight = settings.Default().PanelWidth, settings.Default().PanelHeight
+	// A stage of several windows lists them at the top of the strip. DWM
+	// draws their pictures in the app; here their stills stand in.
+	var stage []*group
+	for i, ap := range []struct {
+		name   string
+		titles []string
+		aspect float64
+		hue    color.RGBA
+		bars   []color.RGBA
+	}{
+		// Two VS Code windows with title bars of their own colors take
+		// tiles of those colors; a page of black and white takes none.
+		{"Terminal", []string{"NewKing - jvm.g1_10001.options", "aoemai [SSH: devcloud]"}, 16.0 / 10, color.RGBA{24, 24, 30, 255},
+			[]color.RGBA{{196, 98, 30, 255}, {52, 84, 196, 255}}},
+		{"Edge", []string{"Stage Manager for Windows - GitHub"}, 16.0 / 9, color.RGBA{248, 248, 252, 255}, []color.RGBA{{248, 248, 252, 255}}},
+		{"Notes", []string{"会议记录 - 记事本"}, 0.75, color.RGBA{250, 246, 225, 255}, []color.RGBA{{250, 246, 225, 255}}},
+	} {
+		g := &group{app: ap.name, name: ap.name, z: i}
+		for j, title := range ap.titles {
+			w := catalog.Window{HWND: h, Title: title, App: ap.name, Z: len(stage) + j, Frame: winapi.Rect{Right: int32(1000 * ap.aspect), Bottom: 1000}}
+			// A dark editor of words in a few colors under its title bar.
+			img := window(ap.hue, ap.bars[j], 0.06,
+				color.RGBA{86, 156, 214, 255}, color.RGBA{206, 145, 120, 255}, color.RGBA{220, 220, 170, 255}, color.RGBA{200, 200, 200, 255})
+			if cr, cg, cb, ok := dominantColor(img); ok {
+				if s.line.tints == nil {
+					s.line.tints = map[winapi.HWND]lineTint{}
+				}
+				var t lineTint
+				t.bg, t.edge = tileTint(cr, cg, cb)
+				s.line.tints[h] = t
+			}
+			bmp := ui.NewBitmap(img)
+			a.media.stills[h] = &still{card: bmp, fly: bmp}
+			g.windows = append(g.windows, w)
+			h++
+		}
+		a.media.icons[ap.name] = ui.NewBitmap(fakeIcon(i + 2))
+		stage = append(stage, g)
+	}
+	d.onStage = stage[:2]
+	a.fg.prev = stage[0].windows[1].HWND
+	shoot("strip-lineup.png", s.view, 220, 1000, nil)
+	shoot("strip-lineup-hover.png", s.view, 220, 1000, func(tt *ui.Tester) {
+		tt.Move(center(layoutLineup(3, 220, 1000, false).tiles[2]))
+	})
+	a.settings.Sides = map[string]settings.Side{d.mon.Device: settings.Right}
+	shoot("strip-lineup-right.png", s.view, 220, 1000, nil)
+	a.settings.Sides = nil
+	// More windows than the list has room for, on a shorter display.
+	more := *stage[2]
+	for i := 0; i < 8; i++ {
+		w := more.windows[0]
+		w.HWND = h
+		a.media.stills[h] = a.media.stills[more.windows[0].HWND]
+		more.windows = append(more.windows, w)
+		h++
+	}
+	d.onStage = []*group{stage[0], stage[1], &more}
+	shoot("strip-lineup-many.png", s.view, 220, 760, nil)
+	d.onStage, a.fg.prev = nil, 0
+	s.line = lineup{}
 	// The overview of that display, spread out, the pointer on a window.
 	o := &overview{a: a, d: d, rect: d.mon.Work, scale: 1, phase: ovOpen, held: true, flying: true, spreadFrom: 1, spreadTo: 1}
 	var ws []catalog.Window

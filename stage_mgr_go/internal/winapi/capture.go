@@ -124,6 +124,39 @@ func Capture(h HWND, maxHeight int) *image.RGBA {
 	return img
 }
 
+// CaptureScreen copies what the screen shows in r, in pixels, as DWM
+// composed it: whatever windows are there, drawn as they are, without
+// asking any app to draw itself as Capture does. nil if it cannot. It may
+// wait for DWM's next frame: call it off the main thread.
+func CaptureScreen(r Rect) *image.RGBA {
+	if r.Empty() {
+		return nil
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	screen, _, _ := procGetDC.Call(0)
+	if screen == 0 {
+		return nil
+	}
+	defer procReleaseDC.Call(0, screen)
+	w, h := int(r.W()), int(r.H())
+	d := newDIB(w, h)
+	if d == nil {
+		return nil
+	}
+	defer d.free()
+	const srcCopy = 0x00CC0020
+	if ok, _, _ := procBitBlt.Call(d.dc, 0, 0, uintptr(w), uintptr(h), screen, int32ToUintptr(r.Left), int32ToUintptr(r.Top), srcCopy); ok == 0 {
+		return nil
+	}
+	src := d.pixels()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := 0; i < w*h; i++ {
+		img.Pix[i*4], img.Pix[i*4+1], img.Pix[i*4+2], img.Pix[i*4+3] = src[i*4+2], src[i*4+1], src[i*4], 255
+	}
+	return img
+}
+
 type iconInfo struct {
 	FIcon    int32
 	XHotspot uint32

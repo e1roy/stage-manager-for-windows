@@ -143,6 +143,17 @@ type Settings struct {
 	// Sides puts the strip of some displays on their right, by device
 	// name. Displays not listed keep it on the left.
 	Sides map[string]Side `json:"sides,omitempty"`
+	// StageList lists the windows on a display's stage at the top of its
+	// strip, as small live pictures, once the stage has more than one:
+	// macOS shows only the app in front, and a window behind another is
+	// out of sight and mind. It is on unless turned off, settings from
+	// before it included.
+	StageList bool `json:"stageList"`
+	// MarkPrevious outlines in dashes the card of the stage last left:
+	// back from a detour to another app, the user sees at once what they
+	// were in the middle of. It is on unless turned off, settings from
+	// before it included.
+	MarkPrevious bool `json:"markPrevious"`
 	// Language of the words shown; Auto follows Windows.
 	Language i18n.Lang `json:"language,omitempty"`
 }
@@ -191,6 +202,8 @@ func Default() Settings {
 		Quality:            Low,
 		LightFlights:       true,
 		CheckUpdates:       true,
+		StageList:          true,
+		MarkPrevious:       true,
 		// TortoiseSVN's and TortoiseGit's dialogs all come from these.
 		Companions: []string{"tortoiseproc", "tortoisegitproc"},
 	}

@@ -45,6 +45,12 @@ type strip struct {
 	edgeSince    time.Time // when the pointer came to the strip's edge
 	hits         []ui.Rect // the cards, in DIPs of the window, as last drawn
 	footerHit    ui.Rect   // the band the overview's button shows in, likewise
+	lineupHit    ui.Rect   // the list of the stage's windows, likewise
+	// previous is the first app of the set the stage last left, whose
+	// card is marked, as the view last found it; "" for none.
+	previous string
+	// line is the list of the windows on the stage (lineup.go).
+	line lineup
 	// near is how far the overview's panel shows as the pointer comes
 	// near it, 0 to 1. The poll measures it everywhere on the display,
 	// where the strip lets the pointer through and so hears nothing of it.
@@ -195,6 +201,10 @@ func (s *strip) message(msg uint32, wParam, lParam uintptr) (uintptr, bool) {
 // strip under it takes nothing.
 func (s *strip) poll(cur winapi.Point, now time.Time) {
 	inside := s.visible && !s.d.inOverview && s.rect.Contains(cur) && s.over(cur)
+	// The list of the stage's windows takes the pointer as the cards do,
+	// but brings no switch: its windows are on the stage already, and are
+	// left undisturbed by captures.
+	onList := s.visible && !s.d.inOverview && s.rect.Contains(cur) && s.overLineup(cur)
 	if inside && !s.wasInside && s.a.cardDrag == nil && !s.a.busy {
 		// The pointer reached the cards: a switch may follow, so the
 		// windows on the stage get fresh stills to fly with now. Not while
@@ -225,7 +235,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 			s.edgeSince = time.Time{}
 			// A window dragged over a strip that is out keeps it out,
 			// for the window to be dropped in.
-			if inside || s.shown && s.a.drag != nil && s.rect.Contains(cur) {
+			if inside || onList || s.shown && s.a.drag != nil && s.rect.Contains(cur) {
 				s.lastInside = now
 			}
 		}
@@ -253,7 +263,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 	// moves of a drag would go to the windows below.
 	if !winapi.LeftButtonDown() {
 		s.holding = false
-	} else if inside {
+	} else if inside || onList {
 		s.holding = true
 	}
 	// While it shows, the window takes the pointer over its whole band, not
@@ -263,7 +273,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 	// While the overview shows, it takes nothing, as the cards it shows do
 	// not: the overview's window is what the pointer is on.
 	band := s.visible && s.shown && !s.d.inOverview && s.rect.Contains(cur)
-	s.setClickThrough(!(band || inside || s.dragging || s.holding))
+	s.setClickThrough(!(band || inside || onList || s.dragging || s.holding))
 	s.approach(cur)
 }
 
@@ -378,6 +388,7 @@ func (s *strip) toScreen(r ui.Rect) (x, y, w, h float64) {
 }
 
 func (s *strip) close() {
+	s.dropThumbs()
 	s.bar.Remove()
 	winapi.Unsubclass(s.hwnd)
 	s.win.Destroy()

@@ -75,6 +75,7 @@ var (
 	procDeleteDC           = gdi32.NewProc("DeleteDC")
 	procGetDIBits          = gdi32.NewProc("GetDIBits")
 	procGetObjectW         = gdi32.NewProc("GetObjectW")
+	procBitBlt             = gdi32.NewProc("BitBlt")
 	procStretchBlt         = gdi32.NewProc("StretchBlt")
 	procSetStretchBltMode  = gdi32.NewProc("SetStretchBltMode")
 	procSetBrushOrgEx      = gdi32.NewProc("SetBrushOrgEx")

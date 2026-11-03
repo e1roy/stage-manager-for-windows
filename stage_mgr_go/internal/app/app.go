@@ -194,8 +194,8 @@ type App struct {
 	latest      update.Release
 	checking    bool
 	checkFailed bool
-	dotted   []byte
-	dotIcon  *mygo.MenuIcon
+	dotted      []byte
+	dotIcon     *mygo.MenuIcon
 	// panelUntil is when the strips stop showing the overview's panel
 	// after the settings sized it.
 	panelUntil time.Time
@@ -816,9 +816,12 @@ func (a *App) applySettings(s settings.Settings) {
 	}
 	// syncDisplays below moves a strip to its new side; its cards turn the
 	// other way as it draws again. The panel's size moves the cards too,
-	// and the accent is drawn on the panels and the corner button.
+	// as the list of the stage's windows does, and the accent is drawn on
+	// the panels, the corner button and that list. The mark of the stage
+	// last left is drawn on its card.
 	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || !maps.Equal(old.Sides, s.Sides) ||
-		old.PanelWidth != s.PanelWidth || old.PanelHeight != s.PanelHeight || old.Accent != s.Accent {
+		old.PanelWidth != s.PanelWidth || old.PanelHeight != s.PanelHeight || old.Accent != s.Accent ||
+		old.StageList != s.StageList || old.MarkPrevious != s.MarkPrevious {
 		a.redraw()
 	}
 	if old.Accent != s.Accent && a.hint != nil && a.hint.visible {
