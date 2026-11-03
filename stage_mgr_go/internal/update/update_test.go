@@ -37,15 +37,25 @@ func TestLatest(t *testing.T) {
 			http.Error(w, "no user agent", http.StatusForbidden)
 			return
 		}
-		w.Write([]byte(`{"tag_name": "v0.2.14", "html_url": "https://example.com/releases/tag/v0.2.14", "draft": false}`))
+		switch r.URL.Path {
+		case "/bom":
+			// What PowerShell's Set-Content writes, with Windows' line end.
+			w.Write([]byte("\xef\xbb\xbf0.2.14\r\n"))
+		case "/prefixed":
+			w.Write([]byte("v0.2.14\n"))
+		default:
+			w.Write([]byte("0.2.14\n"))
+		}
 	}))
 	defer srv.Close()
-	r, err := Latest(context.Background(), srv.URL, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Version != "0.2.14" || r.URL != "https://example.com/releases/tag/v0.2.14" {
-		t.Fatalf("got %+v", r)
+	for _, path := range []string{"/plain", "/bom", "/prefixed"} {
+		r, err := Latest(context.Background(), srv.URL+path, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if r.Version != "0.2.14" || r.URL != ReleasesURL {
+			t.Errorf("%s: got %+v", path, r)
+		}
 	}
 }
 
@@ -54,12 +64,14 @@ func TestLatestFails(t *testing.T) {
 		switch r.URL.Path {
 		case "/limited":
 			http.Error(w, "rate limited", http.StatusForbidden)
+		case "/missing":
+			http.NotFound(w, r)
 		default:
-			w.Write([]byte(`{"tag_name": "nightly"}`))
+			w.Write([]byte("<html>sign in to the network</html>"))
 		}
 	}))
 	defer srv.Close()
-	for _, path := range []string{"/limited", "/nightly"} {
+	for _, path := range []string{"/limited", "/missing", "/page"} {
 		if r, err := Latest(context.Background(), srv.URL+path, nil); err == nil {
 			t.Errorf("%s: got %+v, want an error", path, r)
 		}

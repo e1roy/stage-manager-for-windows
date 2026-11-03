@@ -39,7 +39,7 @@ Only the app you're using stays on the desktop. Everything else shrinks into car
 - Overview of every window on a display: click one to switch, or hover it to close it. Win+Tab opens it on every display at once, as Task View does, and so does a button over the display's bottom-left corner. With the strip on the left, that button and the panel at the bottom of the strip join into one big rounded button, flush with the screen's left and bottom edges, that lights up as one. The panel is frosted glass: its opacity and how much it blurs what is behind it are in the settings.
 - Drag a window to another monitor and it joins the stage there.
 - Drag a card up or down to reorder the strip, or into another monitor's strip to move the app there without opening it.
-- Fixed or floating strip, per monitor, with adjustable width, icons, spacing and tilt.
+- Fixed or floating strip, per monitor, with adjustable width, icons, spacing, card position and tilt; the cards can sit lower than the middle, nearer to hand.
 - Right-click a card to switch to it, join the stage, split a group, close its windows, or make its app a companion.
 - Companions: tools you open beside an app (say, a commit dialog) join the stage instead of taking it.
 - Nothing gets lost: quitting, crashing or signing out puts every window back, and a taskbar thumbnail peek brings one home for a moment.
@@ -61,10 +61,10 @@ Works on Windows 10 and 11 (64-bit).
 - **See the stage's windows**: the numbered thumbnails at the top of the strip list every window on the stage. Click one to bring it forward, hover to close it, right-click to send its app to the strip.
 - **Close an app from the strip**: hover a card and click the round × at its top right; a card of several apps closes all of their windows.
 - **Two apps at once**: drag a card onto the desktop, or Shift-click it.
-- **Settings**: left-click the tray icon. Choose whether the strip is Fixed (always takes its edge) or Floating (hides when covered, comes back when you push the mouse to that edge), put it on the left or the right of each display, turn a display's strip off, and adjust width, icon size, spacing, tilt, flight speed and quality, language and launch at login.
+- **Settings**: left-click the tray icon. Choose whether the strip is Fixed (always takes its edge) or Floating (hides when covered, comes back when you push the mouse to that edge), put it on the left or the right of each display, turn a display's strip off, and adjust width, icon size, spacing, how far down the cards sit, tilt, flight speed and quality, language and launch at login.
 - **Split a group**: right-click its card.
 - **Restart / Quit**: right-click the tray icon → Restart or Quit. Both put every window back first; Restart then starts Stage Manager again.
-- **Updates**: Stage Manager checks GitHub for a new release every few hours. When one is out, a red dot appears on the tray icon and on Settings → About; click "Download" there, or the first item of the tray menu, to open the release page. Turn it off in Settings → About.
+- **Updates**: Stage Manager checks GitHub for a new release every few hours, and Settings → About shows the local version next to the latest one. When a newer one is out, a red dot appears on the tray icon and on Settings → About; click "Download" there, or the first item of the tray menu, to open the release page. Turn it off in Settings → About.
 
 ## Known issues
 

@@ -12,7 +12,7 @@ import (
 var defPanel = panel{share: float32(settings.Default().PanelWidth), h: float32(settings.Default().PanelHeight)}
 
 func TestStripFitsAndCenters(t *testing.T) {
-	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, 0, false)
+	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, 0, 0.5, false)
 	if l.scale != 1 || len(l.cards) != 3 {
 		t.Fatalf("scale %v cards %d", l.scale, len(l.cards))
 	}
@@ -23,7 +23,7 @@ func TestStripFitsAndCenters(t *testing.T) {
 }
 
 func TestStripShrinksThenScrolls(t *testing.T) {
-	l := layoutStrip(8, 200, 900, 0, 20, defPanel, 0, false)
+	l := layoutStrip(8, 200, 900, 0, 20, defPanel, 0, 0.5, false)
 	if l.scale >= 1 || l.scale < minCardScale {
 		t.Fatalf("scale %v", l.scale)
 	}
@@ -31,11 +31,11 @@ func TestStripShrinksThenScrolls(t *testing.T) {
 	if last.Y+last.H > 900-stripMargin+0.5 {
 		t.Fatalf("last card ends at %v", last.Y+last.H)
 	}
-	many := layoutStrip(40, 200, 900, 0, 20, defPanel, 0, false)
+	many := layoutStrip(40, 200, 900, 0, 20, defPanel, 0, 0.5, false)
 	if many.scale != minCardScale || many.maxScroll(900) <= 0 {
 		t.Fatalf("scale %v max scroll %v", many.scale, many.maxScroll(900))
 	}
-	scrolled := layoutStrip(40, 200, 900, 100, 20, defPanel, 0, false)
+	scrolled := layoutStrip(40, 200, 900, 100, 20, defPanel, 0, 0.5, false)
 	if scrolled.cards[0].Y != many.cards[0].Y-100 {
 		t.Fatalf("scroll moved the first card from %v to %v", many.cards[0].Y, scrolled.cards[0].Y)
 	}
@@ -84,14 +84,14 @@ func TestCardsKeepClearOfFooter(t *testing.T) {
 			t.Fatalf("band %+v stops short of the strip's bottom %v", band, height)
 		}
 		for _, n := range []int{1, 5, 8, 40} {
-			l := layoutStrip(n, 200, height, 0, 20, p, 0, false)
-			at := layoutStrip(n, 200, height, l.maxScroll(height), 20, p, 0, false)
+			l := layoutStrip(n, 200, height, 0, 20, p, 0, 0.5, false)
+			at := layoutStrip(n, 200, height, l.maxScroll(height), 20, p, 0, 0.5, false)
 			last := at.cards[n-1]
 			if last.Y+last.H > band.Y {
 				t.Fatalf("%v, %d cards: the last ends at %v, in the footer from %v", p, n, last.Y+last.H, band.Y)
 			}
 		}
-		cards := layoutStrip(1, 200, height, 0, 20, p, 0, false).cards[0]
+		cards := layoutStrip(1, 200, height, 0, 20, p, 0, 0.5, false).cards[0]
 		if d := (button.X + button.W/2) - (cards.X + cards.W/2); d > 0.01 || d < -0.01 {
 			t.Fatalf("panel %+v is not centered under the cards %+v", button, cards)
 		}
@@ -182,7 +182,7 @@ func TestPanelComesInAsPointerNears(t *testing.T) {
 }
 
 func TestStripGap(t *testing.T) {
-	near, far := layoutStrip(3, 200, 1000, 0, 0, defPanel, 0, false), layoutStrip(3, 200, 1000, 0, 60, defPanel, 0, false)
+	near, far := layoutStrip(3, 200, 1000, 0, 0, defPanel, 0, 0.5, false), layoutStrip(3, 200, 1000, 0, 60, defPanel, 0, 0.5, false)
 	if d := far.extent - near.extent; d < 59.5 || d > 60.5 {
 		t.Fatalf("a gap of 60 more set cards %v further apart", d)
 	}
@@ -194,7 +194,7 @@ func TestStripGap(t *testing.T) {
 func TestRightMirrorsLeft(t *testing.T) {
 	const width = 200
 	near := func(a, b float32) bool { return a-b < 0.01 && b-a < 0.01 }
-	l, r := layoutStrip(3, width, 1000, 0, 20, defPanel, 0, false), layoutStrip(3, width, 1000, 0, 20, defPanel, 0, true)
+	l, r := layoutStrip(3, width, 1000, 0, 20, defPanel, 0, 0.5, false), layoutStrip(3, width, 1000, 0, 20, defPanel, 0, 0.5, true)
 	for i := range l.cards {
 		lc, rc := l.cards[i], r.cards[i]
 		if !near(rc.X, width-lc.X-lc.W) || rc.Y != lc.Y || rc.W != lc.W {
@@ -223,7 +223,7 @@ func TestRightMirrorsLeft(t *testing.T) {
 }
 
 func TestSlotAt(t *testing.T) {
-	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, 0, false)
+	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, 0, 0.5, false)
 	c := l.cards
 	for _, tc := range []struct {
 		y    float32
@@ -262,7 +262,7 @@ func TestMakeRoom(t *testing.T) {
 			t.Errorf("%s: slots %v of %d, want %v of %d", tc.name, slots, total, tc.slots, tc.total)
 		}
 	}
-	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, 0, false)
+	l := layoutStrip(3, 200, 1000, 0, 20, defPanel, 0, 0.5, false)
 	c := l.cards
 	if got := l.nearestSlot(c[2].Y + c[2].H/2 + 30); got != 2 {
 		t.Fatalf("nearest slot %d", got)
@@ -272,7 +272,7 @@ func TestMakeRoom(t *testing.T) {
 // The mark of the stage last left keeps out from every window of its card,
 // and inside the strip, whose cards keep stripPadLeft from its edge.
 func TestMarkAroundStack(t *testing.T) {
-	card := layoutStrip(1, 200, 900, 0, 20, defPanel, 0, false).cards[0]
+	card := layoutStrip(1, 200, 900, 0, 20, defPanel, 0, 0.5, false).cards[0]
 	stack := stackWindows(card, []float64{1.6, 1.2, 1.6}, false)
 	r, radius := markRect(stack)
 	for i, w := range stack {

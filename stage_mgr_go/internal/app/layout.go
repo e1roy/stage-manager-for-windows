@@ -76,8 +76,9 @@ type stripLayout struct {
 }
 
 // head is how far from the top the cards keep clear of the list of the
-// stage's windows (layoutLineup), 0 with none.
-func layoutStrip(n int, width, height, scroll, gap float32, p panel, head float32, right bool) stripLayout {
+// stage's windows (layoutLineup), 0 with none, and at is where the middle of
+// the cards goes, as a share of the way down (settings.CardsAt).
+func layoutStrip(n int, width, height, scroll, gap float32, p panel, head, at float32, right bool) stripLayout {
 	pw := max(width-stripPadLeft-stripPadRight, 40)
 	ph := min(pw*0.66, 172)
 	extent := ph + gap
@@ -94,9 +95,17 @@ func layoutStrip(n int, width, height, scroll, gap float32, p panel, head float3
 	l := stripLayout{scale: s, extent: extent * s}
 	total := float32(n)*extent*s - gap*s
 	l.content = total + top + stripMargin + foot
-	// Centered on the display, as on macOS, unless that reaches the list
-	// or the band.
-	y0 := max(min((height-total)/2, bottom-total), top)
+	// The cards' middle goes at of the way down the strip, between its
+	// margins: at 0.5 they are centered on the display, as on macOS, and
+	// lower they are nearer to hand. Should that come within a card's
+	// distance of the list, they go down as far as keeps that distance, but
+	// no further than at of the way down the room below the list, so as not
+	// to leave the top bare instead. Few cards, or a short list, leave the
+	// cards where they are as the list comes and goes; when they do move,
+	// they slide there (cardMotion). Nor do they reach the band.
+	down := func(from float32) float32 { return from + at*(height-stripMargin-from) - total/2 }
+	clear := min(top+l.extent, down(top))
+	y0 := max(min(max(down(stripMargin), clear), bottom-total), top)
 	if total > avail {
 		y0 = top - scroll
 	}

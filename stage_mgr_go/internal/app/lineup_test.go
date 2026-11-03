@@ -3,6 +3,7 @@ package app
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
@@ -51,7 +52,7 @@ func TestLineupFits(t *testing.T) {
 func TestCardsKeepBelowLineup(t *testing.T) {
 	line := layoutLineup(3, 200, 1000, false)
 	for _, n := range []int{1, 3, 12} {
-		l := layoutStrip(n, 200, 1000, 0, 20, defPanel, line.extent, false)
+		l := layoutStrip(n, 200, 1000, 0, 20, defPanel, line.extent, 0.5, false)
 		if l.cards[0].Y < line.box.Y+line.box.H {
 			t.Fatalf("%d cards start at %v, in the list ending at %v", n, l.cards[0].Y, line.box.Y+line.box.H)
 		}
@@ -62,8 +63,130 @@ func TestCardsKeepBelowLineup(t *testing.T) {
 		}
 	}
 	// With no list, a strip is laid out as it was before there was one.
-	if a, b := layoutStrip(3, 200, 1000, 0, 20, defPanel, 0, false), layoutStrip(3, 200, 1000, 0, 20, defPanel, stripMargin, false); !slices.Equal(a.cards, b.cards) {
+	if a, b := layoutStrip(3, 200, 1000, 0, 20, defPanel, 0, 0.5, false), layoutStrip(3, 200, 1000, 0, 20, defPanel, stripMargin, 0.5, false); !slices.Equal(a.cards, b.cards) {
 		t.Fatalf("cards moved for a list that is not there: %v %v", a.cards, b.cards)
+	}
+}
+
+// Below a list, the cards stay centered on the display while that keeps
+// them a card's distance from it. Nearer, they go down only as far as keeps
+// that distance, and never past the middle of the room below the list.
+func TestCardsKeepDistanceFromLineup(t *testing.T) {
+	const height = 1000
+	// One card under a list of two windows is well clear of it: it stays.
+	if l, bare := layoutStrip(1, 200, height, 0, 20, defPanel, layoutLineup(2, 200, height, false).extent, 0.5, false), layoutStrip(1, 200, height, 0, 20, defPanel, 0, 0.5, false); !slices.Equal(l.cards, bare.cards) {
+		t.Fatalf("a card moved for a short list: %v, %v with none", l.cards, bare.cards)
+	}
+	moved := 0
+	for windows := 2; windows <= 6; windows++ {
+		line := layoutLineup(windows, 200, height, false)
+		for n := 1; n <= 5; n++ {
+			l := layoutStrip(n, 200, height, 0, 20, defPanel, line.extent, 0.5, false)
+			if l.maxScroll(height) > 0 {
+				continue
+			}
+			bare := layoutStrip(n, 200, height, 0, 20, defPanel, 0, 0.5, false)
+			y, was := l.cards[0].Y, bare.cards[0].Y
+			last := l.cards[n-1]
+			above := y - line.extent
+			below := height - stripMargin - (last.Y + last.H)
+			atBand := last.Y+last.H > height-stripMargin-defPanel.h-footerInset-0.5
+			switch {
+			case y < was-0.5:
+				t.Fatalf("%d cards under %d windows went up, from %v to %v", n, windows, was, y)
+			case y > was+0.5:
+				moved++
+				if above > l.extent+0.5 && !atBand && above > below+0.5 {
+					t.Fatalf("%d cards under %d windows went past the middle below it: %v above, %v below", n, windows, above, below)
+				}
+			case above < l.extent-0.5 && above < below-0.5:
+				t.Fatalf("%d cards under %d windows stayed %v from it, nearer than %v", n, windows, above, l.extent)
+			}
+		}
+	}
+	if moved == 0 {
+		t.Fatal("no list moved the cards")
+	}
+	// Short of room below the list, they keep clear of the panel's band.
+	l := layoutStrip(5, 200, 700, 0, 20, defPanel, layoutLineup(3, 200, 700, false).extent, 0.5, false)
+	if last := l.cards[4]; last.Y+last.H > 700-stripMargin-defPanel.h-footerInset+0.5 {
+		t.Fatalf("the last card reaches the panel: %v", last)
+	}
+}
+
+// The cards' middle goes as far down the strip as the setting says; below
+// a list, no further than as far down the room below it.
+func TestCardsAt(t *testing.T) {
+	const height = 1000
+	middle := func(l stripLayout) float32 {
+		last := l.cards[len(l.cards)-1]
+		return (l.cards[0].Y + last.Y + last.H) / 2
+	}
+	prev := float32(0)
+	for _, at := range []float32{0.3, 0.5, 0.7} {
+		l := layoutStrip(2, 200, height, 0, 20, defPanel, 0, at, false)
+		want := stripMargin + at*(height-2*stripMargin)
+		if m := middle(l); m < want-0.5 || m > want+0.5 || m <= prev {
+			t.Fatalf("cards at %v have their middle at %v, want %v", at, m, want)
+		}
+		prev = middle(l)
+	}
+	// Under a long list, the cards keep a card's distance from it, but go no
+	// further down than the setting takes them in the room below it.
+	line := layoutLineup(6, 200, height, false)
+	for _, at := range []float32{0.3, 0.5, 0.7} {
+		l := layoutStrip(2, 200, height, 0, 20, defPanel, line.extent, at, false)
+		room := line.extent + at*(height-stripMargin-line.extent)
+		if m := middle(l); m > room+0.5 {
+			t.Fatalf("cards at %v under a list have their middle at %v, past %v", at, m, room)
+		}
+		if bare := layoutStrip(2, 200, height, 0, 20, defPanel, 0, at, false); l.cards[0].Y < bare.cards[0].Y-0.5 {
+			t.Fatalf("cards at %v went up for a list: %v from %v", at, l.cards[0].Y, bare.cards[0].Y)
+		}
+	}
+	// However low, they keep clear of the panel's band.
+	l := layoutStrip(4, 200, 800, 0, 20, defPanel, 0, 0.7, false)
+	if last := l.cards[3]; last.Y+last.H > 800-stripMargin-defPanel.h-footerInset+0.5 {
+		t.Fatalf("the last card reaches the panel: %v", last)
+	}
+}
+
+// As a long list comes in, the cards slide down out of its way rather than
+// jump.
+func TestCardsSlideForLineup(t *testing.T) {
+	s, _, tt := testStrip(t)
+	// The lowest row the last card covers, down its middle.
+	bottom := func() int {
+		img := tt.Image()
+		last := s.d.layout.cards[len(s.d.layout.cards)-1]
+		x := int(last.X + last.W/2)
+		for y := img.Bounds().Max.Y - 1; y >= 0; y-- {
+			if img.RGBAAt(x, y).A > 60 {
+				return y
+			}
+		}
+		return -1
+	}
+	from, was := bottom(), s.d.layout.cards[1].Y
+	for i, app := range []string{"code", "chrome", "term", "paint"} {
+		w := catalog.Window{HWND: winapi.HWND(10 + i), App: app, Frame: winapi.Rect{Right: 1600, Bottom: 1000}}
+		s.d.onStage = append(s.d.onStage, &group{app: app, name: app, windows: []catalog.Window{w}})
+	}
+	tt.Frame()
+	shift := s.d.layout.cards[1].Y - was
+	if shift < 20 {
+		t.Fatalf("the cards moved %v for the list", shift)
+	}
+	if at := bottom(); at != from {
+		t.Fatalf("the last card jumped from %d to %d", from, at)
+	}
+	tt.Advance(30 * time.Millisecond)
+	if at := bottom(); at <= from || float32(at-from) >= shift-1 {
+		t.Fatalf("the last card at %d on its way from %d, %v down", at, from, shift)
+	}
+	tt.Advance(time.Second)
+	if at := bottom(); float32(at-from) < shift-1 || float32(at-from) > shift+1 {
+		t.Fatalf("the last card at %d once there, from %d, %v down", at, from, shift)
 	}
 }
 
@@ -189,7 +312,7 @@ func TestLineupOff(t *testing.T) {
 	if s.lineupHit.W != 0 || len(s.line.order) != 0 {
 		t.Fatalf("a list turned off shows at %v with %v", s.lineupHit, s.line.order)
 	}
-	if want := layoutStrip(2, 200, 900, 0, 20, defPanel, 0, false); !slices.Equal(s.d.layout.cards, want.cards) {
+	if want := layoutStrip(2, 200, 900, 0, 20, defPanel, 0, 0.5, false); !slices.Equal(s.d.layout.cards, want.cards) {
 		t.Fatalf("cards %v, want %v", s.d.layout.cards, want.cards)
 	}
 }

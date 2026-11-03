@@ -42,16 +42,23 @@ jobs:
           go-version-file: stage_mgr_go/go.mod
           cache-dependency-path: stage_mgr_go/go.sum
 
-      # The tag names the release; mygo.json names the version the exe
-      # reports, and its setup file. They must not drift.
-      - name: Check the tag against mygo.json
-        if: startsWith(github.ref, 'refs/tags/')
+      # mygo.json names the version the exe reports, and its setup file;
+      # .version at the root is what running copies read to learn the latest
+      # version (internal/update). They must not drift, nor the tag from them.
+      - name: Check .version and the tag against mygo.json
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}".TrimStart('v')
           $version = (Get-Content mygo.json -Raw | ConvertFrom-Json).version
-          if ($tag -ne $version) {
-            throw "Tag $tag does not match version $version in mygo.json: bump it, commit, and tag again."
+          # PowerShell 5 writes files with a byte order mark; the app skips it, so do we.
+          $file = (Get-Content ../.version -Raw).Trim([char]0xFEFF).Trim()
+          if ($file -ne $version) {
+            throw ".version says $file but mygo.json says $version: change them together."
+          }
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}".TrimStart('v')
+            if ($tag -ne $version) {
+              throw "Tag $tag does not match version $version in mygo.json: bump it, commit, and tag again."
+            }
           }
 
       # What AGENTS.md requires before a commit, in the same order.

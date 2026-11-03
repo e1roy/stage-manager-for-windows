@@ -98,20 +98,20 @@ func (s *strip) view(c *ui.Context) {
 		defer func() { s.frames.built(time.Since(t0)) }()
 	}
 	right := s.right()
-	gap, p := float32(a.settings.Spacing), a.panel()
+	gap, p, at := float32(a.settings.Spacing), a.panel(), float32(a.settings.CardsAt)
 	// The cards keep below the list of the stage's windows.
 	staged := s.stageWindows()
 	line := layoutLineup(len(staged), w, h, right)
-	l := layoutStrip(len(d.sets), w, h, d.scroll, gap, p, line.extent, right)
+	l := layoutStrip(len(d.sets), w, h, d.scroll, gap, p, line.extent, at, right)
 	if d.scroll > l.maxScroll(h) {
 		d.scroll = l.maxScroll(h)
-		l = layoutStrip(len(d.sets), w, h, d.scroll, gap, p, line.extent, right)
+		l = layoutStrip(len(d.sets), w, h, d.scroll, gap, p, line.extent, at, right)
 	}
 	d.layout = l
 	slots, n, order := s.room()
 	shown := l
 	if n != len(d.sets) {
-		shown = layoutStrip(n, w, h, d.scroll, gap, p, line.extent, right)
+		shown = layoutStrip(n, w, h, d.scroll, gap, p, line.extent, at, right)
 	}
 
 	root := ui.Box(c).Absolute().Left(0).Top(0).Size(w, h)

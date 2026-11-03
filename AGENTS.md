@@ -13,6 +13,7 @@ Stage Manager for Windows：在 Windows 10/11 上复刻 macOS“台前调度”�
 | `stage_mgr_go/` | **唯一在维护的实现**。纯 Go + [MyGo](https://github.com/egoist/mygo)，无 cgo、无 WebView。 |
 | `StageManager/`、`installer/`、`start-stagebar.bat` | 旧的 C# WPF 版，已从工作区删除（git 中为 staged deletion）。不要复活，也不要照着它改。 |
 | `.github/workflows/ci.yml` | **Go 版的 CI**：push 到 `main`、PR、手动触发时跑 build / vet / `mygo vet` / test，再 `mygo build` 并把 exe 与安装包留成 artifact；**推版本 tag 时自动发 release**（见文末“打包”）。 |
+| `.version`（根目录） | 一行版本号（如 `0.2.16`），运行中的应用靠读它的 raw 文件知道最新版本（`update.VersionURL`）。**每次发版必须和 `mygo.json` 的 `version` 一起改**，CI 会核对。 |
 | `release-notes/<版本>.md` | 该版本的发布说明，中英双语。有它 `gh release create --notes-file` 就用它，没有则由 CI 自动生成。 |
 | `README.md`、`README.zh-CN.md`（根目录） | 面向用户：功能、安装、用法、已知问题、致谢（英文/中文两版，改功能时要一起改）。构建、架构与调试在 `stage_mgr_go/README.md`。 |
 | `其他项目参考代码/` | 第三方参考项目（StageManagerForWindows，C#），只读参考，**未纳入版本控制，不要 `git add`**。 |
@@ -74,7 +75,7 @@ stage_mgr_go/
     stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）
     settings/  设置读取、归一化、原子保存（有单测）
     i18n/      界面文字：简体中文、繁体中文、英文、日文各一张 Strings 表，FromLANGID 把 Windows 显示语言映射过来（有单测）
-    update/    向 GitHub 查询最新 release（`Latest`）、比较版本号（`Newer`），只读不安装；proxy.go 解析 Windows 系统代理（v2rayN、Clash 设的那种），代理连不上时直连（有单测）
+    update/    读 GitHub 上 `main` 的 `.version` raw 文件得到最新版本（`Latest`，不走 api.github.com，它对同一 IP 每小时只给 60 次）、比较版本号（`Newer`），只读不安装；proxy.go 解析 Windows 系统代理（v2rayN、Clash 设的那种），代理连不上时直连（有单测）
     app/       Stage Manager for Windows 本体，全部运行在 MyGo 主线程
       app.go          App/display/group/set 结构、Start、显示器同步、refresh、初始舞台、游离/逃逸窗口
       events.go       WinEvent 处理、前台跟随、点击壁纸、指针轮询、Win+Tab 打开概览
@@ -96,7 +97,7 @@ stage_mgr_go/
       glass.go        概览面板（及合体的触发角）的毛玻璃：面板从看不见到出现的那一刻，在 goroutine 里 `CaptureScreen` 截下按钮后面的屏幕，缩小后做三次盒式模糊（近似高斯，耗时与半径无关），面板和触发角各画它的一段；不透明度与模糊半径是设置项 `PanelOpacity` / `PanelBlur`（纯算法有单测）
       settingsview.go 设置窗口（通用/侧边栏/舞台/例外/关于 五个标签页）
       tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
-      update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里查 GitHub，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点
+      update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `.version`，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点，页面同时显示本地版本和最新版本（`a.published`）
       *_test.go       无头测试：layout、lineup、stripview、set、corner、flights、iconfit、peek、update、snapshot
 ```
 
@@ -169,8 +170,16 @@ git tag 0.2.15
 git push origin 0.2.15
 ```
 
+**发版要同时改两处：`stage_mgr_go/mygo.json` 的 `version` 和根目录的 `.version`**（只有版本号一行，如 `0.2.15`），放在同一个提交里。应用检查更新读的是 `main` 上的 `.version`，所以它一到 `main` 用户就会看到“有新版本”，而安装包要等 CI 发完 release 才有。推荐顺序：先只推 tag（`git push origin 0.2.15`，这会带上它指向的提交，但不动 `main`），等 release 发出来，再 `git push origin main`。
+
 CI（`.github/workflows/ci.yml`）会 build / vet / test、`mygo build` 打包，再把两份产物按 `StageManagerForWindows.<版本>.amd64.exe` / `StageManagerForWindows.Setup.<版本>.amd64.exe` 命名，用 `release-notes/<版本>.md` 作说明发成 release。
 
-- tag 必须和 `mygo.json` 的 `version` 一致，否则 CI 直接失败（`0.2.15` 和 `v0.2.15` 都认；已有 release 用的是不带 `v` 的）。
+- `.version`、`mygo.json` 的 `version` 和 tag 三者必须一致，否则 CI 直接失败（前两者每次 push 都核对，tag 只在推 tag 时核对）（`0.2.15` 和 `v0.2.15` 都认；已有 release 用的是不带 `v` 的）。
 - 没写 `release-notes/<版本>.md` 也能发，只是说明退化成 GitHub 自动生成的英文条目，发完手改一下即可。
 - 不想发版、只想打包：push 到 `main`、开 PR 或者手动 `workflow_dispatch`，产物在 run 的 artifact 里。
+
+
+## 设计原则
+
+- Avoid unnecessary secondary labels anddescriptions. Let the layout do the explaining. 避免不必要的次级标签和描述。让布局本身来说明。
+
