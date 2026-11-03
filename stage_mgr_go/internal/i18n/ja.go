@@ -126,6 +126,8 @@ var ja = Strings{
 	StageListMore:    "ほか %d 個 (クリックですべて表示)",
 	BringToFront:     "最前面に表示",
 	SendToStrip:      "サイドバーに移す",
+	AllStages:        "サイドバーにすべてのステージを表示（現在のものも含む）",
+	Grayscale:        "グレースケール",
 	MarkPrevious:     "直前のステージを点線で囲む",
 	MarkPreviousDesc: "ステージを切り替えると、ステージを離れたばかりのカードが点線で囲まれます。別の作業を終えて戻るとき、直前に何をしていたかがすぐにわかります。",
 

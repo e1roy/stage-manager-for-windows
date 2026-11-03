@@ -83,7 +83,71 @@ var (
 		Enter:     &ui.Motion{X: -36, Scale: 0.86},
 	}
 	fadeQuick = ui.Animation{Duration: 160 * time.Millisecond}
+	// ghostFade is how long the card of the apps on the stage takes to become
+	// a ghost, or back to a card: as long as the windows take to leave it.
+	ghostFade = ui.Animation{Duration: 320 * time.Millisecond}
+	// shakeSize is how far, in DIPs, the stage's card is knocked aside when
+	// clicked: the strip has the room, its cards keeping stripPadLeft and
+	// stripPadRight from its edges. shakeSpring lets it swing back and forth
+	// about its place, about 140 ms from side to side, as a shake does: a
+	// spring that bounces a lot, which stills in half a second.
+	shakeSize   = float32(9)
+	shakeSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 140 * time.Millisecond, Bounce: 0.8}}
+	// The badge on the card of the stage is a small green button of glass, as
+	// the checks of macOS and Windows settings are: lit from the upper left,
+	// with a gloss on its top, a shadow it casts on the card, and a white check
+	// standing on it. It is kept light, in minty greens that end at the system
+	// green rather than in the dark ones that give a button weight: on a card
+	// that is a ghost, a heavy one pulls the eye from the card, and the check is
+	// all it has to say.
+	badgeLight  = ui.RGB(178, 248, 196)
+	badgeMid    = ui.RGB(98, 222, 132)
+	badgeDeep   = ui.RGB(52, 199, 89)
+	badgeEdge   = ui.RGBA(30, 150, 66, 0.35)
+	badgeCast   = ui.RGBA(0, 60, 20, 0.3)
+	badgeGloss  = ui.RGBA(255, 255, 255, 0.55)
+	badgeCheck  = ui.RGB(255, 255, 255)
+	badgeEmboss = ui.RGBA(16, 120, 50, 0.35)
+	// badgeTurn is how much of the card's turn the badge takes, as a share,
+	// and badgePerspective how far away, in DIPs, it is seen from: the
+	// closer, the more the side turned from the eye shrinks.
+	badgeTurn        = float32(0.5)
+	badgePerspective = float32(160)
 )
+
+// checkIcon is the mark in the badge: a bold check, in the text color.
+var checkIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12.6l4.4 4.4 7.8-9"/></svg>`))
+
+// stageBadge draws the badge of the card of the stage in r, grown to its size
+// by pop, from 0 to 1, and turned about its own middle by turn degrees. It
+// turns itself, rather than ride in the layer of the card's windows and be
+// turned back there: MyGo does not undo a turn inside a turned layer, it only
+// squeezes by another. It is built of what MyGo has, which is linear
+// gradients, inset shadows and the shadow below: a disc that goes from light
+// at its upper left to green at its lower right, a light rim inside its top
+// edge and a faint dark one inside its bottom, the gloss of a pill of white
+// fading downward across its top half, and the check, white, over a copy of
+// itself in green a little below, which makes it stand off the disc.
+func stageBadge(c *ui.Context, r ui.Rect, pop, turn float32) {
+	d := r.W
+	disc := ui.Box(c.Key("badge")).Absolute().Left(r.X).Top(r.Y).Size(d, d).Radius(d/2).Scale(pop, pop).RotateY(turn).Perspective(badgePerspective).
+		LinearGradient(ui.LinearGradient{Angle: 155, Stops: []ui.GradientStop{{Color: badgeLight, At: 0}, {Color: badgeMid, At: 0.45}, {Color: badgeDeep, At: 1}}}).
+		Border(max(d*0.03, 0.5), badgeEdge).
+		Shadow(0, d*0.08, d*0.22, 0, badgeCast).
+		InsetShadow(0, d*0.05, d*0.07, 0, ui.RGBA(255, 255, 255, 0.5)).
+		InsetShadow(0, -d*0.07, d*0.12, 0, ui.RGBA(20, 140, 60, 0.22)).
+		PassThrough()
+	disc.Children(func() {
+		ui.Box(c.Key("gloss")).Absolute().Left(d*0.13).Top(d*0.05).Size(d*0.74, d*0.44).Radius(d*0.22).
+			Gradient(badgeGloss, ui.RGBA(255, 255, 255, 0), 180).PassThrough()
+		// The check sits a little above the middle, where the eye puts it on a
+		// lit disc, and its copy a little below it.
+		mark := d * 0.6
+		x, y := (d-mark)/2, (d-mark)/2+d*0.02
+		ui.Icon(c.Key("emboss"), checkIcon).Absolute().Left(x).Top(y + d*0.05).FontSize(mark).TextColor(badgeEmboss).PassThrough()
+		ui.Icon(c.Key("check"), checkIcon).Absolute().Left(x).Top(y).FontSize(mark).TextColor(badgeCheck).PassThrough()
+	})
+}
 
 // view draws a strip: the cards of the apps off the stage, over nothing.
 func (s *strip) view(c *ui.Context) {
@@ -363,8 +427,14 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 		enter.X = -enter.X
 		motion.Enter = &enter
 	}
+	// The stage's own card, in a strip that lists every stage, is a ghost
+	// holding the stage's slot: nothing comes of a click on it.
+	cursor := ui.CursorPointer
+	if g.staged {
+		cursor = ui.CursorDefault
+	}
 	el := ui.Box(c.Key(g.key)).Absolute().Left(box.X).Top(box.Y).Size(box.W, box.H).
-		Cursor(ui.CursorPointer).Transition(motion)
+		Cursor(cursor).Transition(motion)
 
 	// A card dragged goes where it is let go (carddrag.go): back, up or
 	// down the strip, onto the stage or into another display's strip.
@@ -378,10 +448,16 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	}
 	if el.Clicked() && !st.moved {
 		debugf("card %q clicked", g.title())
-		// Shift-click adds the card to the stage, as on macOS.
-		if el.ClickModifiers()&ui.Shift != 0 && !d.model.Empty() {
+		switch {
+		case g.staged:
+			// Nothing to switch to, and a click that does nothing looks like
+			// one that was missed: the card shakes its head, as the login
+			// box of macOS does for a wrong password.
+			el.Jump("shake", shakeSize)
+		case el.ClickModifiers()&ui.Shift != 0 && !d.model.Empty():
+			// Shift-click adds the card to the stage, as on macOS.
 			a.request(actJoin, d, g)
-		} else {
+		default:
 			a.request(actPick, d, g)
 		}
 	}
@@ -395,23 +471,27 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	// would lift, and capture their windows at full size for a switch that
 	// will not come, holding the main thread up mid-drag.
 	hovered := (st.dragging || el.Hovered() && a.cardDrag == nil) && !landing
-	if hovered && !st.dragging {
+	// No switch follows a click on the stage's own card, so the pointer over
+	// it neither turns nor lifts it, nor takes the pictures of its windows,
+	// which the user is in; held and moved, it is a card like the others.
+	live := hovered && (!g.staged || st.dragging)
+	if live && !st.dragging {
 		// A switch may follow: take the pictures its flights need now, at
 		// the size the card cannot show.
 		a.media.preview(g.windows)
 	}
 	tilt, hoverTilt := cardTilts(a.settings.Tilt)
-	if hovered {
+	if live {
 		tilt = hoverTilt
 	}
 	tilt = el.AnimateTo("tilt", tilt, ui.Snappy)
 	lift := float32(1)
 	switch {
-	case held && !st.moved:
+	case held && !st.moved && !g.staged:
 		lift = 0.96
 	case st.dragging:
 		lift = 1.08
-	case hovered:
+	case live:
 		lift = 1.045
 	}
 	lift = el.AnimateTo("lift", lift, ui.Snappy)
@@ -473,18 +553,21 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	if st.returning && el.Settled("dx") && el.Settled("dy") {
 		st.returning = false
 	}
-	el.Translate(ox, oy).Opacity(op)
+	// The shake runs along the strip's width, to and fro about where the card is.
+	el.Translate(ox+el.AnimateTo("shake", 0, shakeSpring), oy).Opacity(op)
 
 	el.ContextMenu(func(m *ui.Menu) {
 		tr := a.tr()
-		if m.Item(tr.PickStage).Chosen() {
-			a.request(actPick, d, g)
-		}
-		if !d.model.Empty() && m.Item(tr.JoinStage).Chosen() {
-			a.request(actJoin, d, g)
-		}
-		if len(g.apps) > 1 && m.Item(tr.SplitSet).Chosen() {
-			a.request(actSplit, d, g)
+		if !g.staged {
+			if m.Item(tr.PickStage).Chosen() {
+				a.request(actPick, d, g)
+			}
+			if !d.model.Empty() && m.Item(tr.JoinStage).Chosen() {
+				a.request(actJoin, d, g)
+			}
+			if len(g.apps) > 1 && m.Item(tr.SplitSet).Chosen() {
+				a.request(actSplit, d, g)
+			}
 		}
 		// Companions are picked here, from the apps at hand, rather than
 		// typed into the settings by the name of their executable.
@@ -517,30 +600,47 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	local := ui.Rect{W: box.W, H: box.H}
 	stack := g.stack(local, right)
 	originX := (1 - sign) / 2
+	// The stage's own card fades to a ghost as its apps come on the stage,
+	// and back as they leave it; the icons, which tell the app, stay more
+	// plainly there than its windows.
+	ghost := el.AnimateTo("ghost", b2f(g.staged), ghostFade)
+	fade := 1 - ghost*(1-float32(a.settings.StagedOpacity))
+	gray := ghost * float32(a.settings.StagedGray)
+	iconOp *= 1 - ghost*(1-float32(a.settings.StagedOpacity))/2
 	el.Children(func() {
-		windows := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).
-			TransformOrigin(originX, 0.5).Scale(lift, lift).RotateY(tilt * sign).Perspective(cardPerspective).Opacity(shown)
-		windows.Children(func() {
-			s.previousMark(c, g, stack)
-			for i := len(stack) - 1; i >= 0; i-- {
-				s.windowStill(c, g, i, stack[i])
+		// The windows fade as one picture: an element's opacity is that of
+		// each shape it draws, so the stacked windows of a ghost would show
+		// through each other. A cached layer is drawn as one image, at the
+		// opacity of what holds it.
+		shell := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).Opacity(shown * fade)
+		shell.Children(func() {
+			windows := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).
+				TransformOrigin(originX, 0.5).Scale(lift, lift).RotateY(tilt * sign).Perspective(cardPerspective)
+			if ghost > 0 {
+				windows.Cache()
 			}
-			// While the pointer is on the card, a button on the top right
-			// corner of its front window, half out of it, closes the card's
-			// windows, every one of a set of several, as its menu's last
-			// item does: out there, it hides little of the window. It is
-			// drawn with the windows, so it turns and lifts as they do.
-			closing := el.AnimateTo("close", b2f(hovered && !st.dragging), fadeQuick)
-			if closing > 0 {
-				f := stack[0]
-				label := a.tr().CloseWindow
-				if len(g.windows) > 1 {
-					label = a.tr().CloseWindows
+			windows.Children(func() {
+				s.previousMark(c, g, stack)
+				for i := len(stack) - 1; i >= 0; i-- {
+					s.windowStill(c, g, i, stack[i], gray)
 				}
-				b := closeButton(c, cardCloseSize, cardCloseRest, label, func() { a.request(actClose, d, g) })
-				b.Absolute().Left(f.X + f.W - cardCloseSize/2).Top(f.Y - cardCloseSize/2).
-					Shadow(0, 1, 4, 0, ui.RGBA(0, 0, 0, 0.3)).Opacity(closing)
-			}
+				// While the pointer is on the card, a button on the top right
+				// corner of its front window, half out of it, closes the card's
+				// windows, every one of a set of several, as its menu's last
+				// item does: out there, it hides little of the window. It is
+				// drawn with the windows, so it turns and lifts as they do.
+				closing := el.AnimateTo("close", b2f(live && !st.dragging), fadeQuick)
+				if closing > 0 {
+					f := stack[0]
+					label := a.tr().CloseWindow
+					if len(g.windows) > 1 {
+						label = a.tr().CloseWindows
+					}
+					b := closeButton(c, cardCloseSize, cardCloseRest, label, func() { a.request(actClose, d, g) })
+					b.Absolute().Left(f.X+f.W-cardCloseSize/2).Top(f.Y-cardCloseSize/2).
+						Shadow(0, 1, 4, 0, ui.RGBA(0, 0, 0, 0.3)).Opacity(closing)
+				}
+			})
 		})
 		// The icons of a set's apps overlap a little, the first on top.
 		row := iconRow(stack[0], local, len(g.apps), float32(a.settings.IconScale), right)
@@ -548,6 +648,23 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 		// The overlay spans the card, above the windows: it lets the
 		// pointer through to them, or the button that closes them would
 		// not know it is under the pointer, nor take its click.
+		// The stage's card wears a green check, which is what makes the ghost
+		// read as the one that is open, and is not faded with its windows. It
+		// sits where the card's corner shows once the card is turned
+		// (turnedPoint), and lifts with the card. A disc turned as far as the
+		// card is squeezes to an oval that looks nothing like a button, and
+		// one that lies flat beside a card at an angle looks pasted on: it
+		// turns about itself by a share of the card's turn (badgeTurn), which
+		// is not what the geometry says, and looks right. It pops in as the
+		// ghost comes. Built for every card, so that the ones after it keep
+		// their place in the tree as the stage comes and goes.
+		badge := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).
+			TransformOrigin(originX, 0.5).Scale(lift, lift).Opacity(shown * ghost).PassThrough()
+		badge.Children(func() {
+			b := badgeRect(stack, local, float32(a.settings.IconScale), right, ui.Rect{X: -box.X, W: d.viewW})
+			x, y := turnedPoint(b.X+b.W/2, b.Y+b.H/2, box.W, box.H, tilt, cardPerspective, right)
+			stageBadge(c, ui.Rect{X: x - b.W/2, Y: y - b.H/2, W: b.W, H: b.H}, 0.5+0.5*ghost, badgeTurn*tilt*sign)
+		})
 		overlay := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).TransformOrigin(originX, 0.5).Scale(lift, lift).Opacity(iconOp).PassThrough()
 		overlay.Children(func() {
 			for i := len(row) - 1; i >= 0; i-- {
@@ -606,15 +723,22 @@ func (s *strip) previousStage() string {
 func (s *strip) previousMark(c *ui.Context, g *set, stack []ui.Rect) {
 	marked := s.previous != "" && slices.ContainsFunc(g.apps, func(app *group) bool { return app.app == s.previous })
 	r, radius := markRect(stack)
-	color := markColor
-	if accent, on := s.a.accent(); on {
-		// A saturated accent such as purple or blue is dark to the eye on
-		// the strip's black, so a thin line of it nearly vanishes: lighten it.
-		color = accent.Mix(ui.RGB(255, 255, 255), markLighten)
-	}
+	color := s.outline(markColor)
 	el := ui.Box(c.Key("previous")).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).
 		Radius(radius).Border(markWidth, color).BorderStyle(ui.BorderDashed)
 	el.Opacity(el.AnimateTo("shown", b2f(marked), markFade))
+}
+
+// outline is the color of a thin line drawn on the strip: the accent the
+// panel and the corner take, or fallback when the user turned the accent off.
+func (s *strip) outline(fallback ui.Color) ui.Color {
+	accent, on := s.a.accent()
+	if !on {
+		return fallback
+	}
+	// A saturated accent such as purple or blue is dark to the eye on the
+	// strip's black, so a thin line of it nearly vanishes: lighten it.
+	return accent.Mix(ui.RGB(255, 255, 255), markLighten)
 }
 
 var (
@@ -673,14 +797,23 @@ func (s *strip) dragPoses(g *set, box ui.Rect, ox, oy, lift, tilt float32) map[w
 	return poses
 }
 
+// grayOver keys the gray copy of a window's still, drawn over it.
+type grayOver struct{ h winapi.HWND }
+
 // windowStill draws the i-th window of a card: its still, or while it has
-// none, a frosted pane with its app's icon.
-func (s *strip) windowStill(c *ui.Context, g *set, i int, r ui.Rect) {
+// none, a frosted pane with its app's icon. Gray, from 0 to 1, is how far
+// the still goes gray: the built-in grayscale is all or nothing, so a gray
+// copy of it is drawn over it, that much opaque.
+func (s *strip) windowStill(c *ui.Context, g *set, i int, r ui.Rect, gray float32) {
 	w := g.windows[i]
 	radius := max(r.H*0.045, 3)
 	if st := s.a.media.still(w.HWND); st != nil {
 		ui.Image(c.Key(w.HWND), st.card).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).
 			Fit(ui.FillBox).Radius(radius).Shadow(0, r.H*0.05, r.H*0.16, 0, shadowSoft)
+		if gray > 0.005 {
+			ui.Image(c.Key(grayOver{w.HWND}), st.card).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).
+				Fit(ui.FillBox).Radius(radius).Grayscale().Opacity(gray)
+		}
 		return
 	}
 	pane := ui.Column(c.Key(w.HWND)).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).Radius(radius).

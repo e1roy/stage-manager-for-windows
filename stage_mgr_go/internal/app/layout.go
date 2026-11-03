@@ -180,6 +180,27 @@ func (l stripLayout) maxScroll(height float32) float32 {
 	return max(0, l.content-height)
 }
 
+// scrollTo returns the scroll that shows card i of a strip laid out at scroll
+// whole, between the list of the stage's windows (head, as in layoutStrip) and
+// the band of the overview's panel: the one it has if the card is in view
+// already, else just far enough to bring it to the nearer edge. A strip whose
+// cards all fit does not scroll.
+func (l stripLayout) scrollTo(i int, scroll, height float32, p panel, head float32) float32 {
+	if i < 0 || i >= len(l.cards) {
+		return scroll
+	}
+	top := max(stripMargin, head)
+	bottom := height - stripMargin - p.h - footerInset
+	c := l.cards[i]
+	switch {
+	case c.Y < top:
+		scroll -= top - c.Y
+	case c.Y+c.H > bottom:
+		scroll += c.Y + c.H - bottom
+	}
+	return min(max(scroll, 0), l.maxScroll(height))
+}
+
 // stackWindows places up to three windows of an app in a card, front
 // first. Every window gets the same height, as in Alt+Tab, so wide windows
 // are not thin strips; the ones behind step up and toward the stage: to
@@ -238,6 +259,34 @@ func markRect(stack []ui.Rect) (ui.Rect, float32) {
 	r := ui.Rect{X: x0 - pad, Y: y0 - pad, W: x1 - x0 + 2*pad, H: y1 - y0 + 2*pad}
 	return r, max(stack[0].H*0.045, 3) + pad
 }
+
+// badgeRect places the badge that marks the card of the stage: a small
+// circle over the inner bottom corner of the frame markRect puts round the
+// card's windows (stack), as the app's icon is over the outer one, a little
+// way out of the corner along both its edges. It keeps within, the strip's
+// window in the card's own coordinates, as the card may sit nearer the
+// window's edge than the badge reaches past it.
+func badgeRect(stack []ui.Rect, card ui.Rect, iconScale float32, right bool, within ui.Rect) ui.Rect {
+	icon := min(max(card.H*0.34, 22), 52) * iconScale
+	size := icon * badgeShare
+	// Out of the corner by the same measure whatever the badge's size, so that
+	// a smaller one is where a larger was.
+	reach := icon * 0.36
+	r, _ := markRect(stack)
+	x := r.X + r.W + reach
+	if right {
+		x = r.X - reach
+	}
+	// The center, kept a hair off the window's edge by the circle's radius.
+	room := size/2 + 2
+	x = min(max(x, within.X+room), within.X+within.W-room)
+	y := r.Y + r.H - reach
+	return ui.Rect{X: x - size/2, Y: y - size/2, W: size, H: size}
+}
+
+// badgeShare is the badge's size against the app's icon: it only says where
+// the stage is, so it is well under the icon, which says which app.
+const badgeShare = 0.55
 
 // lifted is r, in card, scaled by lift around the middle of the card's
 // outer edge, as the card scales.
@@ -535,4 +584,22 @@ func fitIn(area ui.Rect, aspect float64) ui.Rect {
 		w, h = area.H*float32(aspect), area.H
 	}
 	return ui.Rect{X: area.X + (area.W-w)/2, Y: area.Y + (area.H-h)/2, W: w, H: h}
+}
+
+// turnedPoint is where the point (x, y) of a w×h card shows once the card is
+// turned deg degrees about its outer edge, as turnedCard has it, the one on the
+// left or, with right, on the right: pulled toward the edge and, as it goes
+// back, toward the card's middle.
+func turnedPoint(x, y, w, h, deg, dist float32, right bool) (float32, float32) {
+	sin, cos := math.Sincos(math.Abs(float64(deg)) * math.Pi / 180)
+	u := x
+	if right {
+		u = w - x
+	}
+	k := dist / (dist + u*float32(sin))
+	x = u * float32(cos) * k
+	if right {
+		x = w - x
+	}
+	return x, h/2 + (y-h/2)*k
 }

@@ -58,14 +58,14 @@ stage_mgr_go/
 | --- | --- | --- | --- |
 | `app.go` | `App`、`display`、`group`、`set`、`Start`、`syncDisplays`、`refresh`、`initStage`、`applySettings`、`shutdown`、`post`/`after` | 状态中枢：显示器同步、窗口刷新、初始舞台、空闲补位、`settings` 应用 | 新状态字段加在 `App` / `display` 上，只在主线程读写；后台结果一律走 `post`/`after` |
 | `events.go` | `hookEvents`、`onWinEvent`、`onForeground`、`settleForeground`、`desktopClick`、`startPolling`、`poll`、`syncWinTab`/`winTab` | WinEvent 驱动：前台跟随、点壁纸清舞台、指针轮询（浮出侧边栏、peek、触发角）、Win+Tab 概览 | 新增拍照时机要避免拍用户正在用的窗口（JetBrains 弹窗闪一下）；调试日志有 `capture [...]` |
-| `switch.go` | `switchStage`、`handover`（`takeOff` / `land` / `stop` / `done`）、`switchRequest`、`runQueued`、`ended`、`arrange`、`action` 常量（`actPick`…`actFront`/`actUnstage`）、`request`、`requestOverview`、`pick`/`join`/`closeApps`/`toggleCompanion` | 舞台切换、真实窗口交接、切换排队与打断、卡片与舞台窗口列表的动作分发 | 动画时长常量在 `flights.go`；改交接顺序先看 `handover` 的注释 |
+| `switch.go` | `switchStage`、`handover`（`takeOff` / `land` / `stop` / `done`）、`switchRequest`、`runQueued`、`ended`、`arrange`（同步 `model.Keep(AllStages)`、标出台前的 `set.staged`）、`reveal`（`AllStages` 时离场的卡片回自己的槽位，可能在可视区外，飞行前先滚到它）、`action` 常量（`actPick`…`actFront`/`actUnstage`）、`request`、`requestOverview`、`pick`/`join`/`closeApps`/`toggleCompanion` | 舞台切换、真实窗口交接、切换排队与打断、卡片与舞台窗口列表的动作分发 | 动画时长常量在 `flights.go`；改交接顺序先看 `handover` 的注释 |
 | `flights.go` | `flights`、`layer`、`flight`、`trip`、`badge`、`pose`、`shade`、`ownShadow`、`around`、`flightTime`/`takeOffDelay`/`landingDelay` | 每台显示器一层的飞行层：静帧在卡片与舞台间飞行、阴影交接、拖动卡片时的让位 | 整屏动画必须走 `pacer`；飞行层要避开被拖窗口（`hole`）；一处时序改动会牵动阴影 |
 | `pacer.go` | `pacer.frame` | 用 `DwmFlush` 按 DWM 合成节奏要帧，代替 `AnimationFrame` | 只有整屏窗口（飞行层、概览）用它，小窗口别用 |
 | `strip.go` | `strip`、`place`、`applyBounds`、`message`、`poll`、`approach`、`setShown`、`setClickThrough`、`holdOpen`、`line` | 侧边栏窗口：物理像素摆放、AppBar（固定模式）、浮动模式滑出/滑入、点击穿透；收到 `TaskbarCreated` 广播（Explorer 重启）时 `AppBar.Forget()` 再 `place()` 重新占位 | 窗口位置是物理像素；DIP 换算只在 `toScreen` 一类地方做；Explorer 重启后新的 shell 不认旧 AppBar |
-| `stripview.go` | `cardState`、`(*strip).view`、`(*strip).card`、`footer`、`dragPoses`、`windowStill`、`panel`/`showPanel`、`previousStage`/`previousMark`、`cardCloseSize` | 侧边栏界面：卡片、3D 透视、悬停、拖动、右键菜单、底部概览面板；悬停时最前窗口右上角出现圆形关闭按钮（`closeButton`，灰色半透明，指针移上去变红），点击 `actClose` 关掉整张卡片的窗口（组合里的全部），按钮画在卡片的窗口层里随卡片倾斜、缩放；上一个舞台（`stage.Display.Previous()`，任何方式离开舞台都算）的卡片套主题色虚线框（关掉主题色时为白色）（`settings.MarkPrevious`，默认开），虚线框画在卡片的窗口层里，随卡片倾斜、缩放，落地前不显示，几何在 `layout.go` 的 `markRect` | 卡片动作不要直接改模型，走 `a.request`（无头测试靠 `App.act` 截获） |
+| `stripview.go` | `cardState`、`(*strip).view`、`(*strip).card`、`footer`、`dragPoses`、`windowStill`、`panel`/`showPanel`、`previousStage`/`previousMark`、`cardCloseSize` | 侧边栏界面：卡片、3D 透视、悬停、拖动、右键菜单、底部概览面板；悬停时最前窗口右上角出现圆形关闭按钮（`closeButton`，灰色半透明，指针移上去变红），点击 `actClose` 关掉整张卡片的窗口（组合里的全部），按钮画在卡片的窗口层里随卡片倾斜、缩放；上一个舞台（`stage.Display.Previous()`，任何方式离开舞台都算）的卡片套主题色虚线框（关掉主题色时为白色）（`settings.MarkPrevious`，默认开），虚线框画在卡片的窗口层里，随卡片倾斜、缩放，落地前不显示，几何在 `layout.go` 的 `markRect`；开了“侧边栏显示所有舞台”（`settings.AllStages`）后，台前的应用也是一张卡片（`set.staged`），画成“幽灵”：窗口层按 `StagedOpacity` 整体淡出（外层 `Opacity`、内层 `Cache()`，因为 MyGo 的不透明度是逐图形相乘，叠放的窗口会透出来）、按 `StagedGray` 在静帧上叠一张灰度副本（`windowStill` 的 `gray`，`Grayscale()` 只有开关），右下角带一个绿色对钩徽章（`stageBadge`：MyGo 没有径向渐变，所以用线性渐变的圆片（左上亮、右下深）、上下两道内阴影、上半部渐隐的白色高光和投在卡片上的阴影叠出玻璃质感，白色粗对钩下面垫一份深绿的副本做浮雕；位置 `layout.go: badgeRect` 取窗口层外框 `markRect` 的内侧下角，大小是应用图标的 0.55 倍（`badgeShare`），颜色取浅薄荷绿到系统绿（不用深绿，免得比幽灵本身还抢眼）、夹在侧边栏窗口里；它是正圆的，不放进窗口层的倾斜里（MyGo 里在倾斜的父层中再反向旋转不会抵消，只会再压扁一次，而整个跟着转会压成椭圆），而是用 `layout.go: turnedPoint` 算出卡片的那个角转过去之后的位置，再绕自己的中心转卡片倾斜角的一半（`badgeTurn`，带 `badgePerspective` 的透视）：既不平贴在倾斜的卡片旁边，又不会被压成椭圆；跟着卡片抬起，不跟着窗口层淡出，只随幽灵出现时弹出），点击不切换而是左右震动一下（`shakeSpring`，`Jump("shake")` 之后 `AnimateTo` 弹回，表示“当前就是它”）、悬停不倾斜不抬起不拍照也没有关闭按钮，右键菜单没有“切换/加入/拆开”，拖动只能在本侧边栏里排序（`carddrag.go: aimCard`） | 卡片动作不要直接改模型，走 `a.request`（无头测试靠 `App.act` 截获）；`d.sets` 此时含台前的卡片，“等待的卡片”用 `d.waiting()` 或跳过 `staged` |
 | `carddrag.go` | `cardDrag`、`aim`（`aimBack`/`aimSort`/`aimJoin`/`aimMove`）、`aimCard`、`cardDropAt`、`makeRoom`、`joinReach`、`crossReach`、`moveSet`、`reorder` | 拖卡片的去向：回原位、侧边栏内排序、加入舞台、搬到另一台显示器的侧边栏 | 让位布局与飞行层联动，改一处要连着手动验证 |
 | `drag.go` | `drag`、`startDrag`、`dragOver`、`windowMoved`、`followMoved`、`leave`、`stripUnder`、`sendToStrip`、`sendAcross`、`dwell` | 拖真实窗口：跨显示器时那边舞台让位、松手、拖进侧边栏、Win+Shift+方向键移动后的跟随 | 只有 `HideInactive` 打开时才停放，否则只更新列表 |
-| `layout.go` | `stripLayout`、`layoutLineup`、`markRect`、`fitIn`、`mirror`、`panel`、`cardTilts`、`maxStacked`/`maxIcons`/`minCardScale` 等常量 | 纯几何：卡片位置与缩放、窗口叠放、图标位置、右侧镜像；`head` 让卡片避开侧边栏顶部的舞台窗口列表，`at`（设置 `CardsAt`，30%–70%，默认 50%）是卡片组中心在侧边栏上下的位置：卡片仍按整屏的 `at` 处摆放，离列表不到一个卡片间距时才往下让，让到保持一个间距为止、最多到列表下方剩余空间的 `at` 处（卡片少或列表短时不动；动的时候靠 `cardMotion` 滑过去）；`markRect` 是“上一个舞台”虚线框，跟随卡片倾斜和缩放 | 有单测（`layout_test.go`），规则先在这里写并与测试对齐 |
+| `layout.go` | `stripLayout`、`layoutLineup`、`markRect`、`fitIn`、`mirror`、`panel`、`cardTilts`、`maxStacked`/`maxIcons`/`minCardScale` 等常量 | 纯几何：卡片位置与缩放、窗口叠放、图标位置、右侧镜像；`head` 让卡片避开侧边栏顶部的舞台窗口列表，`at`（设置 `CardsAt`，30%–70%，默认 50%）是卡片组中心在侧边栏上下的位置：卡片仍按整屏的 `at` 处摆放，离列表不到一个卡片间距时才往下让，让到保持一个间距为止、最多到列表下方剩余空间的 `at` 处（卡片少或列表短时不动；动的时候靠 `cardMotion` 滑过去）；`markRect` 是“上一个舞台”虚线框，跟随卡片倾斜和缩放；`scrollTo` 算出让某张卡片完整进入可视区（列表之下、面板之上）所需的最小滚动量 | 有单测（`layout_test.go`），规则先在这里写并与测试对齐 |
 | `media.go` | `media`、`still`、`capture`、`stillHeight`、`flyBudgets`、图标缓存 | 静帧（`PrintWindow`）与图标、内存预算（按 `Quality`）、`LightFlights` | `PrintWindow` 会等目标应用绘制，只能在 goroutine 里做，并且带超时 |
 | `iconfit.go` | `iconBounds` | 按 alpha 裁掉图标四周透明边 | 有单测 |
 | `lineup.go` | `lineup`、`lineThumb`、`lineTint`、`stageWindows`、`lineupFor`、`lineupView`/`lineTile`/`lineMore`、`placeThumbs`、`sampleTints`、`overLineup`、`bringForward`、`unstage`、`lineupLift`、`closeButton`（卡片和小框共用的圆形关闭按钮） | 舞台窗口列表（`settings.StageList`，默认开）：舞台有 2 个以上窗口时在侧边栏顶部从上到下列出独立的小框（外面不再包一层），每个小框是序号 `1/N` + 图标 + 标题 + DWM 实时缩略图，当前窗口（`a.fg.prev`，否则最前的）用强调色描边；点击 `actFront`，悬停出现关闭按钮 `actClose`，右键可 `actUnstage`；小框在指针下按 `lineupLift`（6%）绕中心放大、阴影加深，DWM 缩略图同步放大；放不下时最后一行“还有 N 个”打开概览 | 缩略图是 DWM 画在侧边栏窗口之上的，MyGo 画的东西（包括 tooltip）会被盖住，所以不用 tooltip；位置每帧随 `reveal` 平移手动同步；顺序在帧间保持稳定（按应用、再按首次出现），点击改变 z 序时列表不跳；几何在 `layout.go` 的 `layoutLineup`，卡片经 `layoutStrip` 的 `head` 参数让出顶部 |
@@ -91,7 +91,7 @@ stage_mgr_go/
 - `flights` / `layer` / `flight`（`flights.go`）：每台显示器一层或两层（`under` 放应用自绘阴影），`flight` 是从 `from` 到 `to` 的一扇窗口；`trip` 是一次飞行的一组。
 - `lineup`（`lineup.go`）：舞台窗口列表跨帧记住的顺序 `order`、每扇窗口的 DWM 缩略图 `lineThumb`、取色结果的 `lineTint`，以及 `sampling`/`wake`（取色进行中与何时重新取）。`strip.line` 是每台显示器的一份。
 - `parking.Service`：`Park` / `Unpark` / `UnparkUnder` / `Rehome` / `Lift` / `Lower` / `RestoreAll` / `CollectEscaped` / `Recover` / `Chase` / `Settle`，每次变动写 `parked-windows.json`。
-- `stage.Display`：舞台上应用的有序列表、侧边栏的卡片分组、`above`（从哪张卡片上来的）、`recent`（回退用）、`changedAt`（`Settling` 靠它）。
+- `stage.Display`：舞台上应用的有序列表、侧边栏的卡片分组、`above`（从哪张卡片上来的）、`recent`（回退用）、`changedAt`（`Settling` 靠它）、`keep`（`Keep(true)` 后侧边栏把台前的应用也列成一组，在 `sets` 里占一个槽位，`Switch` 不挪任何卡片：离场的应用留在自己的槽位，台前的新组取被点卡片的槽位，加入舞台的取舞台自己的槽位；新应用追加在最下面；`Leave` 原地不动；`Split` 拆不了台前的组）。
 - `catalog.Catalog`：`Windows()`（可见的应用窗口，z 序）、`Movable()`（所有可能被移走的窗口）、`Name()`；`catalog.ShadowWindow` 找应用自绘的阴影窗口。
 
 ## 关键流程
@@ -151,6 +151,7 @@ stage_mgr_go/
 | 新增卡片动作 | `switch.go` 的 `action` 常量、`request`、具体函数；`stripview.go` 菜单里发起 | `App.act` 让无头测试能截获 |
 | 改概览 | `overview.go`（布局常量、`ovTile.at`、`close`/`land`） | 超时必须保证窗口放回；多显示器同步 |
 | 改舞台规则 | `stage.go` + `stage_test.go` | 不要在 `app` 里写规则判断 |
+| 改“侧边栏显示所有舞台”（台前的幽灵卡片） | 规则在 `stage.go` 的 `Keep`/`switchKept`，外观在 `stripview.go` 的 `card`/`windowStill`，滚到离场卡片在 `switch.go` 的 `reveal` + `layout.go` 的 `scrollTo`，设置在 `settingsview.go` 的侧边栏页 | 台前窗口的静帧不要周期性重拍；飞行与交接没有自动化测试，手动验证：点卡片、快速连点、卡片很多需要滚动、概览里选一个、Shift+点击加入、开关来回切 |
 
 ## 调试
 
@@ -176,6 +177,7 @@ stage_mgr_go/
 | `app/tint` | 主色：橙/蓝标题栏 + 彩色代码的深色编辑器、白底、灰/黑/白、零星彩色字；OKLCH 换算；不同色相底色明度一致；锁屏纯色判定 |
 | `app/lineup` | 舞台窗口列表的几何（放不下时“还有 N 个”）、卡片让出顶部、顺序稳定、点击/右键/关闭按钮发出的动作、关闭开关与概览时隐藏 |
 | `app/stripview` | 无头渲染卡片与面板，经 `App.act` 截获动作；上一个舞台的标记跟随切换、关掉设置后消失 |
+| `app/staged` | `AllStages`：`arrange` 把台前的卡片列在槽位里、切换不动卡片、开关来回；离场卡片在可视区外时 `reveal` 滚过去；台前卡片点击无反应、菜单里没有切换、只能排序；半透明与灰度的像素 |
 | `app/set` | 跨应用卡片的窗口顺序 |
 | `app/corner` | 触发角几何、靠近程度、点击开概览 |
 | `app/flights` | `around` 给被拖窗口让出的“洞” |

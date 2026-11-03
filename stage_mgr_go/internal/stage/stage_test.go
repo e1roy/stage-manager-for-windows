@@ -331,3 +331,198 @@ func TestMoveReordersStrip(t *testing.T) {
 		t.Fatalf("stage %v", d.Stage())
 	}
 }
+
+// kept makes a display whose strip is kept (Keep), with the stage on none.
+func kept(apps ...string) *Display {
+	d := &Display{}
+	d.Keep(true)
+	d.Strip(apps)
+	return d
+}
+
+func TestKeptStripListsTheStageInItsSlot(t *testing.T) {
+	var d Display
+	d.Init("code", t0)
+	d.Keep(true)
+	got := d.Strip([]string{"code", "chrome", "mail", "music"})
+	if want := [][]string{{"code"}, {"chrome"}, {"mail"}, {"music"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// Turned off, the stage leaves the strip, and turned on it comes back to
+	// the slot it came from.
+	d.Switch(d.SetOf("mail"), t0)
+	d.Keep(false)
+	if got := d.Strip([]string{"mail", "code", "chrome", "music"}); !equalSets(got, [][]string{{"code"}, {"chrome"}, {"music"}}) {
+		t.Fatalf("strip %v", got)
+	}
+	d.Keep(true)
+	if got := d.Strip([]string{"mail", "code", "chrome", "music"}); !equalSets(got, [][]string{{"code"}, {"chrome"}, {"mail"}, {"music"}}) {
+		t.Fatalf("strip %v", got)
+	}
+}
+
+// The strip of 1 to 6 with 6 on the stage never reorders, whichever app is
+// picked: the apps that leave go back to their slots.
+func TestKeptSwitchMovesNoCard(t *testing.T) {
+	apps := []string{"1", "2", "3", "4", "5", "6"}
+	want := [][]string{{"1"}, {"2"}, {"3"}, {"4"}, {"5"}, {"6"}}
+	d := kept(apps...)
+	d.Switch(d.SetOf("6"), t0)
+	for _, pick := range []string{"3", "1", "5", "6", "2"} {
+		d.Switch(d.SetOf(pick), t0)
+		if got := d.Strip(apps); !equalSets(got, want) {
+			t.Fatalf("strip %v after picking %s, want %v", got, pick, want)
+		}
+		if got := d.Stage(); !slices.Equal(got, []string{pick}) {
+			t.Fatalf("stage %v, want %s", got, pick)
+		}
+	}
+}
+
+func TestKeptPreviousIsTheLastStageLeft(t *testing.T) {
+	apps := []string{"1", "2", "3", "4"}
+	d := kept(apps...)
+	d.Switch(d.SetOf("4"), t0)
+	if p := d.Previous(); p != nil {
+		t.Fatalf("previous %v before any app left", p)
+	}
+	d.Switch(d.SetOf("2"), t0)
+	// 4 is the stage last left; 2, on the stage, is no stage to go back to.
+	if p, want := d.Previous(), []string{"4"}; !slices.Equal(p, want) {
+		t.Fatalf("previous %v, want %v", p, want)
+	}
+	d.Switch(d.SetOf("4"), t0)
+	if p, want := d.Previous(), []string{"2"}; !slices.Equal(p, want) {
+		t.Fatalf("previous %v, want %v", p, want)
+	}
+	// The wallpaper was clicked: 4 is back in the strip, and the one to
+	// return to is still the last off the stage before it.
+	d.Switch(nil, t0)
+	if p, want := d.Previous(), []string{"4"}; !slices.Equal(p, want) {
+		t.Fatalf("previous %v, want %v", p, want)
+	}
+	if got := d.Strip(apps); !equalSets(got, [][]string{{"1"}, {"2"}, {"3"}, {"4"}}) {
+		t.Fatalf("strip %v", got)
+	}
+}
+
+func TestKeptSetsStayTogetherInTheirSlots(t *testing.T) {
+	apps := []string{"1", "2", "3", "4", "5"}
+	d := kept(apps...)
+	d.Switch(d.SetOf("4"), t0)
+	// 2 joins the stage: they make one card, in the slot of the stage's.
+	d.Switch(append(d.Stage(), "2"), t0)
+	if got, want := d.Strip(apps), [][]string{{"1"}, {"3"}, {"4", "2"}, {"5"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	d.Switch(d.SetOf("5"), t0)
+	if got, want := d.Strip(apps), [][]string{{"1"}, {"3"}, {"4", "2"}, {"5"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// Picking the set brings both, and the stage's card stays where it is.
+	d.Switch(d.SetOf("2"), t0)
+	if got, want := d.Stage(), []string{"4", "2"}; !slices.Equal(got, want) {
+		t.Fatalf("stage %v, want %v", got, want)
+	}
+	if got, want := d.Strip(apps), [][]string{{"1"}, {"3"}, {"4", "2"}, {"5"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// One of them goes on its own: the other stays on the stage, beside it.
+	d.Switch([]string{"4"}, t0)
+	if got, want := d.Strip(apps), [][]string{{"1"}, {"3"}, {"4"}, {"2"}, {"5"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// The stage's set cannot be split; the others can.
+	d.Switch(d.SetOf("5"), t0)
+	d.Switch(append(d.Stage(), "1"), t0)
+	d.Split("5")
+	if got := d.SetOf("5"); !slices.Equal(got, []string{"5", "1"}) {
+		t.Fatalf("set of 5 %v after splitting the stage", got)
+	}
+}
+
+func TestKeptNewcomersEnterAtTheBottom(t *testing.T) {
+	d := kept("1", "2", "3")
+	d.Switch(d.SetOf("2"), t0)
+	got := d.Strip([]string{"4", "1", "2", "3", "5"})
+	if want := [][]string{{"1"}, {"2"}, {"3"}, {"4"}, {"5"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// An app that has not been in the strip yet, going on the stage first,
+	// takes the bottom too, and the stage it leaves stays.
+	d.Switch([]string{"6"}, t0)
+	got = d.Strip([]string{"6", "1", "2", "3", "4", "5"})
+	if want := [][]string{{"1"}, {"2"}, {"3"}, {"4"}, {"5"}, {"6"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// Gone apps leave their cards, the stage's too.
+	got = d.Strip([]string{"1", "3", "4", "5"})
+	if want := [][]string{{"1"}, {"3"}, {"4"}, {"5"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+}
+
+func TestKeptLeaveStaysInItsSlot(t *testing.T) {
+	apps := []string{"1", "2", "3"}
+	d := kept(apps...)
+	d.Switch(d.SetOf("2"), t0)
+	d.Leave("2")
+	if !d.Empty() {
+		t.Fatalf("stage %v", d.Stage())
+	}
+	if got := d.Strip(apps); !equalSets(got, [][]string{{"1"}, {"2"}, {"3"}}) {
+		t.Fatalf("strip %v", got)
+	}
+	// Of two on the stage, one leaves and the other stays on it.
+	d.Switch([]string{"2", "3"}, t0)
+	d.Leave("2")
+	if got, want := d.Stage(), []string{"3"}; !slices.Equal(got, want) {
+		t.Fatalf("stage %v, want %v", got, want)
+	}
+	if got := d.Strip(apps); !equalSets(got, [][]string{{"1"}, {"3"}, {"2"}}) {
+		t.Fatalf("strip %v", got)
+	}
+}
+
+func TestKeptInitSeatsTheStage(t *testing.T) {
+	d := kept("1", "2", "3")
+	d.Init("2", t0)
+	if got := d.Strip([]string{"1", "2", "3"}); !equalSets(got, [][]string{{"1"}, {"2"}, {"3"}}) {
+		t.Fatalf("strip %v", got)
+	}
+	var e Display
+	e.Keep(true)
+	e.Init("3", t0)
+	got := e.Strip([]string{"3", "1", "2"})
+	if want := [][]string{{"3"}, {"1"}, {"2"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+}
+
+func TestKeptMoveAndInsertCountTheStage(t *testing.T) {
+	apps := []string{"1", "2", "3", "4"}
+	d := kept(apps...)
+	d.Switch(d.SetOf("2"), t0)
+	// The strip as it shows has the stage in it, so slots count it.
+	d.Move("4", 1)
+	if got := d.Strip(apps); !equalSets(got, [][]string{{"1"}, {"4"}, {"2"}, {"3"}}) {
+		t.Fatalf("strip %v", got)
+	}
+	d.Insert([]string{"5"}, 2)
+	if got := d.Strip(append(apps, "5")); !equalSets(got, [][]string{{"1"}, {"4"}, {"5"}, {"2"}, {"3"}}) {
+		t.Fatalf("strip %v", got)
+	}
+	// The stage's own card can be moved too, and stays the stage.
+	d.Move("2", 0)
+	if got := d.Strip(append(apps, "5")); !equalSets(got, [][]string{{"2"}, {"1"}, {"4"}, {"5"}, {"3"}}) {
+		t.Fatalf("strip %v", got)
+	}
+	if !d.OnStage("2") {
+		t.Fatalf("stage %v", d.Stage())
+	}
+	// Picking 3 moves no card, the one moved included.
+	d.Switch(d.SetOf("3"), t0)
+	if got := d.Strip(append(apps, "5")); !equalSets(got, [][]string{{"2"}, {"1"}, {"4"}, {"5"}, {"3"}}) {
+		t.Fatalf("strip %v", got)
+	}
+}

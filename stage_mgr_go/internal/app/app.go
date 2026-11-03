@@ -48,6 +48,9 @@ type set struct {
 	// each app, so that every app shows, then the others. The ones shown
 	// are in z-order.
 	windows []catalog.Window
+	// staged tells the card is that of the apps on the stage, which a strip
+	// that lists every stage (settings.AllStages) keeps in its slot, as a ghost.
+	staged bool
 }
 
 // newSet makes the card of apps, given in the order they came.
@@ -91,6 +94,18 @@ func (s *set) title() string {
 		out[i] = g.name
 	}
 	return strings.Join(out, " + ")
+}
+
+// waiting counts the cards of apps off the stage: those a click brings on
+// it, as the strip may list the stage's own card too.
+func (d *display) waiting() int {
+	n := 0
+	for _, s := range d.sets {
+		if !s.staged {
+			n++
+		}
+	}
+	return n
 }
 
 // display is one monitor, its stage and its strip.
@@ -629,8 +644,12 @@ func (a *App) refresh() {
 		for _, s := range d.sets {
 			for _, w := range s.stacked() {
 				// Windows on the desktop change; refresh their stills now and then.
+				// Not those of the stage's own card: the user is in them, and
+				// a capture makes some apps flash. It keeps the still they left
+				// with, and takes a fresh one as the pointer comes to the strip
+				// (freshenStage).
 				st := a.media.still(w.HWND)
-				stale := st == nil || (!a.hidden(w) && time.Since(st.at) > 5*time.Second)
+				stale := st == nil || (!a.hidden(w) && !s.staged && time.Since(st.at) > 5*time.Second)
 				if stale && !a.media.pending[w.HWND] && time.Since(a.media.tried[w.HWND]) > 3*time.Second {
 					want = append(want, w.HWND)
 				}
@@ -832,7 +851,8 @@ func (a *App) applySettings(s settings.Settings) {
 	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || old.CardsAt != s.CardsAt || !maps.Equal(old.Sides, s.Sides) ||
 		old.PanelWidth != s.PanelWidth || old.PanelHeight != s.PanelHeight || old.Accent != s.Accent ||
 		old.PanelOpacity != s.PanelOpacity ||
-		old.StageList != s.StageList || old.MarkPrevious != s.MarkPrevious {
+		old.StageList != s.StageList || old.MarkPrevious != s.MarkPrevious ||
+		old.AllStages != s.AllStages || old.StagedOpacity != s.StagedOpacity || old.StagedGray != s.StagedGray {
 		a.redraw()
 	}
 	if (old.Accent != s.Accent || old.PanelOpacity != s.PanelOpacity) && a.hint != nil && a.hint.visible {

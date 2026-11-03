@@ -37,6 +37,9 @@ type settingsWindow struct {
 	panelW, panelH float64
 	panelOp, blur  float64
 	cornerW        float64
+	// stagedOp and stagedGray are how opaque and how gray the card of the
+	// stage is in a strip that lists it, as the sliders set them.
+	stagedOp, stagedGray float64
 	// flight is how fast windows fly, as the slider sets it.
 	flight float64
 	login  bool
@@ -106,6 +109,7 @@ func (sw *settingsWindow) load() {
 	sw.cardsAt = sw.s.CardsAt
 	sw.panelW, sw.panelH = sw.s.PanelWidth, sw.s.PanelHeight
 	sw.panelOp, sw.blur = sw.s.PanelOpacity, sw.s.PanelBlur
+	sw.stagedOp, sw.stagedGray = sw.s.StagedOpacity, sw.s.StagedGray
 	sw.cornerW = sw.s.CornerWidth
 	sw.flight = sw.s.FlightSpeed
 }
@@ -611,6 +615,27 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 		})
 		f.row(c, tr.MarkPrevious, tr.MarkPreviousDesc, func() {
 			if ui.Switch(c, &sw.s.MarkPrevious).Changed() {
+				sw.apply()
+			}
+		})
+		// The stage's own card, listed in its slot, as a ghost.
+		pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
+		f.row(c, tr.AllStages, "", func() {
+			if ui.Switch(c, &sw.s.AllStages).Changed() {
+				sw.apply()
+			}
+		})
+		f.child(c, sw.s.AllStages, tr.Opacity, "", func() {
+			if f.slider(c, tr, &sw.stagedOp, settings.MinStagedOpacity, settings.MaxStagedOpacity, 0, def.StagedOpacity, pct) {
+				sw.stagedOp = math.Round(sw.stagedOp*100) / 100
+				sw.s.StagedOpacity = sw.stagedOp
+				sw.apply()
+			}
+		})
+		f.child(c, sw.s.AllStages, tr.Grayscale, "", func() {
+			if f.slider(c, tr, &sw.stagedGray, 0, 1, 0, def.StagedGray, pct) {
+				sw.stagedGray = math.Round(sw.stagedGray*100) / 100
+				sw.s.StagedGray = sw.stagedGray
 				sw.apply()
 			}
 		})

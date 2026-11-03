@@ -118,6 +118,9 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 			d.landing[app] = !followed
 		}
 		a.arrange(d, groups, time.Now())
+		if len(leaving) > 0 {
+			a.reveal(d, leaving[0])
+		}
 		if d.strip != nil && len(departing) > 0 {
 			// Hold a floating strip open so the windows visibly land, and
 			// a moment longer.
@@ -303,7 +306,12 @@ func (a *App) freshenStage(d *display) {
 			}
 		}
 	}
-	a.media.capture(hs, false, time.Second, nil)
+	// The strip that lists the stage's own card shows the new stills in it.
+	var shown func()
+	if a.settings.AllStages {
+		shown = a.redraw
+	}
+	a.media.capture(hs, false, time.Second, shown)
 }
 
 // What a card asks for.
@@ -393,6 +401,27 @@ func (a *App) toggleCompanion(s *set) {
 	}
 }
 
+// reveal scrolls the strip of display d, should its cards run past it, to
+// show the card of app. A strip that lists every stage (settings.AllStages)
+// sends the windows leaving the stage back to their own slots rather than to
+// the one the card coming in leaves, and that may be out of sight: the strip
+// scrolls to it as it does by hand, for the windows to fly into.
+func (a *App) reveal(d *display, app string) {
+	s := d.strip
+	if s == nil || d.viewW == 0 || !a.settings.AllStages {
+		return
+	}
+	i := slices.IndexFunc(d.sets, func(g *set) bool {
+		return slices.ContainsFunc(g.apps, func(x *group) bool { return x.app == app })
+	})
+	if i < 0 {
+		return
+	}
+	head := s.lineupFor(d.viewW, d.viewH).extent
+	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(a.settings.Spacing), a.panel(), head, float32(a.settings.CardsAt), s.right())
+	d.scroll = l.scrollTo(i, d.scroll, d.viewH, a.panel(), head)
+}
+
 // arrange brings a display's strip and stage lists up to date with the
 // model, for windows already listed.
 func (a *App) arrange(d *display, groups []*group, now time.Time) {
@@ -402,13 +431,17 @@ func (a *App) arrange(d *display, groups []*group, now time.Time) {
 		present = append(present, g.app)
 		by[g.app] = g
 	}
+	d.model.Keep(a.settings.AllStages)
 	d.sets = d.sets[:0]
 	for _, names := range d.model.Strip(present) {
 		apps := make([]*group, len(names))
 		for i, app := range names {
 			apps[i] = by[app]
 		}
-		d.sets = append(d.sets, newSet(apps))
+		s := newSet(apps)
+		// A strip that lists every stage has the stage's own set in it.
+		s.staged = d.model.OnStage(names[0])
+		d.sets = append(d.sets, s)
 	}
 	d.onStage = d.onStage[:0]
 	for _, app := range d.model.Stage() {
