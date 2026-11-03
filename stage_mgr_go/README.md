@@ -101,6 +101,8 @@ go tool mygo build            # build/windows-amd64/StageManagerForWindows.exe �
 
 提交前 `go build ./... && go vet ./... && go test ./... && go tool mygo vet .` 全部通过。版本号在 `mygo.json` 里，发布时按需要加 `0.0.1`；`mygo build` 会把它写进 exe 的版本资源（关于页读的就是它）。
 
+CI（`.github/workflows/ci.yml`）在 push 到 `main` 和 PR 时跑同样的检查，再 `mygo build` 打包，把 exe 和安装包留成该次运行的 artifact。
+
 根目录的 `start-stage-manager.bat` 会先让旧实例 `--quit`，再 `mygo build` 并启动 exe，同时打开 `STAGEMANAGER_DEBUG` 和 `MYGO_FRAME_STATS`，适合看真实动画的日志。
 
 开发时可用的环境变量：
