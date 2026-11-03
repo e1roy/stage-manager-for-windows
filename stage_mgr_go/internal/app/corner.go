@@ -52,13 +52,165 @@ func cornerRect(m winapi.Rect, scale, width float64) winapi.Rect {
 // cornerNearness is how far the corner's mark shows, 0 to 1, with the
 // pointer at p: only from the corner's own display.
 func cornerNearness(m winapi.Rect, scale, width float64, p winapi.Point) float32 {
+	return boundsNearness(m, cornerRect(m, scale, width), scale, p)
+}
+
+// boundsNearness is how far the mark of a corner button at r shows, 0 to
+// 1, with the pointer at p: only from the button's own display m.
+func boundsNearness(m, r winapi.Rect, scale float64, p winapi.Point) float32 {
 	if !m.Contains(p) {
 		return 0
 	}
-	// In DIPs right of the display's left edge and up from its bottom.
-	x := float32(float64(p.X-m.Left) / scale)
-	y := float32(float64(m.Bottom-p.Y) / scale)
-	return nearness(rectDist(ui.Rect{W: float32(width), H: hotCorner}, x, y), cornerReach, cornerFull)
+	// In DIPs from the button's top-left corner.
+	x := float32(float64(p.X-r.Left) / scale)
+	y := float32(float64(p.Y-r.Top) / scale)
+	b := ui.Rect{W: float32(float64(r.W()) / scale), H: float32(float64(r.H()) / scale)}
+	return nearness(rectDist(b, x, y), cornerReach, cornerFull)
+}
+
+// The corner button joins the strip's panel above it into one button, as
+// a strip on the left of its display brings its panel down to the
+// taskbar, right above the corner: the two are lit, pressed and shown
+// together, and drawn as one, flush with the display's edges, which the
+// pointer runs into as it does into the corner. jointRadius rounds its
+// corners, as a window's are on Windows 11.
+const jointRadius = 8
+
+// cornerFreeFor is how long the poll trusts what it last read of the
+// taskbar's settings.
+const cornerFreeFor = time.Second
+
+// taskbarCornerFree is winapi.TaskbarCornerFree, read once a second at
+// most: the poll asks for every display every 16 ms.
+func (a *App) taskbarCornerFree(now time.Time) bool {
+	if now.Sub(a.cornerChecked) > cornerFreeFor {
+		a.cornerFree, a.cornerChecked = winapi.TaskbarCornerFree(), now
+	}
+	return a.cornerFree
+}
+
+// joinable reports whether the corner button of d joins its strip's
+// panel: the strip shows on the display's left, ending at the top of a
+// taskbar at the bottom that leaves its corner empty.
+func (a *App) joinable(d *display, now time.Time) bool {
+	s := d.strip
+	if !a.ready || a.quitting || s == nil || !s.visible || !s.shown || s.right() {
+		return false
+	}
+	m := d.mon.Monitor
+	below := m.Bottom - s.rect.Bottom
+	if s.rect.Left != m.Left || below <= 0 || float64(below) > 2*hotCorner*s.scale {
+		return false
+	}
+	return a.taskbarCornerFree(now)
+}
+
+// setJoined joins the strip's panel to the corner button below it, or
+// parts them.
+func (s *strip) setJoined(v bool) {
+	if v == s.joined {
+		return
+	}
+	s.joined = v
+	debugf("strip %s joined to its corner=%v", s.d.mon.Device, v)
+	s.win.Invalidate()
+}
+
+// cornerHeight is how tall the corner button below a joined strip is, in
+// DIPs: from the strip's bottom to the display's.
+func (s *strip) cornerHeight() float32 {
+	return float32(float64(s.d.mon.Monitor.Bottom-s.rect.Bottom) / s.scale)
+}
+
+// jointWidth is how wide a joined button is, in DIPs: as the panel last
+// drew, or will once the strip is as wide as the settings say.
+func (s *strip) jointWidth() float32 {
+	w := s.d.viewW
+	if w <= 0 {
+		w = float32(s.a.settings.Width)
+	}
+	return jointButton(w, 0, s.a.panel()).W
+}
+
+// joint is the corner button joined to the strip's panel, while it shows.
+func (s *strip) joint() *cornerHint {
+	if h := s.a.hint; s.joined && h != nil && h.visible && h.d == s.d {
+		return h
+	}
+	return nil
+}
+
+// footState records the pointer over the panel and the button down on
+// it, and has the corner button joined to it draw them too.
+func (s *strip) footState(hover, press bool) {
+	if hover == s.footHover && press == s.footPress {
+		return
+	}
+	s.footHover, s.footPress = hover, press
+	if h := s.joint(); h != nil {
+		h.redraw()
+	}
+}
+
+// redraw draws the strip again, the panel joined to the corner button
+// as the button changes: the window draws only as it is asked to. The
+// headless tests draw it without one.
+func (s *strip) redraw() {
+	if s.win != nil {
+		s.win.Invalidate()
+	}
+}
+
+// redraw draws the corner button again, as the panel joined to it
+// changes.
+func (h *cornerHint) redraw() {
+	if h.win != nil {
+		h.win.Invalidate()
+	}
+}
+
+// joint is the strip whose panel the corner button joins, while it does.
+func (h *cornerHint) joint() *strip {
+	if d := h.d; d != nil && d.strip != nil && d.strip.joined {
+		return d.strip
+	}
+	return nil
+}
+
+// cornerBounds is where the corner button of d shows, in pixels: under a
+// joined strip's panel and as wide, from the taskbar's top down; or as
+// the settings size it.
+func (a *App) cornerBounds(d *display) winapi.Rect {
+	m := d.mon.Monitor
+	if s := d.strip; s != nil && s.joined {
+		// Wide enough for the panel's edge, which need not fall on a
+		// pixel: the button draws it where the panel does.
+		w := int32(math.Ceil(float64(s.jointWidth()) * s.scale))
+		return winapi.Rect{Left: m.Left, Top: s.rect.Bottom, Right: m.Left + w, Bottom: m.Bottom}
+	}
+	return cornerRect(m, d.mon.Scale(), a.cornerWidth())
+}
+
+// flash is how far the overview's button of d still flashes after a
+// click, 1 to 0, fading as the overview opens.
+func (d *display) flash(now time.Time) float32 {
+	t := now.Sub(d.flashAt)
+	if d.flashAt.IsZero() || t < 0 || t >= panelFlash.Duration {
+		return 0
+	}
+	k := 1 - float32(t)/float32(panelFlash.Duration)
+	return k * k * k
+}
+
+// panelEdge is the border of the overview's panel, and of the corner
+// button joined to it: faint at rest, lighter under the pointer, and
+// blue, or the accent, pressed.
+func panelEdge(hot, lit float32, accent ui.Color, outlined bool) ui.Color {
+	edge := ui.RGBA(255, 255, 255, 0.16).Mix(ui.RGBA(255, 255, 255, 0.34), hot).Mix(ui.RGBA(150, 205, 255, 0.95), lit)
+	if outlined {
+		edge = edge.Mix(accent.Alpha(max(hot, lit)), max(hot, lit))
+	}
+	return edge
 }
 
 // cornerHint is the window over the hot corner of a display: it shows a
@@ -81,6 +233,10 @@ type cornerHint struct {
 	// pressing is whether the button is down on it, and open whether the
 	// overview showed as it went down: then the click closes it.
 	pressing, open bool
+	// hover is whether the pointer is over it, as the view last found;
+	// rect is where it shows.
+	hover bool
+	rect  winapi.Rect
 }
 
 func newCornerHint(a *App) *cornerHint {
@@ -124,7 +280,13 @@ func (a *App) nearCorner(cur winapi.Point) (*display, float32) {
 			continue
 		}
 		m := d.mon.Monitor
-		near := cornerNearness(m, d.mon.Scale(), a.cornerWidth(), cur)
+		near := boundsNearness(m, a.cornerBounds(d), d.mon.Scale(), cur)
+		if d.strip.joined && !d.inOverview {
+			// It comes and goes with the panel it joins. While the
+			// overview shows, the panel does not, and the button is
+			// there to close it, on its own.
+			near = d.strip.near
+		}
 		if near == 0 {
 			continue
 		}
@@ -169,7 +331,8 @@ func (h *cornerHint) follow(d *display, near float32, now time.Time) {
 	switch {
 	case d != nil:
 		h.away = time.Time{}
-		if !h.visible || d != h.d {
+		// It follows a joined panel's width as the settings change it.
+		if !h.visible || d != h.d || h.a.cornerBounds(d) != h.rect {
 			h.show(d)
 		}
 	case h.visible && !h.pressing:
@@ -194,7 +357,8 @@ func (h *cornerHint) follow(d *display, near float32, now time.Time) {
 func (h *cornerHint) show(d *display) {
 	h.d = d
 	h.light = winapi.TaskbarLight()
-	r := cornerRect(d.mon.Monitor, d.mon.Scale(), h.a.cornerWidth())
+	r := h.a.cornerBounds(d)
+	h.rect = r
 	place := func() {
 		winapi.SetWindowPos(h.hwnd, winapi.HwndTopmost, r.Left, r.Top, r.W(), r.H(), winapi.SwpNoActivate)
 	}
@@ -212,6 +376,7 @@ func (h *cornerHint) show(d *display) {
 func (h *cornerHint) hide() {
 	h.win.Hide()
 	h.visible, h.d, h.near, h.away = false, nil, 0, time.Time{}
+	h.hover, h.pressing = false, false
 }
 
 // click opens the overview of the corner's display, or closes the
@@ -238,7 +403,8 @@ func (h *cornerHint) click() {
 // its buttons: a faint mark on the pointer's approach; under it, a tile of
 // the taskbar's hover, outlined in the blue of the overview so that the
 // pointer is seen to be over it; pressed, the blue fills the tile, which
-// lets go with the flash and pop of the strip's panel.
+// lets go with the flash and pop of the strip's panel. Joined to the
+// strip's panel, it draws the bottom of the one button (jointView).
 func (h *cornerHint) view(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	w, ht := c.Size()
@@ -247,19 +413,34 @@ func (h *cornerHint) view(c *ui.Context) {
 	if pressed && !h.pressing {
 		h.open = h.d != nil && h.d.ov != nil && h.d.ov.phase != ovHidden
 	}
-	h.pressing = pressed
+	s := h.joint()
+	if s != nil && (hovered != h.hover || pressed != h.pressing) {
+		s.redraw()
+	}
+	h.hover, h.pressing = hovered, pressed
+	now := time.Now()
 	var flash float32
-	if el.Clicked() {
-		h.click()
-		flash = el.Jump("flash", 1)
+	if d := h.d; d != nil {
+		if el.Clicked() {
+			h.click()
+			d.flashAt = now
+			if s != nil {
+				s.redraw()
+			}
+		}
+		flash = d.flash(now)
+	}
+	if flash > 0 {
 		c.AnimationFrame()
-	} else {
-		flash = el.AnimateTo("flash", 0, panelFlash)
+	}
+	if s != nil {
+		h.jointView(c, el, s, w, ht, flash)
+		return
 	}
 	hot := el.AnimateTo("hot", b2f(hovered || pressed), fadeQuick)
 	// A peek of the settings shows the whole mark, so that its size is
 	// seen, as the strip shows its panel.
-	shown := el.AnimateTo("shown", max(cornerFaint*h.near, b2f(hovered || pressed || time.Now().Before(h.peek))), fadeQuick)
+	shown := el.AnimateTo("shown", max(cornerFaint*h.near, b2f(hovered || pressed || now.Before(h.peek))), fadeQuick)
 	down := el.AnimateTo("down", b2f(pressed), panelPress)
 	press := el.AnimateTo("press", 1-0.08*b2f(pressed), ui.Snappy)
 	lit := max(down, flash)
@@ -281,5 +462,67 @@ func (h *cornerHint) view(c *ui.Context) {
 				overviewGlyph(c, 16, mark.Mix(white, lit))
 			})
 		})
+	})
+}
+
+// jointView draws the corner button as the bottom of one button with the
+// strip's panel above it: the panel's colors, over the taskbar whatever
+// its theme, lit as either half is under the pointer or pressed, and
+// shown as the panel is. It holds still on a press, as the panel does
+// joined: the two would part were either to shrink. While the overview
+// shows, the panel is gone, and it is a button on its own.
+func (h *cornerHint) jointView(c *ui.Context, el ui.Element, s *strip, w, ht, flash float32) {
+	a, d := h.a, h.d
+	hovered := h.hover || s.footHover
+	pressed := h.pressing || s.footPress
+	alone := d.inOverview
+	now := time.Now()
+	shown := el.AnimateTo("shown", max(h.near, b2f(hovered || pressed || now.Before(h.peek) || now.Before(a.panelUntil))), fadeQuick)
+	hot := el.AnimateTo("hot", b2f(hovered), fadeQuick)
+	down := el.AnimateTo("down", b2f(pressed), panelPress)
+	lit := max(down, flash)
+	op := max(shown, flash)
+	accent, outlined := a.accent()
+	bg := panelFill(float32(a.settings.PanelOpacity), hot).Mix(accent, lit)
+	edge := panelEdge(hot, lit, accent, outlined)
+	p := a.panel()
+	bw := s.jointWidth()
+	// The mark as the panel draws it, sized and placed for the two.
+	g := min(18, (p.h+ht)*0.42, bw*0.6)
+	gh := g * 0.78
+	y := jointGlyph(p.h, ht, gh) - p.h
+	if alone {
+		g = min(18, ht*0.42, bw*0.6)
+		gh = g * 0.78
+		y = (ht - gh) / 2
+	}
+	radii := [4]float32{0, 0, jointRadius, jointRadius}
+	if alone {
+		radii = [4]float32{jointRadius, jointRadius, jointRadius, jointRadius}
+	}
+	el.Children(func() {
+		// The bottom of the glass of the whole button; alone, it shows
+		// what it can of it.
+		if b := s.glass.bmp; b != nil {
+			ui.Box(c).Absolute().Left(0).Top(0).Size(bw, ht).Radius(radii[:]...).Clip().Opacity(op).Children(func() {
+				top := p.h
+				if alone {
+					top = 0
+				}
+				ui.Image(c, b).Absolute().Left(0).Top(-top).Size(bw, top+ht).Fit(ui.FillBox)
+			})
+		}
+		pane := ui.Box(c).Absolute().Left(0).Top(0).Size(bw, ht).Background(bg).BorderColor(edge).Opacity(op).Radius(radii[:]...)
+		if alone {
+			pane.BorderWidth(1)
+		} else {
+			// The bottom of the one outline: none toward the panel.
+			pane.BorderWidth(0, 1, 1, 1)
+		}
+		if y >= 0 && g >= 8 {
+			ui.Box(c).Absolute().Left((bw - g) / 2).Top(y).Opacity(op).Children(func() {
+				overviewGlyph(c, g, white)
+			})
+		}
 	})
 }

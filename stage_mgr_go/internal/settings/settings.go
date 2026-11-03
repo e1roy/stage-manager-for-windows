@@ -67,6 +67,12 @@ const (
 	MaxPanelWidth  = 1
 	MinPanelHeight = 12
 	MaxPanelHeight = 80
+	// The panel lets what is behind it through, from barely to not at
+	// all, and blurs it by up to MaxPanelBlur DIPs: past that, nothing of
+	// it is made out anyway.
+	MinPanelOpacity = 0.1
+	MaxPanelOpacity = 1
+	MaxPanelBlur    = 40
 	// The button over a display's bottom-left corner is a taskbar's
 	// height, and as wide as the user wants; narrower than tall would
 	// crowd its mark.
@@ -106,6 +112,11 @@ type Settings struct {
 	// follows the strip's width, and its height in DIPs.
 	PanelWidth  float64 `json:"panelWidth"`
 	PanelHeight float64 `json:"panelHeight"`
+	// PanelOpacity is how opaque the panel, and the corner button joined
+	// to it, are, 0 to 1, and PanelBlur how far, in DIPs, they blur what
+	// is behind them, as frosted glass; 0 blurs nothing.
+	PanelOpacity float64 `json:"panelOpacity"`
+	PanelBlur    float64 `json:"panelBlur"`
 	// CornerWidth is the width in DIPs of the button over the bottom-left
 	// corner of a display, which opens the same overview; its height is a
 	// taskbar's, which leaves that corner empty.
@@ -196,6 +207,8 @@ func Default() Settings {
 		Tilt:               DefaultTilt,
 		PanelWidth:         1,
 		PanelHeight:        38,
+		PanelOpacity:       0.55,
+		PanelBlur:          16,
 		CornerWidth:        MinCornerWidth,
 		WinTab:             true,
 		Accent:             AccentDefault,
@@ -255,6 +268,14 @@ func (s Settings) Normalize() Settings {
 		s.PanelHeight = Default().PanelHeight
 	}
 	s.PanelHeight = math.Round(min(max(s.PanelHeight, MinPanelHeight), MaxPanelHeight))
+	if math.IsNaN(s.PanelOpacity) {
+		s.PanelOpacity = Default().PanelOpacity
+	}
+	s.PanelOpacity = math.Round(min(max(s.PanelOpacity, MinPanelOpacity), MaxPanelOpacity)*100) / 100
+	if math.IsNaN(s.PanelBlur) {
+		s.PanelBlur = Default().PanelBlur
+	}
+	s.PanelBlur = math.Round(min(max(s.PanelBlur, 0), MaxPanelBlur))
 	if s.CornerWidth == 0 || math.IsNaN(s.CornerWidth) {
 		s.CornerWidth = Default().CornerWidth
 	}

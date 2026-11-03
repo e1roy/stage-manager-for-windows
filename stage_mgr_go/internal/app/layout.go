@@ -225,7 +225,7 @@ func markRect(stack []ui.Rect) (ui.Rect, float32) {
 		x0, y0 = min(x0, r.X), min(y0, r.Y)
 		x1, y1 = max(x1, r.X+r.W), max(y1, r.Y+r.H)
 	}
-	pad := max(stack[0].H*0.05, 4)
+	pad := max(stack[0].H*0.07, 6)
 	r := ui.Rect{X: x0 - pad, Y: y0 - pad, W: x1 - x0 + 2*pad, H: y1 - y0 + 2*pad}
 	return r, max(stack[0].H*0.045, 3) + pad
 }
@@ -283,6 +283,40 @@ func footerBand(width, height float32, p panel, right bool) ui.Rect {
 	r := footerButton(width, height, p, right)
 	x0, x1 := max(r.X-footerInset, 0), min(r.X+r.W+footerInset, width)
 	return ui.Rect{X: x0, Y: r.Y - footerInset, W: x1 - x0, H: height - r.Y + footerInset}
+}
+
+// jointButton is where the panel shows when the corner button below it
+// joins it into one (corner.go): flush with the strip's left and bottom
+// edges, which are the display's left edge and the taskbar's top, and out
+// to where the panel ends on its own. The corner button is as wide.
+func jointButton(width, height float32, p panel) ui.Rect {
+	r := footerButton(width, height, p, false)
+	return ui.Rect{X: 0, Y: height - p.h, W: r.X + r.W, H: p.h}
+}
+
+// jointBand is where a joined panel takes the pointer: the panel, and
+// footerInset above it and to its right, as footerBand.
+func jointBand(width, height float32, p panel) ui.Rect {
+	r := jointButton(width, height, p)
+	return ui.Rect{X: 0, Y: r.Y - footerInset, W: min(r.W+footerInset, width), H: r.H + footerInset}
+}
+
+// jointGlyph is the top of the overview's mark, gh tall, in a joined
+// button: top DIPs of the strip's panel over below DIPs of the corner
+// button, from the panel's top. It is centered on the two, but kept off
+// the seam between them, in the taller: the two halves are two windows,
+// whose pixels need not meet exactly at every scale.
+func jointGlyph(top, below, gh float32) float32 {
+	const clear = 2
+	y := (top + below - gh) / 2
+	if y < top && y+gh > top {
+		if below >= top {
+			y = min(top+clear, top+below-gh)
+		} else {
+			y = max(top-clear-gh, 0)
+		}
+	}
+	return y
 }
 
 // The overview's panel begins to come in with the pointer panelReach DIPs

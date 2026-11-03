@@ -342,3 +342,29 @@ func TestMarksPreviousStage(t *testing.T) {
 		t.Fatalf("marked %q with the setting off", s.previous)
 	}
 }
+
+// While the pointer is on a card, a button at its front window's top right
+// turns red under the pointer and closes the card's windows, rather than
+// the card taking the click.
+func TestCardCloseButton(t *testing.T) {
+	s, got, tt := testStrip(t)
+	tt.Move(center(s.d.layout.cards[0]))
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	r, ok := tt.Find(s.a.tr().CloseWindow)
+	if !ok {
+		t.Fatalf("no close button on the hovered card: %q", tt.Texts())
+	}
+	x, y := center(r)
+	tt.Move(x, y)
+	tt.Advance(time.Second)
+	if c := tt.Image().RGBAAt(int(x+r.W/4), int(y)); c.R < 150 || c.G > 100 {
+		t.Fatalf("close button under the pointer is %v, not red", c)
+	}
+	tt.ClickAt(x, y)
+	tt.Frame()
+	if len(*got) != 1 || (*got)[0] != (request{actClose, "mail"}) {
+		t.Fatalf("requests %v", *got)
+	}
+}

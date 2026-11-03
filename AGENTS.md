@@ -16,7 +16,7 @@ Stage Manager for Windows：在 Windows 10/11 上复刻 macOS“台前调度”�
 | `release-notes/<版本>.md` | 该版本的发布说明，中英双语。有它 `gh release create --notes-file` 就用它，没有则由 CI 自动生成。 |
 | `README.md`、`README.zh-CN.md`（根目录） | 面向用户：功能、安装、用法、已知问题、致谢（英文/中文两版，改功能时要一起改）。构建、架构与调试在 `stage_mgr_go/README.md`。 |
 | `其他项目参考代码/` | 第三方参考项目（StageManagerForWindows，C#），只读参考，**未纳入版本控制，不要 `git add`**。 |
-| `docs/CODEMAP.md` | **动手改代码前先读**：逐文件的符号表、核心数据结构、启动/刷新/切换/拖动/概览的流程、常见改动落点、调试与测试地图。 |
+| `docs/CODEMAP.md` | **动手改代码前先读**：逐文件的符号表、核心数据结构、启动/刷新/切换/拖动/概览/舞台窗口列表/检查更新的流程、常见改动落点、调试与测试地图。 |
 | `.codebuddy/plans/` | 之前做过的问题分析（如阴影跳变），排查同类问题前值得一读。 |
 | `start-stage-manager.bat` | 本地一键：先 `--quit` 旧实例，再编译并启动 `build/windows-amd64/StageManagerForWindows.exe`。 |
 
@@ -66,7 +66,7 @@ stage_mgr_go/
       monitor.go      显示器枚举与几何、Scale()
       hooks.go        WinEvent 事件常量与 HookWinEvents
       keyboard.go     Win+Tab 低级键盘钩子（独立线程，只 post 回主线程）
-      capture.go      PrintWindow 静帧；thumbnail.go 是 DWM 缩略图（自绘阴影、peek）
+      capture.go      PrintWindow 静帧、`CaptureScreen`（读 DWM 合成后的屏幕，舞台窗口列表取色用）；thumbnail.go 是 DWM 缩略图（自绘阴影、peek）
       taskbar.go      任务栏按钮（peek 用）；taskbarcorner.go 是 WindowsBuild / TaskbarCornerFree / IsTaskbar
       process.go / version.go / locale.go；proxy.go 读注册表里的系统代理（SystemProxy）
     catalog/   枚举/过滤应用窗口，识别所属应用（含 UWP 宿主），应用显示名；STAGEMANAGER_APP_FILTER 在这里生效
@@ -83,16 +83,17 @@ stage_mgr_go/
       switch.go       舞台切换、真实窗口交接（handover）、切换排队/打断、卡片动作（action/request）
       flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
       pacer.go        按 DWM 合成节奏（DwmFlush）要帧，飞行层和概览用它代替 AnimationFrame
-      strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透
-      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、底部概览面板、上一个舞台的虚线框（`MarkPrevious`）
+      strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透；收到 `TaskbarCreated`（Explorer 重启）后重新占位
+      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、悬停时右上角的关闭按钮（关掉整张卡片的窗口）、底部概览面板、上一个舞台的虚线框（`MarkPrevious`）
       layout.go       纯几何：卡片布局、窗口叠放、图标位置、右侧镜像（有单测）
       media.go        静帧（PrintWindow）与图标缓存、内存预算（Quality / LightFlights）
       iconfit.go      裁掉图标四周透明边
       peek.go         任务栏缩略图 peek 时临时放回被停放的窗口
-      lineup.go       舞台窗口列表：舞台有多个窗口时在侧边栏顶部列出它们的 DWM 实时缩略图（不用 PrintWindow），点击移到最前、悬停关闭、右键收进侧边栏；开关是 `StageList`
+      lineup.go       舞台窗口列表：舞台有多个窗口时在侧边栏顶部列出它们的 DWM 实时缩略图（不用 PrintWindow），指针下的小框按 `lineupLift` 放大、缩略图同步；点击移到最前、悬停关闭、右键收进侧边栏；开关是 `StageList`
       tint.go         舞台窗口列表小框的底色：从屏幕上该窗口的缩略图取色，排除黑/白/灰后按色相直方图找主色，标题栏/状态栏一带加权，再在 OKLCH 里压成同样深的底色（纯逻辑，有单测）
       overview.go     “所有窗口”概览（类 Mission Control）：侧边栏底部按钮打开，铺开本显示器所有窗口，点选切换舞台；Win+Tab 时每个显示器各开一个（与 Windows 任务视图一致），任意一个收起时全部收起
-      corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览
+      corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览；侧边栏在左侧时它与侧边栏底部的概览面板“合体”（`joined`）：面板贴到左边和任务栏顶，触发角与面板同宽，两个窗口一起显示、一起亮、一起按下，画成一个四角圆角的按钮
+      glass.go        概览面板（及合体的触发角）的毛玻璃：面板从看不见到出现的那一刻，在 goroutine 里 `CaptureScreen` 截下按钮后面的屏幕，缩小后做三次盒式模糊（近似高斯，耗时与半径无关），面板和触发角各画它的一段；不透明度与模糊半径是设置项 `PanelOpacity` / `PanelBlur`（纯算法有单测）
       settingsview.go 设置窗口（通用/侧边栏/舞台/例外/关于 五个标签页）
       tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
       update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里查 GitHub，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点
@@ -149,6 +150,9 @@ stage_mgr_go/
   - 拖卡片时别让其他卡片响应悬停（会按原尺寸截图）；侧边栏内排序时卡片留在侧边栏窗口里画，只有拖出去（加入舞台、去另一台显示器）才交给飞行层。
   - 高分屏上原尺寸截图很大，设置里的“高分屏上减轻动画负担”（`LightFlights`，默认开）按 100% 缩放的清晰度截飞行用的图。
 - 拍静帧（`PrintWindow` + `PW_RENDERFULLCONTENT`）会让部分应用闪一下，已确认的有 JetBrains IDE。IDEA 打开“查找引用”等弹窗时，前台会先切到弹窗（`SunAwtWindow`），约 10ms 后又切回主窗口（`SunAwtFrame`）。`events.go: onForeground` 原来会把主窗口当成“刚离开的窗口”去拍静帧，导致每次打开弹窗都闪。现在焦点只在同一进程内移动时不拍（`sameProcess`）。以后新增拍照时机时，不要在用户正在用的、舞台上的窗口上随便拍；`STAGEMANAGER_DEBUG` 下每次拍照都会记一行 `capture [...]`，可以用来排查。
+- 舞台窗口列表（`lineup.go`）的缩略图是 DWM 画在侧边栏窗口之上的：MyGo 画的 tooltip 和遮罩都盖不住它，位置只能每帧用 `placeThumbs` 同步，隐藏时 `dropThumbs`。小框的底色靠 `winapi.CaptureScreen` 读 DWM 合成后的屏幕（不要用 `PrintWindow`，那会让应用重画、闪）；侧边栏不在屏幕上、飞行中、概览中不取色，锁屏时读到纯色就保留旧色。
+- 概览面板的毛玻璃（`glass.go`）是面板出现那一刻截的静态画面：面板显示期间后面的内容变了不会跟着变；纯色背景（`blank`）不截。DWM 只能模糊整个窗口，面板只是侧边栏窗口的一部分，所以自己截屏模糊；截屏时机必须在面板还没画出来时（`strip.frosted`），否则会把面板自己截进去。
+- 检查更新是唯一的联网行为：只在 `app/update.go` 的 goroutine 里发请求（15s 超时），`go run` 没有版本号或关掉 `CheckUpdates` 时不联网；代理要自己读 `winapi.SystemProxy()`，Go 默认只认环境变量代理。新增联网功能先想想是否真的必要。
 
 ## Git
 

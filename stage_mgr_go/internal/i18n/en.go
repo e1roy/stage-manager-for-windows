@@ -43,6 +43,9 @@ var en = Strings{
 	OverviewPanel:     "All windows panel",
 	OverviewPanelDesc: "The panel at the bottom of the sidebar shows when the pointer reaches it; click it to spread out every window on the display. Its width is a share of the cards' width.",
 	Height:            "Height",
+	Opacity:           "Opacity",
+	Blur:              "Background blur",
+	BlurOff:           "Off",
 
 	OverviewCorner:     "Corner button",
 	OverviewCornerDesc: "The button over a display's bottom-left corner, on the taskbar: it shows as the pointer comes near, and opens the same overview. It appears only where a centered Windows 11 taskbar leaves that corner empty.",

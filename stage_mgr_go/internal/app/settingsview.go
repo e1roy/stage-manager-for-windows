@@ -33,6 +33,7 @@ type settingsWindow struct {
 	// panelW and panelH size the overview's panel, as the sliders set them,
 	// and cornerW the button over a display's bottom-left corner.
 	panelW, panelH float64
+	panelOp, blur  float64
 	cornerW        float64
 	// flight is how fast windows fly, as the slider sets it.
 	flight float64
@@ -101,6 +102,7 @@ func (sw *settingsWindow) load() {
 	sw.quality = slices.Index(qualities, sw.s.Quality)
 	sw.width, sw.icon, sw.tilt, sw.spacing = sw.s.Width, sw.s.IconScale, float64(sw.s.Tilt), sw.s.Spacing
 	sw.panelW, sw.panelH = sw.s.PanelWidth, sw.s.PanelHeight
+	sw.panelOp, sw.blur = sw.s.PanelOpacity, sw.s.PanelBlur
 	sw.cornerW = sw.s.CornerWidth
 	sw.flight = sw.s.FlightSpeed
 }
@@ -580,6 +582,30 @@ func (sw *settingsWindow) panelSection(c *ui.Context, f form, tr *i18n.Strings) 
 			if f.slider(c, tr, &sw.panelH, settings.MinPanelHeight, settings.MaxPanelHeight, 0, def.PanelHeight, px) {
 				sw.panelH = math.Round(sw.panelH)
 				sw.s.PanelHeight = sw.panelH
+				sw.a.showPanel()
+				sw.apply()
+			}
+		})
+		// How much of what is behind the panel shows through it, and how
+		// blurred, as the corner button joined to it shows it too.
+		f.row(c, tr.Opacity, "", func() {
+			if f.slider(c, tr, &sw.panelOp, settings.MinPanelOpacity, settings.MaxPanelOpacity, 0, def.PanelOpacity, pct) {
+				sw.panelOp = math.Round(sw.panelOp*100) / 100
+				sw.s.PanelOpacity = sw.panelOp
+				sw.a.showPanel()
+				sw.apply()
+			}
+		})
+		blur := func(v float64) string {
+			if v == 0 {
+				return tr.BlurOff
+			}
+			return fmt.Sprintf(tr.WidthValue, v)
+		}
+		f.row(c, tr.Blur, "", func() {
+			if f.slider(c, tr, &sw.blur, 0, settings.MaxPanelBlur, 0, def.PanelBlur, blur) {
+				sw.blur = math.Round(sw.blur)
+				sw.s.PanelBlur = sw.blur
 				sw.a.showPanel()
 				sw.apply()
 			}

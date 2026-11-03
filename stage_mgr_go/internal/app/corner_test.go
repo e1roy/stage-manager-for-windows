@@ -135,3 +135,78 @@ func TestOverviewWindows(t *testing.T) {
 		t.Fatal("no overview shows and anyOverview says one does")
 	}
 }
+
+// Joined, the strip's panel comes down to the taskbar and in to the
+// display's left edge, as wide as on its own from there, and the corner
+// button under it is as wide, from the taskbar's top to the bottom.
+func TestJointButton(t *testing.T) {
+	p := panel{share: 1, h: 38}
+	alone := footerButton(220, 1000, p, false)
+	r := jointButton(220, 1000, p)
+	if r.X != 0 || r.Y+r.H != 1000 || r.H != p.h || r.W != alone.X+alone.W {
+		t.Fatalf("the joined panel is %v, on its own %v", r, alone)
+	}
+	if b := jointBand(220, 1000, p); b.X != 0 || b.Y+b.H != 1000 || b.Y != r.Y-footerInset || b.W > 220 {
+		t.Fatalf("the joined panel takes the pointer in %v", b)
+	}
+	a := &App{settings: settings.Default()}
+	m := winapi.Rect{Left: 1920, Right: 1920 + 2560, Bottom: 1440}
+	d := &display{}
+	d.mon.Monitor = m
+	s := &strip{a: a, d: d, joined: true, scale: 1.5, rect: winapi.Rect{Left: 1920, Right: 1920 + 330, Bottom: 1440 - 72}}
+	d.strip = s
+	c := a.cornerBounds(d)
+	if c.Left != m.Left || c.Top != s.rect.Bottom || c.Bottom != m.Bottom || float64(c.W()) < float64(s.jointWidth())*1.5 {
+		t.Fatalf("the joined corner is %+v under %+v, %v DIPs wide", c, s.rect, s.jointWidth())
+	}
+	if h := s.cornerHeight(); h != 48 {
+		t.Fatalf("the joined corner is %v DIPs tall", h)
+	}
+	s.joined = false
+	if c := a.cornerBounds(d); c != cornerRect(m, d.mon.Scale(), a.cornerWidth()) {
+		t.Fatalf("parted, the corner is %+v", c)
+	}
+}
+
+// The mark of a joined button is centered on it, but never across the
+// seam between its two windows.
+func TestJointGlyph(t *testing.T) {
+	for _, c := range []struct{ top, below float32 }{{38, 48}, {12, 48}, {80, 48}, {38, 30}, {48, 48}} {
+		const gh = 14
+		y := jointGlyph(c.top, c.below, gh)
+		if y < c.top && y+gh > c.top {
+			t.Fatalf("%v over %v: the mark at %v crosses the seam", c.top, c.below, y)
+		}
+		if y < 0 || y+gh > c.top+c.below {
+			t.Fatalf("%v over %v: the mark at %v is out of the button", c.top, c.below, y)
+		}
+		if mid := (c.top + c.below) / 2; y+gh/2 < mid-gh || y+gh/2 > mid+gh {
+			t.Fatalf("%v over %v: the mark at %v is far from the middle %v", c.top, c.below, y, mid)
+		}
+	}
+}
+
+// A joined panel takes the pointer down to the strip's bottom, and lights
+// up with the corner button under it.
+func TestJoinedFooter(t *testing.T) {
+	s, _, tt := testStrip(t)
+	s.d.mon.Monitor = winapi.Rect{Right: 2000, Bottom: 948}
+	s.joined = true
+	tt.Frame()
+	if b := jointBand(200, 900, s.a.panel()); s.footerHit != b {
+		t.Fatalf("the joined panel takes the pointer in %v, not %v", s.footerHit, b)
+	}
+	if !s.over(winapi.Point{X: 1, Y: 899}) {
+		t.Fatal("the strip lets the pointer through in its bottom-left corner")
+	}
+	tt.Move(4, 896)
+	tt.Frame()
+	if !s.footHover {
+		t.Fatal("the corner button does not hear of the pointer over the panel")
+	}
+	s.d.inOverview = true
+	tt.Frame()
+	if s.footHover || s.footerHit.W != 0 {
+		t.Fatalf("the panel is still lit %v, in %v, while the overview shows", s.footHover, s.footerHit)
+	}
+}

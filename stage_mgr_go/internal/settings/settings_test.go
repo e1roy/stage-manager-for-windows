@@ -159,6 +159,23 @@ func TestPanel(t *testing.T) {
 	}
 }
 
+// The panel's glass is clamped into its range, a blur of 0 is none, and
+// settings from before it had one take the default.
+func TestPanelGlass(t *testing.T) {
+	s := (Settings{PanelOpacity: 3, PanelBlur: -4}).Normalize()
+	if s.PanelOpacity != MaxPanelOpacity || s.PanelBlur != 0 {
+		t.Fatalf("glass %v, blur %v", s.PanelOpacity, s.PanelBlur)
+	}
+	if s := (Settings{PanelOpacity: 0.01, PanelBlur: 99}).Normalize(); s.PanelOpacity != MinPanelOpacity || s.PanelBlur != MaxPanelBlur {
+		t.Fatalf("glass %v, blur %v", s.PanelOpacity, s.PanelBlur)
+	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"width": 240}`), 0o644)
+	if got, def := NewStore(dir).Load(), Default(); got.PanelOpacity != def.PanelOpacity || got.PanelBlur != def.PanelBlur {
+		t.Fatalf("loaded glass %v, blur %v", got.PanelOpacity, got.PanelBlur)
+	}
+}
+
 func TestCornerWidth(t *testing.T) {
 	if s := (Settings{CornerWidth: 9000}).Normalize(); s.CornerWidth != MaxCornerWidth {
 		t.Fatalf("corner width 9000 normalized to %v", s.CornerWidth)

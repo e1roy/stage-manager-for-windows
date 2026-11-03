@@ -152,6 +152,8 @@ func (s *strip) view(c *ui.Context) {
 		}
 		if a.ready && !d.inOverview {
 			footer = s.footer(c, w, h)
+		} else {
+			s.footState(false, false)
 		}
 		// Over the cards, should they scroll up to it. DWM draws the
 		// pictures over the window, so they slide with it by hand.
@@ -164,67 +166,124 @@ func (s *strip) view(c *ui.Context) {
 // overview. It comes in as the pointer nears it (strip.approach), or for a
 // moment as the settings size it, so the strip looks as it does on macOS
 // until it is wanted. It returns where it takes the pointer, for hit
-// testing.
+// testing. Joined to the corner button below it, it draws the top of the
+// one button the two make.
 func (s *strip) footer(c *ui.Context, w, h float32) ui.Rect {
 	a, d := s.a, s.d
 	p := a.panel()
+	joined := s.joined
 	band := footerBand(w, h, p, s.right())
 	r := footerButton(w, h, p, s.right())
+	if joined {
+		band, r = jointBand(w, h, p), jointButton(w, h, p)
+	}
 	el := ui.Box(c.Key("overview")).Absolute().Left(band.X).Top(band.Y).Size(band.W, band.H).Cursor(ui.CursorPointer)
 	hovered, pressed := el.Hovered(), el.Pressed()
+	s.footState(hovered, pressed)
+	now := time.Now()
+	peek := now.Before(a.panelUntil)
+	// The corner button joined to it lights it up, presses it and shows
+	// it as it does itself.
+	if hint := s.joint(); hint != nil {
+		hovered, pressed = hovered || hint.hover, pressed || hint.pressing
+		peek = peek || now.Before(hint.peek)
+	}
 	// A click lights the panel up and lets it go with a little pop, so it
 	// is seen to take the click in the moment before the overview opens.
-	var flash float32
 	if el.Clicked() {
 		debugf("overview panel clicked on %s", d.mon.Device)
 		a.requestOverview(d)
-		flash = el.Jump("flash", 1)
+		d.flashAt = now
+		if hint := s.joint(); hint != nil {
+			hint.redraw()
+		}
+	}
+	flash := d.flash(now)
+	if flash > 0 {
 		c.AnimationFrame()
-	} else {
-		flash = el.AnimateTo("flash", 0, panelFlash)
 	}
 	near := s.near
-	if hovered || pressed || time.Now().Before(a.panelUntil) {
+	if hovered || pressed || peek {
 		near = 1
 	}
 	op := max(el.AnimateTo("shown", near, fadeQuick), flash)
+	// The glass is taken as the panel comes in, while nothing of it
+	// shows yet to be taken with what is behind it.
+	if near > 0 && !s.frosted {
+		s.frosted = true
+		s.frost(s.buttonScreen(r))
+	} else if near == 0 && op == 0 {
+		s.frosted = false
+	}
 	hot := el.AnimateTo("hot", b2f(hovered), fadeQuick)
 	down := el.AnimateTo("down", b2f(pressed), panelPress)
 	press := el.AnimateTo("press", 1-0.08*b2f(pressed), ui.Snappy)
 	lit := max(down, flash)
-	// It grows into place as it comes in.
-	scale := (0.9 + 0.1*op) * press * (1 + 0.04*flash)
 	accent, outlined := a.accent()
-	bg := pillColor.Mix(panelHot, hot).Mix(accent, lit)
-	edge := ui.RGBA(255, 255, 255, 0.16).Mix(ui.RGBA(255, 255, 255, 0.34), hot).Mix(ui.RGBA(150, 205, 255, 0.95), lit)
-	if outlined {
-		// Under the pointer the border takes the accent, as the corner
-		// button's does; otherwise the panel keeps the faint edge it
-		// rests with.
-		edge = edge.Mix(accent.Alpha(max(hot, lit)), max(hot, lit))
-	}
-	el.Children(func() {
+	// Under the pointer the border takes the accent, as the corner
+	// button's does; otherwise the panel keeps the faint edge it rests
+	// with.
+	edge := panelEdge(hot, lit, accent, outlined)
+	if joined {
+		s.jointFooter(c, el, band, r, op, hot, lit, accent, edge)
+	} else {
+		// It grows into place as it comes in.
+		scale := (0.9 + 0.1*op) * press * (1 + 0.04*flash)
+		bg := panelFill(float32(a.settings.PanelOpacity), hot).Mix(accent, lit)
 		// Its corners round as a window's do on Windows 11, less on a
 		// thin panel.
-		pane := ui.Row(c).Absolute().Left(r.X-band.X).Top(r.Y-band.Y).Size(r.W, r.H).Center().
-			Radius(min(8, r.H/4)).Background(bg).Border(1, edge).
-			Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.28)).Scale(scale, scale).Opacity(op)
-		pane.Children(func() {
-			if g := min(16, r.H*0.42, r.W*0.6); g >= 8 {
-				overviewGlyph(c, g, white)
+		radius := min(8, r.H/4)
+		el.Children(func() {
+			if b := s.glass.bmp; b != nil {
+				ui.Image(c, b).Absolute().Left(r.X-band.X).Top(r.Y-band.Y).Size(r.W, r.H).Fit(ui.FillBox).
+					Radius(radius).Scale(scale, scale).Opacity(op)
 			}
+			pane := ui.Row(c).Absolute().Left(r.X-band.X).Top(r.Y-band.Y).Size(r.W, r.H).Center().
+				Radius(radius).Background(bg).Border(1, edge).
+				Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.28)).Scale(scale, scale).Opacity(op)
+			pane.Children(func() {
+				if g := min(16, r.H*0.42, r.W*0.6); g >= 8 {
+					overviewGlyph(c, g, white)
+				}
+			})
 		})
-	})
+	}
 	if !s.shown {
 		return ui.Rect{}
 	}
 	return band
 }
 
+// jointFooter draws the panel as the top of one button with the corner
+// button below it (corner.go): flush with the display's left edge and the
+// taskbar, outlined and rounded all round with it, as one button, but not
+// between the two, and the overview's mark centered on the two. Neither
+// grows nor shrinks, which would part them.
+func (s *strip) jointFooter(c *ui.Context, el ui.Element, band, r ui.Rect, op, hot, lit float32, accent, edge ui.Color) {
+	bg := panelFill(float32(s.a.settings.PanelOpacity), hot).Mix(accent, lit)
+	below := s.cornerHeight()
+	g := min(18, (r.H+below)*0.42, r.W*0.6)
+	gh := g * 0.78
+	y := jointGlyph(r.H, below, gh)
+	x0, y0 := r.X-band.X, r.Y-band.Y
+	el.Children(func() {
+		// The glass is the whole button's: the panel shows its top.
+		if b := s.glass.bmp; b != nil {
+			ui.Box(c).Absolute().Left(x0).Top(y0).Size(r.W, r.H).Radius(jointRadius, jointRadius, 0, 0).Clip().Opacity(op).Children(func() {
+				ui.Image(c, b).Absolute().Left(0).Top(0).Size(r.W, r.H+below).Fit(ui.FillBox)
+			})
+		}
+		ui.Box(c).Absolute().Left(x0).Top(y0).Size(r.W, r.H).
+			Radius(jointRadius, jointRadius, 0, 0).Background(bg).BorderWidth(1, 1, 0, 1).BorderColor(edge).Opacity(op)
+		if y+gh <= r.H && g >= 8 {
+			ui.Box(c).Absolute().Left(r.X - band.X + (r.W-g)/2).Top(r.Y - band.Y + y).Opacity(op).Children(func() {
+				overviewGlyph(c, g, white)
+			})
+		}
+	})
+}
+
 var (
-	// panelHot is the panel under the pointer, a little lighter; pressed,
-	// it takes the blue of the overview's ring.
-	panelHot = ui.RGBA(44, 44, 52, 0.84)
 	// The press shows at once; the flash of a click fades as the overview
 	// opens.
 	panelPress = ui.Animation{Duration: 70 * time.Millisecond}
@@ -466,11 +525,30 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 			for i := len(stack) - 1; i >= 0; i-- {
 				s.windowStill(c, g, i, stack[i])
 			}
+			// While the pointer is on the card, a button on the top right
+			// corner of its front window, half out of it, closes the card's
+			// windows, every one of a set of several, as its menu's last
+			// item does: out there, it hides little of the window. It is
+			// drawn with the windows, so it turns and lifts as they do.
+			closing := el.AnimateTo("close", b2f(hovered && !st.dragging), fadeQuick)
+			if closing > 0 {
+				f := stack[0]
+				label := a.tr().CloseWindow
+				if len(g.windows) > 1 {
+					label = a.tr().CloseWindows
+				}
+				b := closeButton(c, cardCloseSize, cardCloseRest, label, func() { a.request(actClose, d, g) })
+				b.Absolute().Left(f.X + f.W - cardCloseSize/2).Top(f.Y - cardCloseSize/2).
+					Shadow(0, 1, 4, 0, ui.RGBA(0, 0, 0, 0.3)).Opacity(closing)
+			}
 		})
 		// The icons of a set's apps overlap a little, the first on top.
 		row := iconRow(stack[0], local, len(g.apps), float32(a.settings.IconScale), right)
 		ir := row[len(row)-1]
-		overlay := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).TransformOrigin(originX, 0.5).Scale(lift, lift).Opacity(iconOp)
+		// The overlay spans the card, above the windows: it lets the
+		// pointer through to them, or the button that closes them would
+		// not know it is under the pointer, nor take its click.
+		overlay := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).TransformOrigin(originX, 0.5).Scale(lift, lift).Opacity(iconOp).PassThrough()
 		overlay.Children(func() {
 			for i := len(row) - 1; i >= 0; i-- {
 				if icon := a.media.icons[g.apps[i].app]; icon != nil {
@@ -500,6 +578,12 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	return el.Bounds()
 }
 
+// The button that closes a card's windows: grey and see-through, so that
+// it shows over a window of any color without hiding much of it.
+const cardCloseSize = 20
+
+var cardCloseRest = ui.RGBA(60, 60, 66, 0.6)
+
 // previousStage returns the first app of the set the stage last left, as
 // its card is marked (settings.MarkPrevious), or "" for none. Any way off
 // the stage counts, a click on a card, Alt+Tab, the taskbar or the
@@ -522,17 +606,28 @@ func (s *strip) previousStage() string {
 func (s *strip) previousMark(c *ui.Context, g *set, stack []ui.Rect) {
 	marked := s.previous != "" && slices.ContainsFunc(g.apps, func(app *group) bool { return app.app == s.previous })
 	r, radius := markRect(stack)
+	color := markColor
+	if accent, on := s.a.accent(); on {
+		// A saturated accent such as purple or blue is dark to the eye on
+		// the strip's black, so a thin line of it nearly vanishes: lighten it.
+		color = accent.Mix(ui.RGB(255, 255, 255), markLighten)
+	}
 	el := ui.Box(c.Key("previous")).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).
-		Radius(radius).Border(2, markColor).BorderStyle(ui.BorderDashed)
+		Radius(radius).Border(markWidth, color).BorderStyle(ui.BorderDashed)
 	el.Opacity(el.AnimateTo("shown", b2f(marked), markFade))
 }
 
 var (
-	// markColor is the dashed outline of the stage last left: white, as
-	// the cards' labels are, rather than the accent, which marks the
-	// window in front in the list of the stage's windows.
+	// markColor is the dashed outline of the stage last left when the user
+	// has turned the accent off: white, as the cards' labels are. Otherwise
+	// the outline takes the accent, like the panel and the corner do.
 	markColor = ui.RGBA(255, 255, 255, 0.85)
-	markFade  = ui.Animation{Duration: 240 * time.Millisecond}
+	// markWidth is the outline's width; MyGo sizes a dash at about three
+	// times it, so a thicker line also has longer dashes.
+	markWidth = float32(2)
+	// markLighten is how far the accent is mixed toward white for the outline.
+	markLighten = float32(0.4)
+	markFade    = ui.Animation{Duration: 240 * time.Millisecond}
 )
 
 // motion says what moves in the strip, for the debug log.
