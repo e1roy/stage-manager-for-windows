@@ -31,6 +31,10 @@ type cardState struct {
 	// display's strip was let go, for it to settle into its slot from
 	// there rather than come in from the edge.
 	arrive winapi.Rect
+	// over is whether the pointer was on the card in the last frame, and
+	// shook when the stage's card was last shaken (shakeGap).
+	over  bool
+	shook time.Time
 }
 
 type follow int8
@@ -91,7 +95,11 @@ var (
 	// stripPadRight from its edges. shakeSpring lets it swing back and forth
 	// about its place, about 140 ms from side to side, as a shake does: a
 	// spring that bounces a lot, which stills in half a second.
-	shakeSize   = float32(9)
+	shakeSize = float32(9)
+	// shakeGap is the time before the pointer coming on the stage's card
+	// shakes it again: the shake takes under a second, and has the card back
+	// under the pointer, which is then no news.
+	shakeGap    = 800 * time.Millisecond
 	shakeSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 140 * time.Millisecond, Bounce: 0.8}}
 	// The badge on the card of the stage is a small green button of glass, as
 	// the checks of macOS and Windows settings are: lit from the upper left,
@@ -454,6 +462,7 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 			// one that was missed: the card shakes its head, as the login
 			// box of macOS does for a wrong password.
 			el.Jump("shake", shakeSize)
+			st.shook = c.Now()
 		case el.ClickModifiers()&ui.Shift != 0 && !d.model.Empty():
 			// Shift-click adds the card to the stage, as on macOS.
 			a.request(actJoin, d, g)
@@ -471,6 +480,17 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	// would lift, and capture their windows at full size for a switch that
 	// will not come, holding the main thread up mid-drag.
 	hovered := (st.dragging || el.Hovered() && a.cardDrag == nil) && !landing
+	// The pointer coming onto the stage's card shakes it too, as a click
+	// does: it has nothing to bring, and it says so before the click that
+	// would ask. The shake moves the card from under the pointer and back, so
+	// that it comes on it again: not within shakeGap of the last, or it would
+	// shake on forever at the card's edge.
+	over := hovered && !st.dragging
+	if g.staged && over && !st.over && c.Now().Sub(st.shook) > shakeGap {
+		el.Jump("shake", shakeSize)
+		st.shook = c.Now()
+	}
+	st.over = over
 	// No switch follows a click on the stage's own card, so the pointer over
 	// it neither turns nor lifts it, nor takes the pictures of its windows,
 	// which the user is in; held and moved, it is a card like the others.
