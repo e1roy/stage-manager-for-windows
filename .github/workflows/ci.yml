@@ -52,7 +52,7 @@ jobs:
           # PowerShell 5 writes files with a byte order mark; the app skips it, so do we.
           $file = (Get-Content ../.version -Raw).Trim([char]0xFEFF).Trim()
           if ($file -ne $version) {
-            throw ".version says $file but mygo.json says $version: change them together."
+            throw ".version says $file but mygo.json says ${version}: change them together."
           }
           if ("${{ github.ref_type }}" -eq "tag") {
             $tag = "${{ github.ref_name }}".TrimStart('v')
