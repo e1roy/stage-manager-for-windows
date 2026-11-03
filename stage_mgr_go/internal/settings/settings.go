@@ -78,6 +78,10 @@ const (
 	MinPanelOpacity = 0.1
 	MaxPanelOpacity = 1
 	MaxPanelBlur    = 40
+	// The card of the stage in a strip that lists it (AllStages) stays at
+	// least a little there to be seen, and may be as opaque as any other.
+	MinStagedOpacity = 0.1
+	MaxStagedOpacity = 1
 	// The button over a display's bottom-left corner is a taskbar's
 	// height, and as wide as the user wants; narrower than tall would
 	// crowd its mark.
@@ -176,6 +180,15 @@ type Settings struct {
 	// were in the middle of. It is on unless turned off, settings from
 	// before it included.
 	MarkPrevious bool `json:"markPrevious"`
+	// AllStages lists the apps on the stage in the strip too, as a card in
+	// its slot, so that the cards stay where they are whichever app the stage
+	// is on: on macOS the apps leaving the stage take the slot of the card
+	// coming in, and the strip drifts with every switch. The stage's card
+	// shows as a ghost, StagedOpacity opaque and StagedGray gray, 0 to 1. It
+	// is off unless turned on.
+	AllStages     bool    `json:"allStages"`
+	StagedOpacity float64 `json:"stagedOpacity"`
+	StagedGray    float64 `json:"stagedGray"`
 	// Language of the words shown; Auto follows Windows.
 	Language i18n.Lang `json:"language,omitempty"`
 }
@@ -229,6 +242,8 @@ func Default() Settings {
 		CheckUpdates:       true,
 		StageList:          true,
 		MarkPrevious:       true,
+		StagedOpacity:      0.4,
+		StagedGray:         0.6,
 		// TortoiseSVN's and TortoiseGit's dialogs all come from these.
 		Companions: []string{"tortoiseproc", "tortoisegitproc"},
 	}
@@ -297,6 +312,16 @@ func (s Settings) Normalize() Settings {
 		s.CornerWidth = Default().CornerWidth
 	}
 	s.CornerWidth = math.Round(min(max(s.CornerWidth, MinCornerWidth), MaxCornerWidth))
+	// A card that is not seen is no card, so 0 is one missing from older
+	// settings; gray may be 0.
+	if s.StagedOpacity == 0 || math.IsNaN(s.StagedOpacity) {
+		s.StagedOpacity = Default().StagedOpacity
+	}
+	s.StagedOpacity = math.Round(min(max(s.StagedOpacity, MinStagedOpacity), MaxStagedOpacity)*100) / 100
+	if math.IsNaN(s.StagedGray) {
+		s.StagedGray = Default().StagedGray
+	}
+	s.StagedGray = math.Round(min(max(s.StagedGray, 0), 1)*100) / 100
 	s.Accent = accent(s.Accent)
 	if !i18n.Known(s.Language) {
 		s.Language = i18n.Auto

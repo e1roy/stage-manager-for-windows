@@ -256,7 +256,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 			s.lastInside = now
 		}
 		want := now.Sub(s.lastInside) < autoHide || now.Before(s.holdUntil) || s.dragging ||
-			(!s.d.covered && len(s.d.sets) > 0 && s.a.ready)
+			(!s.d.covered && s.d.waiting() > 0 && s.a.ready)
 		s.setShown(want)
 		// The window hides only once the slide has stopped. Hidden while
 		// it still moves, the window keeps the frame it asked for waiting

@@ -124,6 +124,8 @@ var en = Strings{
 	StageListMore:    "%d more, click to see all",
 	BringToFront:     "Bring to front",
 	SendToStrip:      "Send to strip",
+	AllStages:        "List every stage in the strip, the current one too",
+	Grayscale:        "Grayscale",
 	MarkPrevious:     "Outline the previous stage",
 	MarkPreviousDesc: "After you switch stages, the card of the apps that just left the stage gets a dashed outline, so when you are done elsewhere you can see at a glance what you were in the middle of.",
 

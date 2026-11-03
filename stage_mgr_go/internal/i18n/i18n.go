@@ -120,7 +120,8 @@ type Strings struct {
 	// spreads out every window of the display, as Mission Control does;
 	// OverviewPanelDesc says where it is and how it is sized.
 	OverviewPanel, OverviewPanelDesc, Height string
-	// Opacity names how opaque the panel is, and Blur how much it blurs
+	// Opacity names how opaque the panel is, as it does the card of the
+	// stage in the strip (AllStages), and Blur how much it blurs
 	// what is behind it, as frosted glass; BlurOff is no blur.
 	Opacity, Blur, BlurOff string
 	// OverviewCorner names the button over a display's bottom-left
@@ -188,6 +189,10 @@ type Strings struct {
 	// MarkPrevious names the dashed outline on the card of the stage last
 	// left, which MarkPreviousDesc explains.
 	MarkPrevious, MarkPreviousDesc string
+	// AllStages names the strip listing the stage's own card as well, which
+	// keeps the cards in their places; its card shows with the Opacity above
+	// and Grayscale.
+	AllStages, Grayscale string
 
 	// The tray.
 	Settings, Restart, Quit string

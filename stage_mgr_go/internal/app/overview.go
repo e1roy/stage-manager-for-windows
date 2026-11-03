@@ -287,7 +287,11 @@ func (a *App) openOverviewOn(d *display) {
 	slices.SortStableFunc(stage, frontFirst)
 	ws := stage
 	for _, s := range d.sets {
-		ws = append(ws, s.windows...)
+		// The stage's own card, in a strip that lists it, has windows
+		// counted above.
+		if !s.staged {
+			ws = append(ws, s.windows...)
+		}
 	}
 	if len(ws) == 0 {
 		debugf("overview %s: no windows", d.mon.Device)
@@ -483,9 +487,11 @@ func (o *overview) close(pick *ovTile) {
 	}
 	o.spreadFrom, o.spreadTo = o.spread(e), 0
 	o.focus = 0
+	var left []string
 	if pick != nil {
 		o.focus = pick.w.HWND
 		if !d.model.OnStage(pick.w.App) {
+			left = d.model.Stage()
 			d.model.Switch(d.model.SetOf(pick.w.App), now)
 			a.arrange(d, o.groups, now)
 			// The cards take their new places now, blank, so that those
@@ -518,6 +524,9 @@ func (o *overview) close(pick *ovTile) {
 	if len(into) > 0 && d.strip != nil {
 		// A floating strip comes out for the windows to land in.
 		d.strip.holdOpen(1200 * time.Millisecond)
+	}
+	if len(left) > 0 {
+		a.reveal(d, left[0])
 	}
 	cards := a.flights.cardPoses(d, into, false)
 	front := map[string]winapi.HWND{}

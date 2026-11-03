@@ -124,6 +124,8 @@ var zhHans = Strings{
 	StageListMore:    "还有 %d 个，点击查看全部",
 	BringToFront:     "移到最前",
 	SendToStrip:      "收进侧边栏",
+	AllStages:        "侧边栏列出所有舞台，包括台前的",
+	Grayscale:        "灰度",
 	MarkPrevious:     "用虚线框标出上一个舞台",
 	MarkPreviousDesc: "切换舞台后，刚离开舞台的那张卡片会套上虚线框。忙完别的再回来时，一眼就能看出之前在做什么。",
 

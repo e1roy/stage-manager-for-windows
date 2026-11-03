@@ -284,3 +284,121 @@ func TestMarkAroundStack(t *testing.T) {
 		t.Fatalf("mark %v radius %v", r, radius)
 	}
 }
+
+// A strip that scrolls brings a card out of sight into view by the least it
+// takes, and leaves one in view where it is.
+func TestScrollToCard(t *testing.T) {
+	const n, h, head = 40, 900, 0
+	at := func(scroll float32) stripLayout {
+		return layoutStrip(n, 200, h, scroll, 20, defPanel, head, 0.5, false)
+	}
+	top := float32(stripMargin)
+	bottom := float32(h - stripMargin - defPanel.h - footerInset)
+	l := at(0)
+	for _, i := range []int{0, n / 2, n - 1} {
+		scroll := l.scrollTo(i, 0, h, defPanel, head)
+		c := at(scroll).cards[i]
+		if c.Y < top-0.5 || c.Y+c.H > bottom+0.5 {
+			t.Fatalf("card %d at %v..%v after scrolling to %v, outside %v..%v", i, c.Y, c.Y+c.H, scroll, top, bottom)
+		}
+		// In view, it stays: no scroll moves.
+		if again := at(scroll).scrollTo(i, scroll, h, defPanel, head); again != scroll {
+			t.Fatalf("card %d in view scrolled from %v to %v", i, scroll, again)
+		}
+	}
+	// A card above the view comes in at the top, one below at the bottom.
+	if s := l.scrollTo(n-1, 0, h, defPanel, head); at(s).cards[n-1].Y+at(s).cards[n-1].H < bottom-0.5 {
+		t.Fatalf("a card from below does not come in at the bottom: scroll %v", s)
+	}
+	last := l.maxScroll(h)
+	if s := at(last).scrollTo(0, last, h, defPanel, head); at(s).cards[0].Y < top-0.5 || at(s).cards[0].Y > top+0.5 {
+		t.Fatalf("a card from above does not come in at the top: scroll %v", s)
+	}
+	// Cards that all fit do not scroll, and a card that is none is ignored.
+	few := layoutStrip(4, 200, h, 0, 20, defPanel, head, 0.5, false)
+	if s := few.scrollTo(3, 0, h, defPanel, head); s != 0 {
+		t.Fatalf("a strip that fits scrolled to %v", s)
+	}
+	if s := l.scrollTo(-1, 5, h, defPanel, head); s != 5 {
+		t.Fatalf("no card scrolled to %v", s)
+	}
+	// The list of the stage's windows is kept clear of.
+	listed := layoutStrip(n, 200, h, 0, 20, defPanel, 200, 0.5, false)
+	last = listed.maxScroll(h)
+	s := layoutStrip(n, 200, h, last, 20, defPanel, 200, 0.5, false).scrollTo(0, last, h, defPanel, 200)
+	if y := layoutStrip(n, 200, h, s, 20, defPanel, 200, 0.5, false).cards[0].Y; y < 199.5 || y > 200.5 {
+		t.Fatalf("a card from above comes in at %v, not below the list", y)
+	}
+}
+
+// The badge of the stage's card sits over the inner bottom corner of its
+// windows, as the app's icon does over the outer one, and keeps in the strip.
+func TestBadgeRect(t *testing.T) {
+	card := ui.Rect{X: 18, Y: 100, W: 160, H: 105}
+	local := ui.Rect{W: card.W, H: card.H}
+	window := ui.Rect{X: -card.X, W: 360}
+	stack := stackWindows(local, []float64{16.0 / 9}, false)
+	frame, _ := markRect(stack)
+	b := badgeRect(stack, local, 1, false, window)
+	icon := iconRect(stack[0], local, 1, false)
+	if b.W < icon.W/2 || b.W > icon.W*0.75 || b.W != b.H {
+		t.Fatalf("badge %+v against an icon of %v", b, icon.W)
+	}
+	if mid := b.X + b.W/2; mid <= frame.X+frame.W || mid > frame.X+frame.W+b.W {
+		t.Fatalf("badge at %v, not just outside the frame's right edge %v", mid, frame.X+frame.W)
+	}
+	if mid := b.Y + b.H/2; mid >= frame.Y+frame.H || mid < frame.Y+frame.H-b.H {
+		t.Fatalf("badge at %v, not just above the frame's bottom edge %v", mid, frame.Y+frame.H)
+	}
+	// Where the icons are larger, it is.
+	if big := badgeRect(stack, local, 1.5, false, window); big.W <= b.W {
+		t.Fatalf("badge %v at 150%% icons, %v at 100%%", big.W, b.W)
+	}
+	// In a strip on the right, the frame's left edge, mirrored.
+	rstack := stackWindows(local, []float64{16.0 / 9}, true)
+	rframe, _ := markRect(rstack)
+	r := badgeRect(rstack, local, 1, true, ui.Rect{X: -200, W: 400})
+	if mid := r.X + r.W/2; mid >= rframe.X || mid < rframe.X-r.W {
+		t.Fatalf("badge at %v, not just outside the frame's left edge %v", mid, rframe.X)
+	}
+	// Narrow strips leave it no room past the card: it stays within.
+	narrow := ui.Rect{X: -card.X, W: card.X + card.W + 10}
+	n := badgeRect(stack, local, 1, false, narrow)
+	if n.X+n.W > narrow.X+narrow.W-1 {
+		t.Fatalf("badge %+v leaves the window %+v", n, narrow)
+	}
+	rn := badgeRect(rstack, local, 1, true, ui.Rect{X: -card.X + 30, W: 200})
+	if rn.X < -card.X+30 {
+		t.Fatalf("badge %+v leaves the window on its left", rn)
+	}
+}
+
+// A point of a card shows where the card turned has it: those at its outer
+// edge stay, and the card's far edge goes where turnedCard puts it.
+func TestTurnedPoint(t *testing.T) {
+	const w, h, dist float32 = 160, 105, 640
+	for _, right := range []bool{false, true} {
+		if x, y := turnedPoint(40, 20, w, h, 0, dist, right); x != 40 || y != 20 {
+			t.Fatalf("right=%v: a card not turned moved a point to %v, %v", right, x, y)
+		}
+	}
+	rx, rh := turnedCard(w, h, 24, dist)
+	x, y := turnedPoint(w, 0, w, h, 24, dist, false)
+	if d := x - rx; d > 0.01 || d < -0.01 || y-(h/2-rh) > 0.01 || y-(h/2-rh) < -0.01 {
+		t.Fatalf("the far top corner at %v, %v, not %v, %v", x, y, rx, h/2-rh)
+	}
+	// On the right, the same card is the mirror image, and a turn the other
+	// way, as the strip makes it, changes nothing.
+	mx, my := turnedPoint(0, 0, w, h, -24, dist, true)
+	if d := mx - (w - rx); d > 0.01 || d < -0.01 || my != y {
+		t.Fatalf("the mirrored corner at %v, %v, not %v, %v", mx, my, w-rx, y)
+	}
+	// Points on the edge it turns about stay, and the middle of the card's
+	// height is where the card turns about.
+	if x, y := turnedPoint(0, 30, w, h, 24, dist, false); x != 0 || y != 30 {
+		t.Fatalf("a point on the axis moved to %v, %v", x, y)
+	}
+	if _, y := turnedPoint(100, h/2, w, h, 24, dist, false); y != h/2 {
+		t.Fatalf("the middle of the card moved to %v", y)
+	}
+}

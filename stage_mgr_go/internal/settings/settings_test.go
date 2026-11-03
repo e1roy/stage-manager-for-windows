@@ -321,3 +321,28 @@ func TestCheckUpdates(t *testing.T) {
 		t.Fatal("turned off, checking for updates came back on")
 	}
 }
+
+func TestAllStages(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	// Off unless turned on, with the ghost of the stage's card as it is by
+	// default in settings from before it.
+	os.WriteFile(path, []byte(`{"width": 240}`), 0o644)
+	got := NewStore(dir).Load()
+	if got.AllStages || got.StagedOpacity != Default().StagedOpacity || got.StagedGray != Default().StagedGray {
+		t.Fatalf("settings without allStages loaded %v %v %v", got.AllStages, got.StagedOpacity, got.StagedGray)
+	}
+	os.WriteFile(path, []byte(`{"allStages": true, "stagedOpacity": 0.7, "stagedGray": 0}`), 0o644)
+	got = NewStore(dir).Load()
+	if !got.AllStages || got.StagedOpacity != 0.7 || got.StagedGray != 0 {
+		t.Fatalf("loaded %v %v %v", got.AllStages, got.StagedOpacity, got.StagedGray)
+	}
+	// A ghost out of its range is brought into it, but never to nothing.
+	n := (Settings{StagedOpacity: 5, StagedGray: -1}).Normalize()
+	if n.StagedOpacity != MaxStagedOpacity || n.StagedGray != 0 {
+		t.Fatalf("normalized %v %v", n.StagedOpacity, n.StagedGray)
+	}
+	if n := (Settings{StagedOpacity: 0.01}).Normalize(); n.StagedOpacity != MinStagedOpacity {
+		t.Fatalf("normalized %v", n.StagedOpacity)
+	}
+}

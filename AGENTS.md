@@ -72,7 +72,7 @@ stage_mgr_go/
       process.go / version.go / locale.go；proxy.go 读注册表里的系统代理（SystemProxy）
     catalog/   枚举/过滤应用窗口，识别所属应用（含 UWP 宿主），应用显示名；STAGEMANAGER_APP_FILTER 在这里生效
     parking/   停放/放回窗口 + 崩溃恢复日志（Park/Unpark/Rehome/Lift/Recover/CollectEscaped）
-    stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）
+    stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）；`Keep` 打开后侧边栏把舞台上的应用也列成一组，切换时没有卡片换位置（`AllStages`）
     settings/  设置读取、归一化、原子保存（有单测）
     i18n/      界面文字：简体中文、繁体中文、英文、日文各一张 Strings 表，FromLANGID 把 Windows 显示语言映射过来（有单测）
     update/    读 GitHub 上 `main` 的 `.version` raw 文件得到最新版本（`Latest`，不走 api.github.com，它对同一 IP 每小时只给 60 次）、比较版本号（`Newer`），只读不安装；proxy.go 解析 Windows 系统代理（v2rayN、Clash 设的那种），代理连不上时直连（有单测）
@@ -85,7 +85,7 @@ stage_mgr_go/
       flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
       pacer.go        按 DWM 合成节奏（DwmFlush）要帧，飞行层和概览用它代替 AnimationFrame
       strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透；收到 `TaskbarCreated`（Explorer 重启）后重新占位
-      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、悬停时右上角的关闭按钮（关掉整张卡片的窗口）、底部概览面板、上一个舞台的虚线框（`MarkPrevious`）
+      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、悬停时右上角的关闭按钮（关掉整张卡片的窗口）、底部概览面板、上一个舞台的虚线框（`MarkPrevious`）、台前那张卡片的“幽灵”样式（`AllStages`：半透明加灰度、右下角绿色对钩，点击左右震动一下）
       layout.go       纯几何：卡片布局、窗口叠放、图标位置、右侧镜像（有单测）
       media.go        静帧（PrintWindow）与图标缓存、内存预算（Quality / LightFlights）
       iconfit.go      裁掉图标四周透明边
@@ -98,7 +98,7 @@ stage_mgr_go/
       settingsview.go 设置窗口（通用/侧边栏/舞台/例外/关于 五个标签页）
       tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
       update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `.version`，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点，页面同时显示本地版本和最新版本（`a.published`）
-      *_test.go       无头测试：layout、lineup、stripview、set、corner、flights、iconfit、peek、update、snapshot
+      *_test.go       无头测试：layout、lineup、stripview、staged、set、corner、flights、iconfit、peek、update、snapshot
 ```
 
 ## 核心流程：一次舞台切换
@@ -130,7 +130,7 @@ stage_mgr_go/
 
 ## 测试
 
-- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`lineup`、`tint`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`set`、`corner`、`flights`、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
+- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`lineup`、`tint`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`staged`（台前卡片、滚动到离场卡片、`arrange` 的分组）、`set`、`corner`、`flights`、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
 - `catalog`、`parking`、飞行动画、窗口交接**没有自动化测试**，改动后需要手动验证：
   - 固定模式和浮动模式各切换几次，包括快速连点打断正在进行的切换；
   - 多显示器（不同 DPI）下切换、把窗口拖到另一台显示器、把窗口拖进侧边栏；
@@ -151,6 +151,7 @@ stage_mgr_go/
   - 拖卡片时别让其他卡片响应悬停（会按原尺寸截图）；侧边栏内排序时卡片留在侧边栏窗口里画，只有拖出去（加入舞台、去另一台显示器）才交给飞行层。
   - 高分屏上原尺寸截图很大，设置里的“高分屏上减轻动画负担”（`LightFlights`，默认开）按 100% 缩放的清晰度截飞行用的图。
 - 拍静帧（`PrintWindow` + `PW_RENDERFULLCONTENT`）会让部分应用闪一下，已确认的有 JetBrains IDE。IDEA 打开“查找引用”等弹窗时，前台会先切到弹窗（`SunAwtWindow`），约 10ms 后又切回主窗口（`SunAwtFrame`）。`events.go: onForeground` 原来会把主窗口当成“刚离开的窗口”去拍静帧，导致每次打开弹窗都闪。现在焦点只在同一进程内移动时不拍（`sameProcess`）。以后新增拍照时机时，不要在用户正在用的、舞台上的窗口上随便拍；`STAGEMANAGER_DEBUG` 下每次拍照都会记一行 `capture [...]`，可以用来排查。
+- “侧边栏显示所有舞台”（`settings.AllStages`，默认关）：`stage.Display.Keep` 打开后，台前的应用也是侧边栏里的一张卡片（`set.staged`），切换时离场的应用回自己的槽位、不再占被点卡片的槽位，新应用追加在最下面；台前那张卡片画成“幽灵”（`StagedOpacity` 不透明度、`StagedGray` 灰度，由 `stripview.go` 的 `card` 画）。注意：①`d.sets` 此时包含台前的卡片，凡是“侧边栏里等待的卡片”的逻辑要用 `d.waiting()` 或跳过 `staged`（概览、浮动模式显示条件、周期性刷新静帧都已处理）；②台前窗口的静帧不能周期性重拍（会让 JetBrains 之类的应用闪），只靠离场时拍的那张和指针靠近侧边栏时的 `freshenStage`；③离场卡片的槽位可能在可视区外，`reveal` 在飞行前滚到它（`layout.go: scrollTo`）；④（徽章）MyGo 在倾斜的父层里再反向旋转不会抵消，所以对钩徽章不放进窗口层，而是自己算位置（`turnedPoint`）、自己转半个角；⑤MyGo 的 `Opacity` 是逐图形相乘，叠放的窗口会互相透出来，所以“幽灵”的窗口层用 `Cache()` 当成一张图再整体淡出；`Grayscale()` 只有开关，没有程度，所以灰度是在原图上叠一张灰度副本、按 `StagedGray` 设不透明度。飞行动画与窗口交接没有自动化测试，改这里要手动验证（见“测试”）。
 - 舞台窗口列表（`lineup.go`）的缩略图是 DWM 画在侧边栏窗口之上的：MyGo 画的 tooltip 和遮罩都盖不住它，位置只能每帧用 `placeThumbs` 同步，隐藏时 `dropThumbs`。小框的底色靠 `winapi.CaptureScreen` 读 DWM 合成后的屏幕（不要用 `PrintWindow`，那会让应用重画、闪）；侧边栏不在屏幕上、飞行中、概览中不取色，锁屏时读到纯色就保留旧色。
 - 概览面板的毛玻璃（`glass.go`）是面板出现那一刻截的静态画面：面板显示期间后面的内容变了不会跟着变；纯色背景（`blank`）不截。DWM 只能模糊整个窗口，面板只是侧边栏窗口的一部分，所以自己截屏模糊；截屏时机必须在面板还没画出来时（`strip.frosted`），否则会把面板自己截进去。
 - 检查更新是唯一的联网行为：只在 `app/update.go` 的 goroutine 里发请求（15s 超时），`go run` 没有版本号或关掉 `CheckUpdates` 时不联网；代理要自己读 `winapi.SystemProxy()`，Go 默认只认环境变量代理。新增联网功能先想想是否真的必要。

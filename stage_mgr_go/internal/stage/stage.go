@@ -26,6 +26,37 @@ type Display struct {
 	// to leave first, for the stage to fall back on when what is on it
 	// closes.
 	recent []string
+	// keep lists the apps on the stage in the strip too, as one set in the
+	// slot it holds (see Keep): the strip is then the same list whichever
+	// app the stage is on, and no card moves for a switch.
+	keep bool
+}
+
+// Keep has the strip list the apps on the stage as well, or no longer. On
+// macOS the apps leaving the stage take the slot of the card coming in, so
+// the cards drift with every switch; kept, each set has a slot of its own,
+// the stage's included, where it stays whether it is on the stage or not.
+// The stage's set is then one of those Strip returns, and Switch leaves the
+// others where they are.
+func (d *Display) Keep(on bool) {
+	if on == d.keep {
+		return
+	}
+	d.keep = on
+	if on {
+		d.seat()
+		return
+	}
+	d.drop(d.OnStage)
+}
+
+// seat makes the apps on the stage a set of the strip, in the slot they came
+// from, unless the strip holds them already.
+func (d *Display) seat() {
+	if len(d.stage) == 0 || slices.ContainsFunc(d.stage, func(a string) bool { return d.setIndex(a) >= 0 }) {
+		return
+	}
+	d.sets = slices.Insert(d.sets, min(d.cameFrom(), len(d.sets)), slices.Clone(d.stage))
 }
 
 // OnStage reports whether an app is on the stage.
@@ -91,16 +122,34 @@ func (d *Display) without(app string) {
 // that have windows on the display, front first. Apps the strip has not
 // seen enter at the top on their own, in that order, so the very first
 // strip follows the windows' z-order; apps that are gone leave their set.
+// A kept strip (Keep) lists the apps on the stage too, as one set, and
+// takes new apps at the bottom, so that the cards before them stay put.
 func (d *Display) Strip(present []string) [][]string {
 	d.drop(func(a string) bool { return !slices.Contains(present, a) })
 	d.recent = slices.DeleteFunc(d.recent, func(a string) bool { return !slices.Contains(present, a) })
 	var newcomers [][]string
+	seated := false
 	for _, a := range present {
-		if !d.OnStage(a) && d.setIndex(a) < 0 && !slices.ContainsFunc(newcomers, func(s []string) bool { return s[0] == a }) {
+		switch {
+		case d.setIndex(a) >= 0:
+		case d.OnStage(a):
+			// Only a kept strip has the stage in it; the stage's apps it
+			// holds none of yet come in together, as they are on the stage.
+			if d.keep && !seated {
+				seated = true
+				newcomers = append(newcomers, slices.DeleteFunc(slices.Clone(d.stage), func(s string) bool {
+					return d.setIndex(s) >= 0 || !slices.Contains(present, s)
+				}))
+			}
+		case !slices.ContainsFunc(newcomers, func(s []string) bool { return s[0] == a }):
 			newcomers = append(newcomers, []string{a})
 		}
 	}
-	d.sets = append(newcomers, d.sets...)
+	if d.keep {
+		d.sets = append(d.sets, newcomers...)
+	} else {
+		d.sets = append(newcomers, d.sets...)
+	}
 	out := make([][]string, len(d.sets))
 	for i, s := range d.sets {
 		out[i] = slices.Clone(s)
@@ -115,6 +164,10 @@ func (d *Display) Strip(present []string) [][]string {
 // from, or enter at the top. What is left of a set some of whose apps came
 // in stays a set.
 func (d *Display) Switch(next []string, now time.Time) {
+	if d.keep {
+		d.switchKept(next, now)
+		return
+	}
 	coming := func(a string) bool { return slices.Contains(next, a) }
 	leaving := slices.DeleteFunc(slices.Clone(d.stage), coming)
 	slot := slices.IndexFunc(d.sets, func(s []string) bool { return slices.ContainsFunc(s, coming) })
@@ -137,6 +190,49 @@ func (d *Display) Switch(next []string, now time.Time) {
 	d.drop(coming)
 	d.stage = slices.Clone(next)
 	d.above = above
+	d.changedAt = now
+}
+
+// switchKept is Switch for a kept strip, where the stage is a set of the
+// strip like the others: the apps leaving it stay in their slot, and the
+// set going on the stage is made in its own. A stage that stays in part, as
+// when apps join it, keeps its slot; otherwise it takes that of the first set
+// coming in.
+func (d *Display) switchKept(next []string, now time.Time) {
+	d.seat()
+	coming := func(a string) bool { return slices.Contains(next, a) }
+	leaving := slices.DeleteFunc(slices.Clone(d.stage), coming)
+	has := func(f func(string) bool) func([]string) bool {
+		return func(s []string) bool { return slices.ContainsFunc(s, f) }
+	}
+	anchor := slices.IndexFunc(d.sets, func(s []string) bool { return has(d.OnStage)(s) && has(coming)(s) })
+	if anchor < 0 {
+		anchor = slices.IndexFunc(d.sets, has(coming))
+	}
+	// The slot once the sets that go on the stage are out of the strip: the
+	// ones before the anchor that stay.
+	at := len(d.sets)
+	if anchor >= 0 {
+		at = 0
+		for _, s := range d.sets[:anchor] {
+			if slices.ContainsFunc(s, func(a string) bool { return !coming(a) }) {
+				at++
+			}
+		}
+	}
+	d.drop(coming)
+	d.above = ""
+	if len(next) > 0 {
+		d.sets = slices.Insert(d.sets, at, slices.Clone(next))
+		if at > 0 {
+			d.above = d.sets[at-1][0]
+		}
+	}
+	if len(leaving) > 0 {
+		d.recent = slices.DeleteFunc(d.recent, func(a string) bool { return slices.Contains(leaving, a) })
+		d.recent = slices.Insert(d.recent, 0, leaving...)
+	}
+	d.stage = slices.Clone(next)
 	d.changedAt = now
 }
 
@@ -189,8 +285,17 @@ func (d *Display) Leave(app string) {
 		return
 	}
 	d.stage = slices.DeleteFunc(d.stage, func(a string) bool { return a == app })
-	d.without(app)
-	d.sets = slices.Insert(d.sets, 0, []string{app})
+	if d.keep {
+		// It stays where it is in the strip; if the stage's set was of
+		// more apps, the others stay on the stage in a set of their own.
+		if i := d.setIndex(app); i >= 0 && len(d.sets[i]) > 1 {
+			rest := slices.DeleteFunc(slices.Clone(d.sets[i]), func(a string) bool { return a == app })
+			d.sets = slices.Replace(d.sets, i, i+1, rest, []string{app})
+		}
+	} else {
+		d.without(app)
+		d.sets = slices.Insert(d.sets, 0, []string{app})
+	}
 	// Its windows closed: it is no stage to go back to.
 	d.recent = slices.DeleteFunc(d.recent, func(a string) bool { return a == app })
 }
@@ -200,6 +305,10 @@ func (d *Display) Leave(app string) {
 // as when the user went to them from the taskbar rather than from it.
 func (d *Display) Previous() []string {
 	for _, a := range d.recent {
+		// A kept strip holds the stage too: that is no stage to go back to.
+		if d.OnStage(a) {
+			continue
+		}
 		if i := d.setIndex(a); i >= 0 {
 			return slices.Clone(d.sets[i])
 		}
@@ -211,7 +320,8 @@ func (d *Display) Previous() []string {
 // its place.
 func (d *Display) Split(app string) {
 	i := d.setIndex(app)
-	if i < 0 || len(d.sets[i]) < 2 {
+	// The apps on the stage are one set while they are there.
+	if i < 0 || len(d.sets[i]) < 2 || d.OnStage(app) {
 		return
 	}
 	apart := make([][]string, len(d.sets[i]))
@@ -245,7 +355,20 @@ func (d *Display) Init(app string, now time.Time) {
 	d.stage, d.above = nil, ""
 	if app != "" {
 		d.stage = []string{app}
-		d.without(app)
+		if !d.keep {
+			d.without(app)
+		} else if i := d.setIndex(app); i < 0 {
+			d.seat()
+		} else {
+			// In the slot it has, as a set of its own.
+			if len(d.sets[i]) > 1 {
+				rest := slices.DeleteFunc(slices.Clone(d.sets[i]), func(a string) bool { return a == app })
+				d.sets = slices.Replace(d.sets, i, i+1, []string{app}, rest)
+			}
+			if i > 0 {
+				d.above = d.sets[i-1][0]
+			}
+		}
 	}
 	d.changedAt = now
 }

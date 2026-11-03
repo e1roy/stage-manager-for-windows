@@ -108,6 +108,25 @@ func TestSnapshots(t *testing.T) {
 	d.model.Switch([]string{"画图"}, time.Now())
 	d.model.Switch([]string{"Notepad"}, time.Now())
 	shoot("strip-previous.png", s.view, 220, 1000, nil)
+	// With every stage listed, the stage's own card is a ghost in its slot,
+	// and the card of the stage last left is outlined among the others.
+	a.settings.AllStages = true
+	d.sets[2].staged = true
+	shoot("strip-staged.png", s.view, 220, 1000, nil)
+	a.settings.StagedOpacity, a.settings.StagedGray = 0.7, 0.3
+	shoot("strip-staged-light.png", s.view, 220, 1000, nil)
+	a.settings.StagedOpacity, a.settings.StagedGray = settings.Default().StagedOpacity, settings.Default().StagedGray
+	// Of several apps, with their windows stacked, it fades as one.
+	d.sets[2].staged, d.sets[0].staged = false, true
+	shoot("strip-staged-set.png", s.view, 220, 1000, nil)
+	d.sets[0].staged, a.settings.AllStages = false, false
+	// The badge of the stage's card as it is, and larger to see how it is made.
+	shoot("badge-large.png", func(c *ui.Context) {
+		ui.Box(c).Absolute().Left(0).Top(0).Size(300, 130).Background(ui.Hex("#4a6178"))
+		for _, r := range []ui.Rect{{X: 20, Y: 17, W: 96, H: 96}, {X: 150, Y: 49, W: 32, H: 32}, {X: 210, Y: 54, W: 22, H: 22}, {X: 250, Y: 59, W: 12, H: 12}} {
+			ui.Box(c.Key(r.X)).Absolute().Left(0).Top(0).Size(300, 130).PassThrough().Children(func() { stageBadge(c, r, 1, 0) })
+		}
+	}, 300, 130, nil)
 	// The same strip on the right of its display, its mirror image.
 	a.settings.Sides = map[string]settings.Side{d.mon.Device: settings.Right}
 	shoot("strip-right.png", s.view, 220, 1000, nil)

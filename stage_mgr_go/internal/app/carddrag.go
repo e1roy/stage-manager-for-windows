@@ -91,7 +91,15 @@ func (a *App) aimCard(d *display, g *set, st *cardState) {
 	c := &cardDrag{from: d, key: g.key}
 	i := slices.IndexFunc(d.sets, func(s *set) bool { return s.key == g.key })
 	cur := winapi.Cursor()
+	// The stage's own card, in a strip that lists it, is on the stage
+	// already, and no other display's strip takes it: it can only be moved up
+	// or down its strip.
 	switch to, at := a.cardDropAt(d, st, cur); {
+	case g.staged:
+		if i >= 0 && i < len(d.layout.cards) {
+			b := d.layout.cards[i]
+			c.aim, c.to, c.at = aimSort, d, d.layout.nearestSlot(b.Y+b.H/2+st.dy)
+		}
 	case to != nil:
 		c.aim, c.to, c.at = aimMove, to, at
 	case st.dx*turnSign(a.right(d)) > float32(a.settings.Width)*joinReach:
@@ -108,7 +116,7 @@ func (a *App) aimCard(d *display, g *set, st *cardState) {
 		b := d.layout.cards[i]
 		c.aim, c.to, c.at = aimSort, d, d.layout.nearestSlot(b.Y+b.H/2+st.dy)
 	}
-	c.out = c.aim == aimMove || c.aim == aimJoin || a.headsAcross(d, st, cur)
+	c.out = !g.staged && (c.aim == aimMove || c.aim == aimJoin || a.headsAcross(d, st, cur))
 	a.setCardDrag(c)
 }
 
