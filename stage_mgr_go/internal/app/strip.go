@@ -55,6 +55,17 @@ type strip struct {
 	// near it, 0 to 1. The poll measures it everywhere on the display,
 	// where the strip lets the pointer through and so hears nothing of it.
 	near float32
+	// joined is whether the corner button below the strip joins its
+	// panel into one button (corner.go), and footHover and footPress
+	// whether the pointer is over the panel and its button down on it,
+	// as the view last found them: the corner lights up with it.
+	joined               bool
+	footHover, footPress bool
+	// glass is the panel's frosted backdrop (glass.go), and frosted
+	// whether it was taken for the panel's showing now: a new one is
+	// taken each time the panel comes in from out of sight.
+	glass   glass
+	frosted bool
 	// frames measures the strip's frames while its cards move, in debug
 	// runs.
 	frames frameStats
@@ -274,6 +285,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 	// not: the overview's window is what the pointer is on.
 	band := s.visible && s.shown && !s.d.inOverview && s.rect.Contains(cur)
 	s.setClickThrough(!(band || inside || onList || s.dragging || s.holding))
+	s.setJoined(s.a.joinable(s.d, now))
 	s.approach(cur)
 }
 
@@ -285,11 +297,18 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 func (s *strip) approach(cur winapi.Point) {
 	d := s.d
 	near := float32(0)
-	on := d.mon.Work.Contains(cur) || s.rect.Contains(cur)
+	// Joined to the corner button, the panel reaches down over the
+	// taskbar, where the pointer comes to it too.
+	on := d.mon.Work.Contains(cur) || s.rect.Contains(cur) || s.joined && d.mon.Monitor.Contains(cur)
 	if s.visible && s.shown && s.a.ready && !d.inOverview && d.viewW > 0 && on {
 		x := float32(float64(cur.X-s.rect.Left) / s.scale)
 		y := float32(float64(cur.Y-s.rect.Top) / s.scale)
-		near = panelNearness(rectDist(footerButton(d.viewW, d.viewH, s.a.panel(), s.right()), x, y))
+		r := footerButton(d.viewW, d.viewH, s.a.panel(), s.right())
+		if s.joined {
+			r = jointButton(d.viewW, d.viewH, s.a.panel())
+			r.H += s.cornerHeight()
+		}
+		near = panelNearness(rectDist(r, x, y))
 	}
 	// Small steps on the way are left to the next; the ends are not, so
 	// that it shows in full and goes away entirely.

@@ -34,9 +34,9 @@ Only the app you're using stays on the desktop. Everything else shrinks into car
 - The rest are grouped by app into cards, on the left or the right edge.
 - Click a card to switch; Alt+Tab and the taskbar work as usual.
 - Drag a card to the desktop, or Shift-click it, for two apps side by side.
-- The card of the stage you just left gets a dashed outline, so after a detour to another app you can see at a glance what you were in the middle of. It can be turned off in Settings → Strip.
+- The card of the stage you just left gets a dashed outline in the accent color, so after a detour to another app you can see at a glance what you were in the middle of. It can be turned off in Settings → Strip.
 - List of the stage's windows: when the stage holds more than one window, small live thumbnails of them are listed top to bottom at the top of the strip, numbered 1/N, the active one highlighted, each tile tinted with the main color its window shows (black, white and gray left out), so windows of one app, such as VS Code windows with different title bar colors, tell apart at a glance. Click one to bring it to the front, hover to close it, or right-click to send its app to the strip. It can be turned off in Settings → Strip.
-- Overview of every window on a display: click one to switch, or hover it to close it. Win+Tab opens it on every display at once, as Task View does, and so does a button over the display's bottom-left corner.
+- Overview of every window on a display: click one to switch, or hover it to close it. Win+Tab opens it on every display at once, as Task View does, and so does a button over the display's bottom-left corner. With the strip on the left, that button and the panel at the bottom of the strip join into one big rounded button, flush with the screen's left and bottom edges, that lights up as one. The panel is frosted glass: its opacity and how much it blurs what is behind it are in the settings.
 - Drag a window to another monitor and it joins the stage there.
 - Drag a card up or down to reorder the strip, or into another monitor's strip to move the app there without opening it.
 - Fixed or floating strip, per monitor, with adjustable width, icons, spacing and tilt.
@@ -58,6 +58,8 @@ Works on Windows 10 and 11 (64-bit).
 
 - **Switch apps**: click a card on the left, or use Alt+Tab and the taskbar as usual.
 - **See every window**: Win+Tab, or the panel at the bottom of the strip. Click one to switch to it; hover it to close it.
+- **See the stage's windows**: the numbered thumbnails at the top of the strip list every window on the stage. Click one to bring it forward, hover to close it, right-click to send its app to the strip.
+- **Close an app from the strip**: hover a card and click the round × at its top right; a card of several apps closes all of their windows.
 - **Two apps at once**: drag a card onto the desktop, or Shift-click it.
 - **Settings**: left-click the tray icon. Choose whether the strip is Fixed (always takes its edge) or Floating (hides when covered, comes back when you push the mouse to that edge), put it on the left or the right of each display, turn a display's strip off, and adjust width, icon size, spacing, tilt, flight speed and quality, language and launch at login.
 - **Split a group**: right-click its card.

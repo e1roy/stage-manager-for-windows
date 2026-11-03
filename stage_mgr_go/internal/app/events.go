@@ -319,12 +319,14 @@ func (a *App) poll() {
 	cur := winapi.Cursor()
 	now := time.Now()
 	a.watchTaskbar(cur)
-	a.watchCorner(cur, now)
 	for _, d := range a.displays {
 		if d.strip != nil {
 			d.strip.poll(cur, now)
 		}
 	}
+	// After the strips: a corner button joined to a strip's panel comes in
+	// as the panel does.
+	a.watchCorner(cur, now)
 }
 
 // pollRate measures how long the pointer poll waits for the main thread,

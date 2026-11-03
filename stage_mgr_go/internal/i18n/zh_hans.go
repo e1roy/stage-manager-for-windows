@@ -43,6 +43,9 @@ var zhHans = Strings{
 	OverviewPanel:     "所有窗口面板",
 	OverviewPanelDesc: "侧边栏底部的面板，指针移到那里时出现，点按铺开本显示器的所有窗口。宽度按卡片宽度的比例计算。",
 	Height:            "高度",
+	Opacity:           "不透明度",
+	Blur:              "背景模糊",
+	BlurOff:           "关闭",
 
 	OverviewCorner:     "左下角按钮",
 	OverviewCornerDesc: "显示器左下角、任务栏上的按钮，指针靠近时出现，点按同样铺开所有窗口。只在 Windows 11 任务栏居中、左下角空着时出现。",

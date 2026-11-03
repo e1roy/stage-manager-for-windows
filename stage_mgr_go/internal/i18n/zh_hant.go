@@ -44,6 +44,9 @@ var zhHant = Strings{
 	OverviewPanel:     "所有視窗面板",
 	OverviewPanelDesc: "側邊欄底部的面板，指標移到那裡時出現，按一下即可鋪開此顯示器的所有視窗。寬度以卡片寬度的比例計算。",
 	Height:            "高度",
+	Opacity:           "不透明度",
+	Blur:              "背景模糊",
+	BlurOff:           "關閉",
 
 	OverviewCorner:     "左下角按鈕",
 	OverviewCornerDesc: "顯示器左下角、工作列上的按鈕，指標靠近時出現，按一下同樣鋪開所有視窗。只在 Windows 11 工作列置中、左下角空著時出現。",

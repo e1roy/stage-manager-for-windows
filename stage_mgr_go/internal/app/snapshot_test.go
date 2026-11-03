@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -264,6 +265,87 @@ func TestSnapshots(t *testing.T) {
 			hint.view(c)
 		}, wide, hotCorner, func(tt *ui.Tester) { tt.Move(wide/2, hotCorner/2) })
 	}
+	// Joined to the strip's panel above it, the corner button makes one
+	// button with it, lit as one: the bottom of the strip, the corner
+	// over a dark taskbar below it, put together as the screen shows them.
+	hint.light, hint.near = false, 1
+	a.hint = hint
+	d.mon.Monitor = winapi.Rect{Right: 2560, Bottom: 1048}
+	s.rect = winapi.Rect{Right: 220, Bottom: 1000}
+	s.joined = true
+	joint := func(name string, setup func(*ui.Tester)) {
+		run := func(view func(*ui.Context), w, h int, setup func(*ui.Tester)) image.Image {
+			tt := ui.NewTester(view, w, h)
+			tt.Frame()
+			if setup != nil {
+				setup(tt)
+			}
+			for i := 0; i < 30; i++ {
+				tt.Advance(33_000_000)
+				tt.Frame()
+			}
+			return tt.Image()
+		}
+		top := run(func(c *ui.Context) {
+			w, h := c.Size()
+			ui.Box(c).Absolute().Left(0).Top(0).Size(w, h).Background(ui.Hex("#4a6178"))
+			s.view(c)
+		}, 220, 1000, setup)
+		bw := int(math.Ceil(float64(s.jointWidth())))
+		below := run(func(c *ui.Context) {
+			ui.Box(c).Absolute().Left(0).Top(0).Size(float32(bw), hotCorner).Background(ui.Hex("#1c1c1c"))
+			hint.view(c)
+		}, bw, hotCorner, nil)
+		const crop = 160
+		out := image.NewRGBA(image.Rect(0, 0, 320, crop+hotCorner))
+		for y := 0; y < crop+hotCorner; y++ {
+			for x := 0; x < 320; x++ {
+				var px color.Color = color.RGBA{0x4a, 0x61, 0x78, 255}
+				switch {
+				case y < crop && x < 220:
+					px = top.At(x, 1000-crop+y)
+				case y >= crop && x < bw:
+					px = below.At(x, y-crop)
+				case y >= crop:
+					px = color.RGBA{0x1c, 0x1c, 0x1c, 255}
+				}
+				out.Set(x, y, px)
+			}
+		}
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		png.Encode(f, out)
+	}
+	at := jointButton(220, 1000, a.panel())
+	// The glass blurs what is behind: here a window's corner over the
+	// wallpaper, which the button's top half covers.
+	behind := image.NewRGBA(image.Rect(0, 0, 400, 300))
+	for y := 0; y < 300; y++ {
+		for x := 0; x < 400; x++ {
+			px := color.RGBA{0x4a, 0x61, 0x78, 255}
+			if x > 150 && y < 150 {
+				px = color.RGBA{235, 235, 240, 255}
+			}
+			if y >= 200 {
+				px = color.RGBA{0x1c, 0x1c, 0x1c, 255}
+			}
+			behind.Set(x, y, px)
+		}
+	}
+	s.glass.bmp = ui.NewBitmap(frostImage(behind, image.Rect(0, 112, 200, 248), glassSigma(a.settings.PanelBlur, 1)))
+	joint("joint-hover.png", func(tt *ui.Tester) { tt.Move(at.X+at.W/2, at.Y+at.H/2) })
+	s.near = 1
+	joint("joint-near.png", nil)
+	joint("joint-pressed.png", func(tt *ui.Tester) {
+		tt.Move(at.X+at.W/2, at.Y+at.H/2)
+		tt.Frame()
+		tt.Press(at.X+at.W/2, at.Y+at.H/2)
+	})
+	s.near, s.joined, a.hint, s.glass = 0, false, nil, glass{}
+	s.footHover, s.footPress = false, false
 	// One companion has a window open, and shows as its app.
 	a.settings.Companions = []string{"tortoiseproc", "notepad", `d:\tools\paint.exe`}
 	sw := &settingsWindow{a: a}

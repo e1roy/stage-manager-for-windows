@@ -122,6 +122,9 @@ type display struct {
 	// ov spreads out this display's windows (overview.go), made the first
 	// time it opens here. Win+Tab opens one per display at once.
 	ov *overview
+	// flashAt is when the overview's button was last clicked: the strip's
+	// panel and the corner button joined to it flash together.
+	flashAt time.Time
 }
 
 // App is Stage Manager.
@@ -178,6 +181,10 @@ type App struct {
 	// hint is the window over a hot corner (corner.go); made the first
 	// time the pointer nears one.
 	hint *cornerHint
+	// cornerFree caches winapi.TaskbarCornerFree for the pointer's poll,
+	// as of cornerChecked.
+	cornerFree    bool
+	cornerChecked time.Time
 
 	// act, when set, receives what the cards ask for instead of App.
 	act func(action, *display, *set)
@@ -821,11 +828,20 @@ func (a *App) applySettings(s settings.Settings) {
 	// last left is drawn on its card.
 	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || !maps.Equal(old.Sides, s.Sides) ||
 		old.PanelWidth != s.PanelWidth || old.PanelHeight != s.PanelHeight || old.Accent != s.Accent ||
+		old.PanelOpacity != s.PanelOpacity ||
 		old.StageList != s.StageList || old.MarkPrevious != s.MarkPrevious {
 		a.redraw()
 	}
-	if old.Accent != s.Accent && a.hint != nil && a.hint.visible {
+	if (old.Accent != s.Accent || old.PanelOpacity != s.PanelOpacity) && a.hint != nil && a.hint.visible {
 		a.hint.win.Invalidate()
+	}
+	// The panel's glass blurs what it last caught behind it again.
+	if old.PanelBlur != s.PanelBlur {
+		for _, d := range a.displays {
+			if d.strip != nil {
+				d.strip.reblur()
+			}
+		}
 	}
 	if old.Mode != s.Mode || old.Width != s.Width {
 		for _, d := range a.displays {

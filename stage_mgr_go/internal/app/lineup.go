@@ -163,8 +163,8 @@ func (s *strip) lineupView(c *ui.Context, l lineupLayout, ws []catalog.Window, d
 	}
 	for i, t := range l.tiles {
 		w := ws[i]
-		op := s.lineTile(c, w, names[w.App], i, len(ws), t, l.thumbs[i], w.HWND == active, accent)
-		want[w.HWND] = thumbAt{area: l.thumbs[i], op: op}
+		op, area := s.lineTile(c, w, names[w.App], i, len(ws), t, l.thumbs[i], w.HWND == active, accent)
+		want[w.HWND] = thumbAt{area: area, op: op}
 	}
 	if l.more.W > 0 {
 		s.lineMore(c, l.more, len(ws)-len(l.tiles))
@@ -180,10 +180,17 @@ func (s *strip) lineupView(c *ui.Context, l lineupLayout, ws []catalog.Window, d
 	return l.box
 }
 
+// lineupLift is how much a tile grows under the pointer, as the Dock's
+// icons do, so that the window a click would bring forward stands out of
+// the column. Around its center, a tile of the tallest pictures grows by
+// less than half the gap on either side, and never reaches its neighbors.
+const lineupLift = 0.06
+
 // lineTile draws the tile of the i-th of n windows of the list at r, its
 // picture to show at thumb, and handles its input. It returns how far it
-// has faded in, which its picture follows.
-func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int, r, thumb ui.Rect, active bool, accent ui.Color) float32 {
+// has faded in, which its picture follows, and where the picture goes as
+// the tile grows under the pointer.
+func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int, r, thumb ui.Rect, active bool, accent ui.Color) (float32, ui.Rect) {
 	a, d := s.a, s.d
 	tr := a.tr()
 	el := ui.Box(c.Key(w.HWND)).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).Radius(8).Cursor(ui.CursorPointer)
@@ -204,7 +211,14 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 	base, rim = fadeColor(el, "bg", base), fadeColor(el, "edge", rim)
 	bg := base.Mix(ui.RGBA(255, 255, 255, float32(base.A)/255), 0.12*hot)
 	edge := rim.Mix(accent, on)
-	el.Background(bg).Border(1+on, edge).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.3)).Opacity(op)
+	// The tile grows around its center, and DWM's picture, which is not
+	// drawn with it, is grown the same way; lifted, it casts a deeper
+	// shadow.
+	k := 1 + lineupLift*hot
+	el.Background(bg).Border(1+on, edge).Shadow(0, 4+4*hot, 14+8*hot, 0, ui.RGBA(0, 0, 0, 0.3+0.15*hot)).
+		Scale(k, k).Opacity(op)
+	cx, cy := r.X+r.W/2, r.Y+r.H/2
+	lifted := ui.Rect{X: cx + (thumb.X-cx)*k, Y: cy + (thumb.Y-cy)*k, W: thumb.W * k, H: thumb.H * k}
 	title := w.Title
 	if title == "" {
 		title = name
@@ -265,7 +279,7 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 			}
 		})
 		if hovered {
-			b := s.lineClose(c, tr.CloseWindow, func() { a.request(actClose, d, one()) })
+			b := closeButton(c, lineupCloseSize, ui.RGBA(255, 255, 255, 0.12), tr.CloseWindow, func() { a.request(actClose, d, one()) })
 			b.Absolute().Left(r.W - lineupInset - 1 - lineupCloseSize).Top((lineupCaption - lineupCloseSize) / 2)
 		}
 		// Under the picture, which covers it, the still the window last
@@ -284,19 +298,20 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 			}
 		}
 	})
-	return op
+	return op, lifted
 }
 
 // lineupCloseSize is the size of the button that closes a window of the
 // list.
 const lineupCloseSize = 16
 
-// lineClose draws the button that closes a window of the list, for the
+// closeButton draws a round button that closes windows, size DIPs across,
+// rest its color until the pointer is on it, when it turns red, for the
 // caller to place.
-func (s *strip) lineClose(c *ui.Context, tip string, close func()) ui.Element {
-	b := ui.Box(c.Key("close")).Size(lineupCloseSize, lineupCloseSize).Radius(lineupCloseSize / 2).Cursor(ui.CursorPointer).Description(tip)
+func closeButton(c *ui.Context, size float32, rest ui.Color, tip string, close func()) ui.Element {
+	b := ui.Box(c.Key("close")).Size(size, size).Radius(size / 2).Cursor(ui.CursorPointer).Label(tip)
 	hot := b.AnimateTo("hot", b2f(b.Hovered()), fadeQuick)
-	b.Background(ui.RGBA(255, 255, 255, 0.12).Mix(ui.RGBA(232, 17, 35, 0.95), hot))
+	b.Background(rest.Mix(ui.RGBA(232, 17, 35, 0.95), hot))
 	if b.Clicked() {
 		close()
 	}
