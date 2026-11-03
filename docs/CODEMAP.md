@@ -66,7 +66,7 @@ stage_mgr_go/
 | `carddrag.go` | `cardDrag`、`aim`（`aimBack`/`aimSort`/`aimJoin`/`aimMove`）、`aimCard`、`cardDropAt`、`makeRoom`、`joinReach`、`crossReach`、`moveSet`、`reorder` | 拖卡片的去向：回原位、侧边栏内排序、加入舞台、搬到另一台显示器的侧边栏 | 让位布局与飞行层联动，改一处要连着手动验证 |
 | `drag.go` | `drag`、`startDrag`、`dragOver`、`windowMoved`、`followMoved`、`leave`、`stripUnder`、`sendToStrip`、`sendAcross`、`dwell` | 拖真实窗口：跨显示器时那边舞台让位、松手、拖进侧边栏、Win+Shift+方向键移动后的跟随 | 只有 `HideInactive` 打开时才停放，否则只更新列表 |
 | `layout.go` | `stripLayout`、`layoutLineup`、`markRect`、`fitIn`、`mirror`、`panel`、`cardTilts`、`maxStacked`/`maxIcons`/`minCardScale` 等常量 | 纯几何：卡片位置与缩放、窗口叠放、图标位置、右侧镜像；`head` 让卡片避开侧边栏顶部的舞台窗口列表，`at`（设置 `CardsAt`，30%–70%，默认 50%）是卡片组中心在侧边栏上下的位置：卡片仍按整屏的 `at` 处摆放，离列表不到一个卡片间距时才往下让，让到保持一个间距为止、最多到列表下方剩余空间的 `at` 处（卡片少或列表短时不动；动的时候靠 `cardMotion` 滑过去）；`markRect` 是“上一个舞台”虚线框，跟随卡片倾斜和缩放；`scrollTo` 算出让某张卡片完整进入可视区（列表之下、面板之上）所需的最小滚动量 | 有单测（`layout_test.go`），规则先在这里写并与测试对齐 |
-| `media.go` | `media`、`still`、`capture`、`stillHeight`、`flyBudgets`、图标缓存 | 静帧（`PrintWindow`）与图标、内存预算（按 `Quality`）、`LightFlights` | `PrintWindow` 会等目标应用绘制，只能在 goroutine 里做，并且带超时 |
+| `media.go` | `media`、`still`、`capture`、`stillHeight`、`flyBudgets`、图标缓存 | 静帧（`PrintWindow`）与图标、内存预算（按 `Quality`）、`LightFlights` | `PrintWindow` 会等目标应用绘制，只能在 goroutine 里做，并且带超时；explorer.exe 进程的窗口在 `capture` 开头就跳过（`winapi.InExplorer`），显示为图标卡片 |
 | `iconfit.go` | `iconBounds` | 按 alpha 裁掉图标四周透明边 | 有单测 |
 | `lineup.go` | `lineup`、`lineThumb`、`lineTint`、`stageWindows`、`lineupFor`、`lineupView`/`lineTile`/`lineMore`、`placeThumbs`、`sampleTints`、`overLineup`、`bringForward`、`unstage`、`lineupLift`、`closeButton`（卡片和小框共用的圆形关闭按钮） | 舞台窗口列表（`settings.StageList`，默认开）：舞台有 2 个以上窗口时在侧边栏顶部从上到下列出独立的小框（外面不再包一层），每个小框是序号 `1/N` + 图标 + 标题 + DWM 实时缩略图，当前窗口（`a.fg.prev`，否则最前的）用强调色描边；点击 `actFront`，悬停出现关闭按钮 `actClose`，右键可 `actUnstage`；小框在指针下按 `lineupLift`（6%）绕中心放大、阴影加深，DWM 缩略图同步放大；放不下时最后一行“还有 N 个”打开概览 | 缩略图是 DWM 画在侧边栏窗口之上的，MyGo 画的东西（包括 tooltip）会被盖住，所以不用 tooltip；位置每帧随 `reveal` 平移手动同步；顺序在帧间保持稳定（按应用、再按首次出现），点击改变 z 序时列表不跳；几何在 `layout.go` 的 `layoutLineup`，卡片经 `layoutStrip` 的 `head` 参数让出顶部 |
 | `tint.go` | `dominantColor`、`hue`、`toOklch`、`tileTint`、`blank` | 列表小框的底色：`lineup.sampleTints` 每 3s（以及缩略图移动或变大小后 250ms）在 goroutine 里用 `winapi.CaptureScreen` 复制侧边栏上那块缩略图的屏幕像素（DWM 已合成好的，不让应用自己重画，不会闪），按色相直方图找主色：排除近黑、近白和灰，越鲜艳权重越大，上下 10%（标题栏、状态栏）×2.5；彩色像素不足 1.2% 视为没有主色，用默认底色。主色在 OKLCH 里定成同样的明度 0.34，白字在任何色相上都看得清；颜色变化 400ms 渐变 | 侧边栏不在屏幕上、飞行中、概览中不取色；锁屏时复制出来是纯色（`blank`），保留原来的颜色 |
@@ -122,7 +122,7 @@ stage_mgr_go/
 
 ### 概览与 Win+Tab
 
-`requestOverview` → `openOverview`：`newOverview` 造窗口，把本显示器窗口计入 `tiles`、停放后飞行铺开；`close` 选中的窗口切到舞台，其余回卡片；`closeWindow` 悬停关闭。Win+Tab 由 `winapi/keyboard.go` 的低级键盘钩子截获，`post` 回主线程后对每台显示器各开一个概览，任意一处关闭全部关闭。
+`requestOverview` → `openOverview`：`newOverview` 造窗口，把本显示器窗口计入 `tiles`、停放后飞行铺开；`close` 选中的窗口切到舞台，其余回卡片；`closeWindow` 悬停关闭。Win+Tab 由 `winapi/keyboard.go` 的低级键盘钩子截获（回调会被自己注入的掩码键重入，状态只用原子变量，不能加锁），`post` 回主线程后对每台显示器各开一个概览，任意一处关闭全部关闭。
 
 ### 舞台窗口列表与取色
 
@@ -195,7 +195,7 @@ stage_mgr_go/
 - 坐标：系统侧物理像素，MyGo 窗口内 DIP，换算只在 `strip.toScreen`、`mon.Scale()` 一类地方。
 - 整屏动画用 `pacer`；飞行层空了以后要留 2 秒（`layerLinger`），不要在动画进行中显示整屏窗口。
 - 拖动中的窗口上面不要压飞行层（系统很少把被压住的画面送上屏幕），用 `hole` 避开。
-- 卡片显示的是静帧，停放中的窗口不会更新；`PrintWindow` 拍不到内容时退化成图标卡片。
+- 卡片显示的是静帧，停放中的窗口不会更新；`PrintWindow` 拍不到内容时退化成图标卡片。explorer.exe 进程的窗口（文件资源管理器）从不拍，也是图标卡片。
 - 舞台窗口列表的缩略图是 DWM 画在侧边栏窗口之上的：MyGo 的 tooltip、遮罩都盖不住它，位置只能每帧用 `placeThumbs` 同步；隐藏/移动侧边栏时要 `dropThumbs`。
 - 取色用 `winapi.CaptureScreen` 读 DWM 合成后的屏幕，不要改用 `PrintWindow` 让应用重画：那会让应用闪一下。
 - 联网只发生在 `app/update.go` 的 goroutine 和 `internal/update` 里；Go 默认只认环境变量代理，所以要自己 `winapi.SystemProxy()` 读系统代理，读不到时才直连。

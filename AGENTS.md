@@ -66,10 +66,10 @@ stage_mgr_go/
       window.go       HWND/Rect/Point、窗口查询与移动、激活、z 序
       monitor.go      显示器枚举与几何、Scale()
       hooks.go        WinEvent 事件常量与 HookWinEvents
-      keyboard.go     Win+Tab 低级键盘钩子（独立线程，只 post 回主线程）
+      keyboard.go     Win+Tab 低级键盘钩子（独立线程，只 post 回主线程；回调会被自己注入的按键重入，状态只用原子变量、不加锁，有单测）
       capture.go      PrintWindow 静帧、`CaptureScreen`（读 DWM 合成后的屏幕，舞台窗口列表取色用）；thumbnail.go 是 DWM 缩略图（自绘阴影、peek）
       taskbar.go      任务栏按钮（peek 用）；taskbarcorner.go 是 WindowsBuild / TaskbarCornerFree / IsTaskbar
-      process.go / version.go / locale.go；proxy.go 读注册表里的系统代理（SystemProxy）
+      process.go（含 `InExplorer`）/ version.go / locale.go；proxy.go 读注册表里的系统代理（SystemProxy）
     catalog/   枚举/过滤应用窗口，识别所属应用（含 UWP 宿主），应用显示名；STAGEMANAGER_APP_FILTER 在这里生效
     parking/   停放/放回窗口 + 崩溃恢复日志（Park/Unpark/Rehome/Lift/Recover/CollectEscaped）
     stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）；`Keep` 打开后侧边栏把舞台上的应用也列成一组，切换时没有卡片换位置（`AllStages`）
@@ -113,7 +113,7 @@ stage_mgr_go/
 
 ## 必须遵守的约束
 
-- **线程模型**：`App` 的所有状态只在 MyGo 主线程读写。后台 goroutine 的结果必须用 `post(fn)` / `after(d, fn)`（内部是 `mygo.RunOnMain`）回到主线程。WinEvent 钩子在主线程安装和回调。唯一例外是 Win+Tab 的低级键盘钩子（`winapi/keyboard.go`）：它在自己的线程里跑消息循环，免得主线程一忙全系统打字卡顿，回调里只 `post`。不要加锁来“修”并发，正确做法是回到主线程。
+- **线程模型**：`App` 的所有状态只在 MyGo 主线程读写。后台 goroutine 的结果必须用 `post(fn)` / `after(d, fn)`（内部是 `mygo.RunOnMain`）回到主线程。WinEvent 钩子在主线程安装和回调。唯一例外是 Win+Tab 的低级键盘钩子（`winapi/keyboard.go`）：它在自己的线程里跑消息循环，免得主线程一忙全系统打字卡顿，回调里只 `post`，且回调会被它自己注入的按键重入，所以里面不能加锁或等待（状态用原子变量）。不要加锁来“修”并发，正确做法是回到主线程。
 - **不要在主线程做可能阻塞的事**：`PrintWindow` 会等目标应用自己绘制，只能在 goroutine 里做并带超时。看门狗在主线程 5 秒无响应时会直接按日志放回所有窗口。
 - **坐标**：与系统打交道一律是物理像素（进程是 Per-Monitor V2，`winapi.Rect`）；MyGo 在窗口内按 DIP 绘制（`ui.Rect`）。两者之间的换算集中在 `strip.toScreen`、`display.mon.Scale()` 一类地方，别在别处随手乘 DPI。
 - **停放而不是最小化**：隐藏窗口一律走 `parking.Service`（移到同一显示器旁的桌面外，保持 DPI），每次变动写日志。绕过它直接 `SetWindowPos` 移走窗口，崩溃后窗口就回不来了。用户手动最小化的窗口交给任务栏，不进侧边栏。
@@ -142,6 +142,8 @@ stage_mgr_go/
 
 - 飞行起飞与落地时窗口阴影“嘭”一下跳变：飞行代理的假阴影与真实 DWM 阴影在交接帧叠加。相关代码在 `flights.go`（`takeOffDelay`、`landingDelay`、`ownShadow`、`shade`）和 `switch.go` 的 `handover`；改这里的时序要录屏逐帧确认。
 - 侧边栏显示的是离场时的静帧（Windows 不绘制桌面外的窗口）；`PrintWindow` 拍不到内容的窗口显示为带图标的磨砂卡片。
+- explorer.exe 进程的窗口（文件资源管理器）从不拍静帧，一律是图标卡片，也没有飞行动画（`media.capture` 里用 `winapi.InExplorer` 跳过）：该进程同时跑任务栏和开始菜单的 XAML。2026-11-03 23:46 桌面停了约 66 秒，Explorer 因 `Windows.UI.Xaml.dll` 崩溃（0xc000027b）；日志里没有拍过外壳窗口，也没有证据表明是我们引起的，但拍它是我们对 Explorer 干扰最大的一条路径，所以宁可不拍。排查同类问题时注意：除了下面 Win+Tab 钩子锁死的那次，`hang-*.log` 里主线程都停在 `GetMessageW`（空闲，不是被我们的代码占住），看门狗报的“卡死”多半是桌面级的消息停滞，不是 Stage Manager 自己卡。
+- Win+Tab 钩子：回调里发 `SendInput` 时，Windows 会在同一线程上重入回调（用户很快松开 Tab 就会赶上）。以前持锁发送，重入时自己等自己，钩子线程和关闭流程都永久卡死。现在状态全用原子变量，`held` 在发送前置位，自己发的键用 `dwExtraInfo`（`maskTag`）标记并直接放行。别在钩子回调里加锁、等待或做任何会阻塞的事。
 - 以管理员权限运行的窗口，非管理员的 Stage Manager for Windows 可能无法移动或激活。
 - 拖动窗口时，飞行层不能压到被拖窗口下面：那样系统很少把飞行层的画面送上屏幕，约 700ms 只有 30–40 帧。现在飞行层留在最上层，每帧避开被拖窗口所在的区域（`flights.go` 的 `hole`），看起来像从它下面飞过。`STAGEMANAGER_DEBUG` 下每次飞行结束记一行 `flights: ...: N frames in ..., longest gap ...`，排查卡顿先看这一行。
 - 动画卡顿的排查（`STAGEMANAGER_DEBUG`，`start-stage-manager.bat` 还会打开 `MYGO_FRAME_STATS=1`）：

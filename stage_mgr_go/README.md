@@ -126,7 +126,7 @@ CI（`.github/workflows/ci.yml`）在 push 到 `main` 和 PR 时跑同样的检�
 ## 已知限制
 
 - 侧边栏里显示的是窗口离开舞台时的静帧：Windows 不绘制桌面之外的窗口，停放中的窗口本来也不会变化。
-- 用 `PrintWindow` 拍不到内容的窗口（部分游戏、受 DRM 保护的视频）显示为带图标的磨砂卡片。
+- 用 `PrintWindow` 拍不到内容的窗口（部分游戏、受 DRM 保护的视频）显示为带图标的磨砂卡片。explorer.exe 进程的窗口（文件资源管理器）不拍（`winapi.InExplorer`，`media.capture` 里跳过）：它和任务栏、开始菜单同在一个进程，不值得冒让它重画的险。
 - 以管理员身份运行的应用，非管理员的 Stage Manager for Windows 可能无法移动或激活它们。
 - 置顶窗口不参与舞台，浮在最上层。
 - 拍静帧会让少数应用闪一下（已确认的有 JetBrains IDE）；现在同一进程内的焦点变化不拍照，新增拍照时机要避开用户正在用的窗口。
