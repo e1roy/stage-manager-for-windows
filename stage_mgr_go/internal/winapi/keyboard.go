@@ -4,7 +4,7 @@ package winapi
 
 import (
 	"runtime"
-	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -41,6 +41,9 @@ const (
 	vkMask         = 0xE8
 	inputKeyboard  = 1
 	keyEventfKeyUp = 0x0002
+	// maskTag is the dwExtraInfo of the keys maskWinKey sends, "SB", so that
+	// the hook, which sees them too, lets them through at once.
+	maskTag = 0x5342
 )
 
 // kbdllHookStruct is KBDLLHOOKSTRUCT.
@@ -75,14 +78,19 @@ type threadMsg struct {
 // winTab is the state of the hook, which runs on its own thread. held is
 // set from a Tab taken with the Win key till its release, so that its
 // repeats and its release are taken too, and only the press acts.
+//
+// Neither is behind a lock: the hook is called again from inside itself.
+// The keys maskWinKey sends pass through it, and while the thread waits for
+// them Windows hands it the next key of the user's, a Tab let go of quickly
+// among them. A mutex held across the send then waited for itself, for good,
+// with the hook thread stuck and shutting down stuck behind it.
 var winTab struct {
-	mu   sync.Mutex
-	fn   func()
-	held bool
+	fn   atomic.Pointer[func()]
+	held atomic.Bool
 }
 
 var winTabCallback = syscall.NewCallback(func(code, wParam uintptr, k *kbdllHookStruct) uintptr {
-	if int32(code) == hcAction && k.VkCode == vkTab {
+	if int32(code) == hcAction && k.ExtraInfo != maskTag && k.VkCode == vkTab {
 		taken, fire := winTabKey(wParam == wmKeyDown || wParam == wmSysKeyDown)
 		if fire != nil {
 			fire()
@@ -95,25 +103,32 @@ var winTabCallback = syscall.NewCallback(func(code, wParam uintptr, k *kbdllHook
 	return r
 })
 
+// The test swaps these for ones that press and read no key.
+var (
+	keyIsDown = keyHeld
+	sendMask  = maskWinKey
+)
+
 // winTabKey reports whether Tab going down or up is taken from Windows,
 // and returns the function to call for it, if any: only Win+Tab, without
-// Shift, Ctrl or Alt, which open nothing of Windows' own with it.
+// Shift, Ctrl or Alt, which open nothing of Windows' own with it. It may be
+// called again from inside sendMask, and must not wait for anything.
 func winTabKey(down bool) (taken bool, fire func()) {
-	winTab.mu.Lock()
-	defer winTab.mu.Unlock()
 	if !down {
-		taken, winTab.held = winTab.held, false
-		return taken, nil
+		return winTab.held.Swap(false), nil
 	}
-	if winTab.held {
+	if winTab.held.Load() {
 		return true, nil
 	}
-	if winTab.fn == nil || !keyHeld(vkLWin) && !keyHeld(vkRWin) || keyHeld(vkShift) || keyHeld(vkControl) || keyHeld(vkMenu) {
+	fn := winTab.fn.Load()
+	if fn == nil || !keyIsDown(vkLWin) && !keyIsDown(vkRWin) || keyIsDown(vkShift) || keyIsDown(vkControl) || keyIsDown(vkMenu) {
 		return false, nil
 	}
-	winTab.held = true
-	maskWinKey()
-	return true, winTab.fn
+	// Held before the mask goes out, so that the release that may arrive
+	// while it does is taken as well.
+	winTab.held.Store(true)
+	sendMask()
+	return true, *fn
 }
 
 func keyHeld(vk uintptr) bool {
@@ -125,8 +140,8 @@ func keyHeld(vk uintptr) bool {
 // the Tab it stands in for and before the Win key's release.
 func maskWinKey() {
 	in := [2]keyInput{
-		{typ: inputKeyboard, vk: vkMask},
-		{typ: inputKeyboard, vk: vkMask, flags: keyEventfKeyUp},
+		{typ: inputKeyboard, vk: vkMask, extra: maskTag},
+		{typ: inputKeyboard, vk: vkMask, flags: keyEventfKeyUp, extra: maskTag},
 	}
 	procSendInput.Call(uintptr(len(in)), uintptr(unsafe.Pointer(&in[0])), unsafe.Sizeof(in[0]))
 }
@@ -159,9 +174,8 @@ func HookWinTab(fn func()) (unhook func(), err error) {
 			done <- started{err: e}
 			return
 		}
-		winTab.mu.Lock()
-		winTab.fn, winTab.held = fn, false
-		winTab.mu.Unlock()
+		winTab.held.Store(false)
+		winTab.fn.Store(&fn)
 		done <- started{tid: CurrentThreadID()}
 		for {
 			if r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0); int32(r) <= 0 {
@@ -175,9 +189,8 @@ func HookWinTab(fn func()) (unhook func(), err error) {
 		return nil, s.err
 	}
 	return func() {
-		winTab.mu.Lock()
-		winTab.fn, winTab.held = nil, false
-		winTab.mu.Unlock()
+		winTab.fn.Store(nil)
+		winTab.held.Store(false)
 		procPostThreadMessageW.Call(uintptr(s.tid), wmQuit, 0, 0)
 	}, nil
 }

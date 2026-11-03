@@ -70,7 +70,7 @@ Works on Windows 10 and 11 (64-bit).
 ## Known issues
 
 - Cards show a snapshot from the moment the window was tucked away; they don't update live.
-- Some games and DRM-protected video can't be captured, so their card shows only the icon.
+- Some games and DRM-protected video can't be captured, so their card shows only the icon. File Explorer windows are never captured, on purpose, so their cards show only the icon too.
 - Apps running as administrator may not be manageable.
 
 ## Build it yourself
