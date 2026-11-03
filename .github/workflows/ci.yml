@@ -2,12 +2,17 @@ name: ci
 
 # Every push to main and every PR checks the code the way AGENTS.md asks, then
 # packages the app with `go tool mygo build` and keeps the exe and the installer
-# as artifacts. Releases are still published by hand: the notes are written in
-# both Chinese and English, and the assets are named after the version.
+# as artifacts of the run. Pushing a version tag (0.2.15, or v0.2.15) goes one
+# step further and publishes both as a release, named the way earlier releases
+# are: StageManagerForWindows.<version>.amd64.exe and
+# StageManagerForWindows.Setup.<version>.amd64.exe.
 
 on:
   push:
     branches: [main]
+    # Releases so far carry bare versions (0.2.14); v0.0.1 was the exception,
+    # and the old C# workflow watched for v*.
+    tags: ["*.*.*", "v*"]
   pull_request:
   workflow_dispatch:
 
@@ -15,8 +20,9 @@ permissions:
   contents: read
 
 concurrency:
+  # A tag names one release: let it finish. Pushes to a branch may cancel.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 defaults:
   run:
@@ -35,6 +41,18 @@ jobs:
         with:
           go-version-file: stage_mgr_go/go.mod
           cache-dependency-path: stage_mgr_go/go.sum
+
+      # The tag names the release; mygo.json names the version the exe
+      # reports, and its setup file. They must not drift.
+      - name: Check the tag against mygo.json
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $version = (Get-Content mygo.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne $version) {
+            throw "Tag $tag does not match version $version in mygo.json: bump it, commit, and tag again."
+          }
 
       # What AGENTS.md requires before a commit, in the same order.
       - name: Build
@@ -68,3 +86,44 @@ jobs:
             stage_mgr_go/build/windows-amd64/StageManagerForWindows.exe
             stage_mgr_go/build/windows-amd64/*-setup-*.exe
           if-no-files-found: error
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: . # assets/, not the module
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: assets
+
+      # mygo names its output after the app; releases name it after the version.
+      - name: Name the assets as earlier releases do
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mv assets/StageManagerForWindows.exe "assets/StageManagerForWindows.${version}.amd64.exe"
+          mv "assets/stagemanagerforwindows-setup-${version}-amd64.exe" \
+             "assets/StageManagerForWindows.Setup.${version}.amd64.exe"
+
+      # A hand-written release-notes/<version>.md wins, which is how the notes
+      # stay Chinese and English; without one, GitHub lists what changed.
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ -f "release-notes/${version}.md" ]; then
+            gh release create "$GITHUB_REF_NAME" assets/*.exe \
+              --title "$version" --notes-file "release-notes/${version}.md"
+          else
+            gh release create "$GITHUB_REF_NAME" assets/*.exe \
+              --title "$version" --generate-notes
+          fi

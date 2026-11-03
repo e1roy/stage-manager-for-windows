@@ -12,7 +12,8 @@ Stage Manager for Windows：在 Windows 10/11 上复刻 macOS“台前调度”�
 | --- | --- |
 | `stage_mgr_go/` | **唯一在维护的实现**。纯 Go + [MyGo](https://github.com/egoist/mygo)，无 cgo、无 WebView。 |
 | `StageManager/`、`installer/`、`start-stagebar.bat` | 旧的 C# WPF 版，已从工作区删除（git 中为 staged deletion）。不要复活，也不要照着它改。 |
-| `.github/workflows/ci.yml` | **Go 版的 CI**：push 到 `main` 和 PR 时跑 build / vet / `mygo vet` / test，再 `mygo build` 并把 exe 与安装包上传成 artifact。发布仍然手动做（见文末“打包”）。 |
+| `.github/workflows/ci.yml` | **Go 版的 CI**：push 到 `main`、PR、手动触发时跑 build / vet / `mygo vet` / test，再 `mygo build` 并把 exe 与安装包留成 artifact；**推版本 tag 时自动发 release**（见文末“打包”）。 |
+| `release-notes/<版本>.md` | 该版本的发布说明，中英双语。有它 `gh release create --notes-file` 就用它，没有则由 CI 自动生成。 |
 | `README.md`、`README.zh-CN.md`（根目录） | 面向用户：功能、安装、用法、已知问题、致谢（英文/中文两版，改功能时要一起改）。构建、架构与调试在 `stage_mgr_go/README.md`。 |
 | `其他项目参考代码/` | 第三方参考项目（StageManagerForWindows，C#），只读参考，**未纳入版本控制，不要 `git add`**。 |
 | `docs/CODEMAP.md` | **动手改代码前先读**：逐文件的符号表、核心数据结构、启动/刷新/切换/拖动/概览的流程、常见改动落点、调试与测试地图。 |
@@ -157,6 +158,15 @@ stage_mgr_go/
 
 ## 打包
 
-如无明确说明，发布时把 `stage_mgr_go/mygo.json` 的 `version` 加 `0.0.1`（最小递增），再 `go tool mygo build`。
+如无明确说明，发布时把 `stage_mgr_go/mygo.json` 的 `version` 加 `0.0.1`（最小递增）提交，然后打 tag 推上去：
 
-CI（`.github/workflows/ci.yml`）只负责把这两步跑一遍并留下 artifact，不会建 release：发布说明是中英双语的，资产名 `StageManagerForWindows.<版本>.amd64.exe` / `StageManagerForWindows.Setup.<版本>.amd64.exe` 也是手写的，别让 CI 代劳。
+```powershell
+git tag 0.2.15
+git push origin 0.2.15
+```
+
+CI（`.github/workflows/ci.yml`）会 build / vet / test、`mygo build` 打包，再把两份产物按 `StageManagerForWindows.<版本>.amd64.exe` / `StageManagerForWindows.Setup.<版本>.amd64.exe` 命名，用 `release-notes/<版本>.md` 作说明发成 release。
+
+- tag 必须和 `mygo.json` 的 `version` 一致，否则 CI 直接失败（`0.2.15` 和 `v0.2.15` 都认；已有 release 用的是不带 `v` 的）。
+- 没写 `release-notes/<版本>.md` 也能发，只是说明退化成 GitHub 自动生成的英文条目，发完手改一下即可。
+- 不想发版、只想打包：push 到 `main`、开 PR 或者手动 `workflow_dispatch`，产物在 run 的 artifact 里。
