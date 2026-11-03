@@ -3,7 +3,7 @@ package i18n
 // ja follows the words of Apple's Japanese Stage Manager: ステージ,
 // ウインドウ.
 var ja = Strings{
-	SettingsTitle: "Stage Manager 設定",
+	SettingsTitle: "ステージマネージャ設定",
 	TabGeneral:    "一般",
 	TabStrip:      "サイドバー",
 	TabStage:      "ステージ",
@@ -50,7 +50,7 @@ var ja = Strings{
 	CardsAtDownDesc:  "カード全体が下へ移り、タスクバーや手元に近くなります。",
 	CardsAtUp:        "小さくする",
 	CardsAtUpDesc:    "カード全体が上へ移ります。",
-	CardsAtList:      "ステージのウィンドウ一覧",
+	CardsAtList:      "ステージのウインドウ一覧",
 	CardsAtListDesc:  "一覧からカード 1 枚分以上離し、足りないときだけ下へずれます。そのため一覧が出たり消えたりしても、ふつうは動きません。",
 	CardsAtCrowd:     "カードが多いとき",
 	CardsAtCrowdDesc: "下の概要パネルには重ならず、収まらなければスクロールします。",
@@ -94,15 +94,17 @@ var ja = Strings{
 	LightFlights:     "高解像度ディスプレイでアニメーションを軽くする",
 	LightFlightsDesc: "ウインドウは 100% 表示の鮮明さで移動するため、200% のディスプレイでは毎フレーム描く画素が 4 分の 1 になり、アニメーションが滑らかになります。移動中はわずかにぼやけ、着地すると元の鮮明さに戻ります。",
 	FlightSpeed:      "切り替えアニメーションの速さ",
-	FlightSpeedDesc:  "ウィンドウがサイドバーからステージへ、ステージからサイドバーへ飛ぶ速さです。",
+	FlightSpeedDesc:  "ウインドウがサイドバーからステージへ、ステージからサイドバーへ飛ぶ速さです。",
 
 	CompanionLabel: "開いても現在のアプリをしまわない",
 	CompanionTip:   "チェックしたアプリがウインドウを開くと、使用中のアプリと一緒にデスクトップに残り、使用中のアプリをサイドバーにしまいません。閉じるとデスクトップは元に戻ります。TortoiseSVN のコミット画面のように、少しだけ使うツールに向いています。",
 	Programs:       "プログラム",
 
+	AppName:       "ステージマネージャ",
 	Tagline:       "macOS のステージマネージャのように Windows のウインドウを整理します",
 	Version:       "現在のバージョン %s",
 	LatestVersion: "最新バージョン %s",
+	CheckNow:      "今すぐ確認",
 	Privacy:       "データを一切収集しません。ネットに接続するのはアップデートを GitHub で確認するときだけです。",
 	Website:       "プロジェクトページ",
 	Issues:        "問題を報告",

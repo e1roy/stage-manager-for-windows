@@ -161,9 +161,16 @@ type Strings struct {
 	Programs        string
 	CompanionByName string // %s: the executable's name
 
-	Tagline          string
-	Version          string // %s: the version running, as "Local version %s"
-	LatestVersion    string // %s: the newest published version
+	// AppName is the app as the about pane and the tray tooltip name it, in
+	// the words each language uses for the feature macOS calls Stage
+	// Manager: 台前调度, 幕前調度, ステージマネージャ.
+	AppName       string
+	Tagline       string
+	Version       string // %s: the version running, as "Local version %s"
+	LatestVersion string // %s: the newest published version
+	// CheckNow asks for the latest version at once, on the about pane,
+	// rather than wait for the next check.
+	CheckNow         string
 	Privacy, License string
 	Website, Issues  string
 	// NewVersion tells a release newer than the one running, in the tray's

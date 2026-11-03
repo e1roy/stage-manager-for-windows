@@ -98,9 +98,11 @@ var en = Strings{
 	CompanionTip:   "When a checked app opens a window, it stays on the desktop with the app you're using instead of sending that app to the sidebar; once it's closed, the desktop is as it was. Good for tools used for a moment, like TortoiseSVN's commit dialog.",
 	Programs:       "Programs",
 
+	AppName:       "Stage Manager",
 	Tagline:       "Organizes your windows the way Stage Manager does on macOS",
 	Version:       "Local version %s",
 	LatestVersion: "Latest version %s",
+	CheckNow:      "Check now",
 	Privacy:       "Collects no data, and goes online only to check GitHub for updates.",
 	Website:       "Project page",
 	Issues:        "Report an issue",

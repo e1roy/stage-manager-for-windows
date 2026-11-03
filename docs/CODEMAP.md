@@ -130,7 +130,7 @@ stage_mgr_go/
 
 ### 检查更新与重启
 
-`startUpdateChecks`：启动 10s 后第一次 `checkUpdate`，之后每 `checkEvery`（6h）一次。它读 `winapi.SystemProxy()`，在 goroutine 里调 `update.Latest`（15s 超时；请求 `raw.githubusercontent.com` 上 `main` 分支根目录的 `.version`，只有一行版本号，不走 api.github.com 的每 IP 每小时 60 次限流；发版时它和 `mygo.json` 一起改，CI 核对），结果 `post` 回主线程：写 `a.published` / `a.latest` / `a.checkFailed`，需要时用 `dotted()` 生成带红点的 64px 托盘图标，托盘菜单与“关于”页据此显示红点。`go run`（没有版本号）或设置里关掉 `CheckUpdates` 时不联网。重启是托盘菜单里的 `mygo.App.Relaunch()`：先按退出流程放回窗口、释放单实例锁，再启动新进程。
+`startUpdateChecks`：启动 10s 后第一次 `checkUpdate`，之后每 `checkEvery`（6h）一次；“关于”页最新版本旁的按钮也调它，可以立刻再查一次（`a.checking` 期间置灰）。它读 `winapi.SystemProxy()`，在 goroutine 里调 `update.Latest`（15s 超时；请求 `raw.githubusercontent.com` 上 `main` 分支根目录的 `.version`，只有一行版本号，不走 api.github.com 的每 IP 每小时 60 次限流；发版时它和 `mygo.json` 一起改，CI 核对），结果 `post` 回主线程：写 `a.published` / `a.latest` / `a.checkFailed`，需要时用 `dotted()` 生成带红点的 64px 托盘图标，托盘菜单与“关于”页据此显示红点。`go run`（没有版本号）或设置里关掉 `CheckUpdates` 时不联网。重启是托盘菜单里的 `mygo.App.Relaunch()`：先按退出流程放回窗口、释放单实例锁，再启动新进程。
 
 ### 退出与崩溃恢复
 

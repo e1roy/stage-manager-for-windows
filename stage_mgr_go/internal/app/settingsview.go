@@ -175,6 +175,8 @@ var (
 	appIcon    = lineIcon(`<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/>`)
 	removeIcon = lineIcon(`<path d="M6 6l12 12M18 6L6 18"/>`)
 	infoIcon   = lineIcon(`<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.01"/>`)
+	// refreshIcon asks again, now, rather than at the next check.
+	refreshIcon = lineIcon(`<path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><path d="M20.5 3.5V9H15"/>`)
 )
 
 // lineIcon makes a 24×24 outline icon of the shapes in body.
@@ -945,24 +947,33 @@ func (sw *settingsWindow) aboutPane(c *ui.Context, f form, tr *i18n.Strings) {
 		if sw.icon0 != nil {
 			ui.Image(c, sw.icon0).Size(88, 88).Margin(0, 0, 8, 0)
 		}
-		ui.Text(c, "Stage Manager").FontSize(24).Bold()
+		ui.Text(c, tr.AppName).FontSize(24).Bold()
 		ui.Text(c, tr.Tagline).TextColor(t.TextMuted).TextAlign(ui.Center)
 		ui.Text(c, fmt.Sprintf(tr.Version, mygo.App.Version())).FontSize(12).TextColor(t.TextMuted).Margin(6, 0, 0, 0)
 		// The version released last, as the last check found it: with a
-		// red dot and the way to it when it is newer than the one running.
-		if r, ok := sw.a.newer(); ok {
+		// red dot and the way to it when it is newer than the one running,
+		// and with a way to ask again now rather than at the next check.
+		// Nothing of it shows while checks are off.
+		if sw.a.settings.CheckUpdates {
 			ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
-				ui.Box(c).Size(8, 8).Radius(4).Background(uiDotColor)
-				ui.Text(c, fmt.Sprintf(tr.LatestVersion, r.Version)).FontSize(12)
-				ui.Link(c, tr.Download, r.URL).FontSize(12).Margin(0, 0, 0, 4)
+				if r, ok := sw.a.newer(); ok {
+					ui.Box(c).Size(8, 8).Radius(4).Background(uiDotColor)
+					ui.Text(c, fmt.Sprintf(tr.LatestVersion, r.Version)).FontSize(12)
+					ui.Link(c, tr.Download, r.URL).FontSize(12).Margin(0, 0, 0, 4)
+				} else if sw.a.unchecked() {
+					ui.Text(c, tr.UpdateUnknown).FontSize(12).TextColor(t.TextMuted)
+					ui.Link(c, tr.SeeReleases, update.ReleasesURL).FontSize(12)
+				} else if v := sw.a.published.Version; v != "" {
+					ui.Text(c, fmt.Sprintf(tr.LatestVersion, v)).FontSize(12).TextColor(t.TextMuted)
+				}
+				// A check on its way is not asked for twice: the button
+				// greys out until it comes back.
+				if ui.Button(c, "").Label(tr.CheckNow).Tooltip(tr.CheckNow).Disabled(sw.a.checking).Children(func() {
+					ui.Icon(c, refreshIcon).FontSize(14).TextColor(t.TextMuted)
+				}).Clicked() {
+					sw.a.checkUpdate()
+				}
 			})
-		} else if sw.a.unchecked() {
-			ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
-				ui.Text(c, tr.UpdateUnknown).FontSize(12).TextColor(t.TextMuted)
-				ui.Link(c, tr.SeeReleases, update.ReleasesURL).FontSize(12)
-			})
-		} else if v := sw.a.published.Version; v != "" && sw.a.settings.CheckUpdates {
-			ui.Text(c, fmt.Sprintf(tr.LatestVersion, v)).FontSize(12).TextColor(t.TextMuted)
 		}
 		ui.Row(c).Gap(18).Margin(14, 0, 0, 0).Children(func() {
 			ui.Link(c, tr.Website, repo)
