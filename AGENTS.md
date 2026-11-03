@@ -85,7 +85,7 @@ stage_mgr_go/
       flights.go      每台显示器一层的飞行层：静帧在卡片和舞台间飞行、阴影交接
       pacer.go        按 DWM 合成节奏（DwmFlush）要帧，飞行层和概览用它代替 AnimationFrame
       strip.go        侧边栏窗口：摆放、AppBar、浮动显示/隐藏、点击穿透；收到 `TaskbarCreated`（Explorer 重启）后重新占位
-      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、悬停时右上角的关闭按钮（关掉整张卡片的窗口）、底部概览面板、上一个舞台的虚线框（`MarkPrevious`）、台前那张卡片的“幽灵”样式（`AllStages`：半透明加灰度、右下角绿色对钩，点击左右震动一下）
+      stripview.go    侧边栏界面：卡片、透视、悬停、拖动、右键菜单、悬停时右上角的关闭按钮（关掉整张卡片的窗口）、底部概览面板、上一个舞台的虚线框（`MarkPrevious`）、台前那张卡片的“幽灵”样式（`AllStages`：半透明加灰度、右下角绿色对钩，指针移上去或点击都左右震动一下）
       layout.go       纯几何：卡片布局、窗口叠放、图标位置、右侧镜像（有单测）
       media.go        静帧（PrintWindow）与图标缓存、内存预算（Quality / LightFlights）
       iconfit.go      裁掉图标四周透明边

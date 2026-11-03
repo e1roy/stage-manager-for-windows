@@ -390,3 +390,97 @@ func TestStagedBadgeStaysRoundOnTheCorner(t *testing.T) {
 		}
 	}
 }
+
+// redEdge returns a function that tells where the red of the window of card i
+// begins along its middle, which moves as the card does.
+func redEdge(s *strip, tt *ui.Tester, i int) func() int {
+	front := s.d.sets[i].stack(s.d.layout.cards[i], false)[0]
+	y := int(front.Y + front.H/2)
+	return func() int {
+		img := tt.Image()
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			if c := img.RGBAAt(x, y); c.R > 150 && c.G < 60 && c.A > 200 {
+				return x
+			}
+		}
+		return -1
+	}
+}
+
+// The pointer coming onto the stage's card shakes it, as a click does, once:
+// not while it rests there, nor over and over at the card's edge, which the
+// shake itself moves from under the pointer.
+func TestStagedCardShakesWhenThePointerComesOnIt(t *testing.T) {
+	s, got, tt := testStrip(t)
+	s.d.sets[0].staged = true
+	stillRed(s)
+	s.a.settings.StagedOpacity, s.a.settings.StagedGray = 1, 0
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	edge, other := redEdge(s, tt, 0), redEdge(s, tt, 1)
+	rest, restOther := edge(), other()
+	// How far, in pixels, the card swings in the next 640 ms.
+	swing := func() int {
+		lo, hi := rest, rest
+		for i := 0; i < 40; i++ {
+			tt.Frame()
+			e := edge()
+			lo, hi = min(lo, e), max(hi, e)
+			tt.Advance(16 * time.Millisecond)
+		}
+		return hi - lo
+	}
+	card := s.d.layout.cards[0]
+	x, y := center(card)
+	tt.Move(x, y)
+	if n := swing(); n < 6 {
+		t.Fatalf("the card swung %d px as the pointer came on it", n)
+	}
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	if e := edge(); e != rest {
+		t.Fatalf("the card is at %d, not %d, with the pointer resting on it", e, rest)
+	}
+	if n := swing(); n != 0 {
+		t.Fatalf("the card shook %d px with the pointer at rest", n)
+	}
+	// Away and back, it shakes again.
+	tt.Move(float32(s.d.viewW)-4, y)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	tt.Move(x, y)
+	if n := swing(); n < 6 {
+		t.Fatalf("the card swung %d px as the pointer came back", n)
+	}
+	// At the card's edge, the shake takes it from under the pointer and
+	// brings it back: that is no new coming, or it would never stop.
+	tt.Move(float32(s.d.viewW)-4, y)
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	tt.Move(card.X+1, y)
+	swing()
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	if e := edge(); e != rest {
+		t.Fatalf("the card is at %d, not %d, 2 s after the pointer came on its edge", e, rest)
+	}
+	if n := swing(); n != 0 {
+		t.Fatalf("the card still shook %d px with the pointer at rest at its edge", n)
+	}
+	// A card that waits has nothing to say: the pointer on it does not shake it.
+	x, y = center(s.d.layout.cards[1])
+	tt.Move(x, y)
+	for i := 0; i < 40; i++ {
+		tt.Frame()
+		if e := other(); e != restOther {
+			t.Fatalf("a card that waits moved from %d to %d", restOther, e)
+		}
+		tt.Advance(16 * time.Millisecond)
+	}
+	if len(*got) != 0 {
+		t.Fatalf("requests %v", *got)
+	}
+}
