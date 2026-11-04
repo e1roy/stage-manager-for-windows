@@ -76,6 +76,73 @@ func TestAllStagesListsTheStage(t *testing.T) {
 	}
 }
 
+// Ungrouped, the stage's own card keeps its front app on the stage, and the
+// others leave for cards of their own in its slot. The set breaks up only
+// with the switch, so that a switch waiting or dropped leaves no stage in
+// pieces, and the stage they leave is the one a switch asked for meanwhile
+// makes: an app joining it still does.
+func TestSplitStagedCard(t *testing.T) {
+	now := time.Now()
+	// The stage is a and b, b in front; c and x wait.
+	groups := groupsOfApps("b", "a", "c", "x")
+	staged := func() (*App, *display) {
+		a := &App{settings: settings.Default(), media: newMedia(), queued: map[*display]*switchRequest{}}
+		a.flights = newFlights(a)
+		a.settings.AllStages = true
+		d := &display{cards: map[string]*cardState{}, landing: map[string]bool{}}
+		d.model.Init("a", now)
+		a.arrange(d, groups, now)
+		d.model.Switch([]string{"a", "b"}, now)
+		a.arrange(d, groups, now)
+		if got, staged := keys(d); !slices.Equal(got, []string{"a", "c", "x"}) || !staged[0] {
+			t.Fatalf("cards %v, staged %v", got, staged)
+		}
+		// A switch runs elsewhere, so that the split waits for it.
+		a.busy = true
+		return a, d
+	}
+	split := func(a *App, d *display, want []string) *switchRequest {
+		t.Helper()
+		a.split(d, d.sets[0])
+		r := a.queued[d]
+		if r == nil || !slices.Equal(r.next, want) || r.split != "a" || !r.activate {
+			t.Fatalf("asked for %+v, want a switch to %v that splits a", r, want)
+		}
+		a.arrange(d, groups, now)
+		if got, staged := keys(d); !slices.Equal(got, []string{"a", "c", "x"}) || !slices.Equal(staged, []bool{true, false, false}) {
+			t.Fatalf("waiting for the switch: cards %v, staged %v", got, staged)
+		}
+		return r
+	}
+
+	a, d := staged()
+	r := split(a, d, []string{"b"})
+	r.commit(now)
+	a.arrange(d, groups, now)
+	if got, staged := keys(d); !slices.Equal(got, []string{"a", "b", "c", "x"}) || !slices.Equal(staged, []bool{false, true, false, false}) {
+		t.Fatalf("split: cards %v, staged %v", got, staged)
+	}
+
+	// x is on its way to the stage.
+	a, d = staged()
+	a.queued[d] = &switchRequest{d: d, next: []string{"a", "b", "x"}, activate: true}
+	r = split(a, d, []string{"b", "x"})
+	r.commit(now)
+	a.arrange(d, groups, now)
+	if got, staged := keys(d); !slices.Equal(got, []string{"a", "b", "c"}) || !slices.Equal(staged, []bool{false, true, false}) || !slices.Equal(d.sets[1].names(), []string{"b", "x"}) {
+		t.Fatalf("split as x joins: cards %v, staged %v", got, staged)
+	}
+
+	// A display left alone switches nothing, and nothing splits.
+	a, d = staged()
+	a.settings.Displays = map[string]bool{d.mon.Device: false}
+	a.split(d, d.sets[0])
+	a.arrange(d, groups, now)
+	if got, staged := keys(d); a.queued[d] != nil || !slices.Equal(got, []string{"a", "c", "x"}) || !staged[0] {
+		t.Fatalf("on a display left alone: asked for %+v, cards %v, staged %v", a.queued[d], got, staged)
+	}
+}
+
 // A strip that scrolls brings the card of the apps that leave the stage into
 // view, where it keeps their slot; one that does not list every stage leaves
 // the scroll alone.

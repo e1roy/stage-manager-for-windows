@@ -3,7 +3,7 @@ module github.com/e1roy/stage_manager_for_windows
 go 1.27.3
 
 require (
-	github.com/egoist/mygo v0.7.1
+	github.com/egoist/mygo v0.7.4
 	golang.org/x/image v0.46.0
 )
 

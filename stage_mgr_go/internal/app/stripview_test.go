@@ -250,26 +250,30 @@ func TestSetCardSplits(t *testing.T) {
 	}
 }
 
-func TestMenuPicksCompanion(t *testing.T) {
+// The stage's own card, of two apps, splits too; the card menu no longer
+// picks companions, which the settings do.
+func TestStagedCardSplits(t *testing.T) {
 	s, got, tt := testStrip(t)
-	s.d.sets[0].apps[0].windows[0].Exe = `C:\Tools\mail.exe`
+	s.d.sets = []*set{newSet([]*group{s.d.sets[0].apps[0], s.d.sets[1].apps[0]})}
+	s.d.sets[0].staged = true
 	s.d.sets[0].windows[0].Exe = `C:\Tools\mail.exe`
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
 	x, y := center(s.d.layout.cards[0])
 	tt.RightClickAt(x, y)
 	tt.Frame()
-	if err := tt.ChooseMenuItem(s.a.tr().CompanionLabel); err != nil {
+	if err := tt.ChooseMenuItem(s.a.tr().CompanionLabel); err == nil {
+		t.Fatal("the card menu picks companions")
+	}
+	tt.RightClickAt(x, y)
+	tt.Frame()
+	if err := tt.ChooseMenuItem(s.a.tr().SplitSet); err != nil {
 		t.Fatalf("%v; menu %v", err, tt.Menu())
 	}
 	tt.Frame()
-	if len(*got) != 1 || (*got)[0] != (request{actCompanion, "mail"}) {
+	if len(*got) != 1 || (*got)[0] != (request{actSplit, "mail"}) {
 		t.Fatalf("requests %v", *got)
-	}
-	// An app with no executable to tell it by has no such item.
-	x, y = center(s.d.layout.cards[1])
-	tt.RightClickAt(x, y)
-	tt.Frame()
-	if err := tt.ChooseMenuItem(s.a.tr().CompanionLabel); err == nil {
-		t.Fatal("an app without an executable can be a companion")
 	}
 }
 

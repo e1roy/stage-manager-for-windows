@@ -17,13 +17,20 @@ import (
 // animation of its own: the leaving windows fade where they are, under
 // it, rather than fly over it, and their cards slide into the strip.
 func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate, followed bool) {
+	a.start(&switchRequest{d: d, next: next, focus: focus, activate: activate, followed: followed})
+}
+
+// start carries out a switch request, or, while another switch runs, has it
+// take over from that one.
+func (a *App) start(r *switchRequest) {
+	d, next, focus, activate, followed := r.d, r.next, r.focus, r.activate, r.followed
 	if !a.managed(d) {
 		return
 	}
 	if a.busy {
 		// A click does not wait for the switch running to end: it takes
 		// over, and the windows in the air turn where they are, as on macOS.
-		a.queued[d] = &switchRequest{d: d, next: next, focus: focus, activate: activate, followed: followed}
+		a.queued[d] = r
 		a.flights.interrupt(d)
 		return
 	}
@@ -76,7 +83,7 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 		return frontFirst(x, y)
 	})
 	if len(departing)+len(arriving) == 0 {
-		d.model.Switch(next, time.Now())
+		r.commit(time.Now())
 		if activate && focus != 0 {
 			winapi.Activate(focus)
 		}
@@ -86,7 +93,8 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 	a.busy = true
 	debugf("switch %s to %v: departing %v arriving %v focus %x activate=%v followed=%v",
 		d.mon.Device, next, hwnds(departing), hwnds(arriving), focus, activate, followed)
-	a.running = &switchRequest{d: d, next: next, focus: focus, activate: activate, followed: followed}
+	r.focus = focus
+	a.running = r
 	// Stills taken as the pointer came to the strip are fresh enough, and
 	// the windows in the air have theirs; the rest make do with what they
 	// have rather than hold the flights still, unless they have no still.
@@ -111,7 +119,7 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 		// still turned and lifted by the pointer over them.
 		from := a.flights.cardPoses(d, arriving, true)
 		sw.lap("card poses")
-		d.model.Switch(next, time.Now())
+		r.commit(time.Now())
 		// Fading where they are, the windows land in no card: theirs
 		// come in as new cards do.
 		for _, app := range leaving {
@@ -262,6 +270,20 @@ type switchRequest struct {
 	focus    winapi.HWND
 	activate bool
 	followed bool
+	// split is the app whose set breaks into sets of one app each as the
+	// stage changes (App.split), or "".
+	split string
+}
+
+// commit makes the model of the request's display what the switch asks for.
+// A set of the stage breaks up only now, together with the switch that takes
+// some of its apps off, so that no switch dropped or taken over leaves the
+// stage in pieces, each a card of the stage.
+func (r *switchRequest) commit(now time.Time) {
+	if r.split != "" {
+		r.d.model.Split(r.split)
+	}
+	r.d.model.Switch(r.next, now)
 }
 
 // runQueued starts a switch asked for while one ran, if any: first that of
@@ -277,7 +299,7 @@ func (a *App) runQueued(first *display) bool {
 		return false
 	}
 	delete(a.queued, q.d)
-	a.switchStage(q.d, q.next, q.focus, q.activate, q.followed)
+	a.start(q)
 	return true
 }
 
@@ -322,7 +344,6 @@ const (
 	actJoin
 	actSplit
 	actClose
-	actCompanion
 	actOverview // asked for by the strip's button rather than a card
 	actMove     // the card was dropped in the strip of another display
 	actReorder  // the card was dragged up or down its strip
@@ -347,12 +368,9 @@ func (a *App) request(act action, d *display, s *set) {
 		case actJoin:
 			a.join(d, s)
 		case actSplit:
-			d.model.Split(s.key)
-			a.refresh()
+			a.split(d, s)
 		case actClose:
 			a.closeApps(s)
-		case actCompanion:
-			a.toggleCompanion(s)
 		case actFront:
 			a.bringForward(s.front())
 		case actUnstage:
@@ -392,13 +410,23 @@ func (a *App) closeApps(s *set) {
 	a.refreshSoon()
 }
 
-// toggleCompanion makes the app of a card a companion, or no longer one.
-func (a *App) toggleCompanion(s *set) {
-	exe := s.front().Exe
-	a.applySettings(a.settings.WithCompanion(exe, !a.settings.Companion(exe)))
-	if sw := a.settingsUI; sw != nil {
-		sw.win.Update(sw.load)
+// split breaks a card into cards of one app each. The stage's own card, in a
+// strip that lists every stage (settings.AllStages), keeps its front app on
+// the stage, and the others leave it for cards of their own: they leave the
+// stage as it will be once the switch running is done, as join and unstage
+// see it, so that an app joining it meanwhile still does, and the set breaks
+// up as they go (switchRequest.commit).
+func (a *App) split(d *display, s *set) {
+	if !s.staged {
+		d.model.Split(s.key)
+		a.refresh()
+		return
 	}
+	front := slices.MinFunc(s.apps, func(x, y *group) int { return x.z - y.z })
+	next := slices.DeleteFunc(a.heading(d), func(app string) bool {
+		return app != front.app && slices.ContainsFunc(s.apps, func(g *group) bool { return g.app == app })
+	})
+	a.start(&switchRequest{d: d, next: next, activate: len(next) > 0, split: s.key})
 }
 
 // reveal scrolls the strip of display d, should its cards run past it, to

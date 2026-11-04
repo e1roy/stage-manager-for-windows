@@ -6,6 +6,7 @@ var zhHant = Strings{
 	TabGeneral:    "一般",
 	TabStrip:      "側邊欄",
 	TabStage:      "舞台",
+	TabOverview:   "所有視窗",
 	TabCompanions: "例外",
 	TabAbout:      "關於",
 
@@ -25,6 +26,9 @@ var zhHant = Strings{
 	DisplayPrimary:     " · 主顯示器",
 	SideLeft:           "左側",
 	SideRight:          "右側",
+
+	Cards:      "卡片",
+	StripShows: "顯示內容",
 
 	Mode:         "顯示方式",
 	ModeDesc:     "側邊欄如何與視窗共用螢幕。",
@@ -96,7 +100,7 @@ var zhHant = Strings{
 	FlightSpeedDesc:  "視窗從側邊欄飛到舞台、以及從舞台收回側邊欄的快慢。",
 
 	CompanionLabel: "開啟時不收起目前的應用程式",
-	CompanionTip:   "勾選的應用程式開啟視窗時，會和你正在使用的應用程式一起留在桌面上，不會把它收進側邊欄；關閉後桌面恢復原樣。適合 TortoiseSVN 提交視窗這類用一下就關的工具。",
+	CompanionTip:   "清單中的應用程式開啟視窗時，會和你正在使用的應用程式一起留在桌面上，不會把它收進側邊欄；關閉後桌面恢復原樣。適合 TortoiseSVN 提交視窗這類用一下就關的工具。",
 	Programs:       "程式",
 
 	AppName:       "幕前調度",
@@ -140,7 +144,6 @@ var zhHant = Strings{
 	Identify:              "識別",
 	ClickDesktopNeedsHide: "需先開啟「隱藏舞台以外的視窗」。",
 	CompanionsEmpty:       "尚未加入例外應用程式。",
-	CompanionsHint:        "也可以在側邊欄卡片上按右鍵勾選。",
 	AddCompanion:          "加入應用程式",
 	Browse:                "瀏覽…",
 	CompanionByName:       "%s.exe · 所有同名程式",

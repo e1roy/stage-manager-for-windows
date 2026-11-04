@@ -5,6 +5,7 @@ var en = Strings{
 	TabGeneral:    "General",
 	TabStrip:      "Sidebar",
 	TabStage:      "Stage",
+	TabOverview:   "All Windows",
 	TabCompanions: "Exceptions",
 	TabAbout:      "About",
 
@@ -24,6 +25,9 @@ var en = Strings{
 	DisplayPrimary:     " · Main display",
 	SideLeft:           "Left",
 	SideRight:          "Right",
+
+	Cards:      "Cards",
+	StripShows: "Contents",
 
 	Mode:         "Style",
 	ModeDesc:     "How the sidebar shares the screen with windows.",
@@ -95,7 +99,7 @@ var en = Strings{
 	FlightSpeedDesc:  "How fast windows fly from the sidebar to the stage and back.",
 
 	CompanionLabel: "Keep the current app when opened",
-	CompanionTip:   "When a checked app opens a window, it stays on the desktop with the app you're using instead of sending that app to the sidebar; once it's closed, the desktop is as it was. Good for tools used for a moment, like TortoiseSVN's commit dialog.",
+	CompanionTip:   "When an app in this list opens a window, it stays on the desktop with the app you're using instead of sending that app to the sidebar; once it's closed, the desktop is as it was. Good for tools used for a moment, like TortoiseSVN's commit dialog.",
 	Programs:       "Programs",
 
 	AppName:       "Stage Manager",
@@ -139,7 +143,6 @@ var en = Strings{
 	Identify:              "Identify",
 	ClickDesktopNeedsHide: "Turn on \"Hide windows off the stage\" first.",
 	CompanionsEmpty:       "No exceptions yet.",
-	CompanionsHint:        "You can also right-click a card in the sidebar.",
 	AddCompanion:          "Add App",
 	Browse:                "Browse…",
 	CompanionByName:       "%s.exe · every copy",
