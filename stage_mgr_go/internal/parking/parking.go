@@ -27,7 +27,14 @@ const (
 	// picture it already had.
 	moveFlags = winapi.SwpNoRedraw | winapi.SwpNoSize | winapi.SwpNoZOrder | winapi.SwpNoActivate |
 		winapi.SwpNoOwnerZOrder | winapi.SwpAsyncWindowPos
-	settle = time.Second
+	// A window coming home also works out its frame again. One that did so
+	// while it waited, as Edge and other Chromium apps do now and then, found
+	// no display there, and Chromium then makes the whole window its client
+	// area: back on the desktop DWM sees a window without a frame and gives it
+	// neither rounded corners nor a shadow, until it is resized. Asked here,
+	// the app works it out for where the window is going.
+	homeFlags = moveFlags | winapi.SwpFrameChanged
+	settle    = time.Second
 	// A window sent home that is not there after chaseAfter is sent again,
 	// up to chaseTries times, and then fitted onto the nearest display.
 	chaseAfter = 300 * time.Millisecond
@@ -259,13 +266,13 @@ func fit(h winapi.HWND) {
 	place(h, winapi.Point{X: r.Left, Y: r.Top})
 }
 
-// place moves a window to p, or a minimized one to come back there.
+// place moves a window home to p, or a minimized one to come back there.
 func place(h winapi.HWND, p winapi.Point) {
 	if winapi.IsIconic(h) {
 		winapi.MoveRestored(h, p)
 		return
 	}
-	move(h, p)
+	land(h, p)
 }
 
 // raising counts the calls to raise: the last one asked for is the order
@@ -355,7 +362,7 @@ func (s *Service) Lift(h winapi.HWND) {
 	dx, dy := home.Left-root.Home.Left, home.Top-root.Home.Top
 	for w, p := range s.parked {
 		if (w == h || p.Owner == h) && !s.lifted[w] {
-			move(w, winapi.Point{X: p.Home.Left + dx, Y: p.Home.Top + dy})
+			land(w, winapi.Point{X: p.Home.Left + dx, Y: p.Home.Top + dy})
 			p.At = time.Now()
 			s.parked[w] = p
 			s.lifted[w] = true
@@ -555,6 +562,11 @@ func spotFor(home winapi.Rect) winapi.Point {
 // move takes a window to p, keeping its place in the z-order.
 func move(h winapi.HWND, p winapi.Point) bool {
 	return winapi.SetWindowPos(h, 0, p.X, p.Y, 0, 0, moveFlags)
+}
+
+// land is move for a window coming back onto the desktop (homeFlags).
+func land(h winapi.HWND, p winapi.Point) bool {
+	return winapi.SetWindowPos(h, 0, p.X, p.Y, 0, 0, homeFlags)
 }
 
 func (s *Service) save() {

@@ -145,6 +145,7 @@ stage_mgr_go/
 - 2026-11-03 23:46 桌面停了约 66 秒，Explorer 因 `Windows.UI.Xaml.dll` 崩溃（0xc000027b）；日志里没有拍过外壳窗口，也没有证据表明是我们引起的。曾试过不给 explorer.exe 的窗口（文件资源管理器）拍静帧，但那样它们没有缩小/放大的飞行动画，得不偿失，已撤回。排查同类问题时注意：除了下面 Win+Tab 钩子锁死的那次，`hang-*.log` 里主线程都停在 `GetMessageW`（空闲，不是被我们的代码占住），看门狗报的“卡死”多半是桌面级的消息停滞，不是 Stage Manager 自己卡。
 - Win+Tab 钩子：回调里发 `SendInput` 时，Windows 会在同一线程上重入回调（用户很快松开 Tab 就会赶上）。以前持锁发送，重入时自己等自己，钩子线程和关闭流程都永久卡死。现在状态全用原子变量，`held` 在发送前置位，自己发的键用 `dwExtraInfo`（`maskTag`）标记并直接放行。别在钩子回调里加锁、等待或做任何会阻塞的事。
 - 以管理员权限运行的窗口，非管理员的 Stage Manager for Windows 可能无法移动或激活。
+- Edge 等 Chromium 窗口放回后变成方角、没有阴影：它停放期间自己重算了边框（`WM_NCCALCSIZE`），而 Chromium 找不到所在显示器时会把整个窗口都当成客户区，DWM 就当它没有边框。现在放回（`parking.go` 的 `land`/`homeFlags`）都带 `SWP_FRAMECHANGED`，让应用按落点重算。判断方法：`DWMWA_EXTENDED_FRAME_BOUNDS` 与 `GetWindowRect` 完全相等（正常窗口两侧和底部各有几像素看不见的缩放边框）。
 - 拖动窗口时，飞行层不能压到被拖窗口下面：那样系统很少把飞行层的画面送上屏幕，约 700ms 只有 30–40 帧。现在飞行层留在最上层，每帧避开被拖窗口所在的区域（`flights.go` 的 `hole`），看起来像从它下面飞过。`STAGEMANAGER_DEBUG` 下每次飞行结束记一行 `flights: ...: N frames in ..., longest gap ...`，排查卡顿先看这一行。
 - 动画卡顿的排查（`STAGEMANAGER_DEBUG`，`start-stage-manager.bat` 还会打开 `MYGO_FRAME_STATS=1`）：
   - `flights:` / `strip ...:` / `flight layer ...:` / `overview ...:` 行给出帧数、最长间隔（及当时进度或状态）、最长构建时间；`main thread: X took T` 列出占住主线程超过 8ms 的任务；`... took T: a 1ms, b 2ms` 是切换准备阶段的分步计时；`mygo: frame ... took` 是 MyGo 单帧的构建/绘制/提交耗时。
