@@ -3,8 +3,6 @@
 package winapi
 
 import (
-	"path/filepath"
-	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -24,14 +22,6 @@ func ProcessPath(pid uint32) string {
 		return ""
 	}
 	return syscall.UTF16ToString(buf[:n])
-}
-
-// InExplorer reports whether a window belongs to Explorer's process, which
-// draws the taskbar, the Start menu and the desktop as well as File Explorer's
-// windows.
-func InExplorer(h HWND) bool {
-	pid, _ := ProcessID(h)
-	return pid != 0 && strings.EqualFold(filepath.Base(ProcessPath(pid)), "explorer.exe")
 }
 
 // CurrentThreadID returns the calling OS thread's ID.

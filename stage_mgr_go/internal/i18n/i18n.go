@@ -81,8 +81,12 @@ func FromLANGID(id uint16) Lang {
 // the same order.
 type Strings struct {
 	// The settings window.
-	SettingsTitle                                           string
-	TabGeneral, TabStrip, TabStage, TabCompanions, TabAbout string
+	SettingsTitle                               string
+	TabGeneral, TabStrip, TabStage, TabOverview string
+	TabCompanions, TabAbout                     string
+	// Cards and StripShows head the strip pane's groups: how its cards
+	// look, and what it lists besides them.
+	Cards, StripShows string
 
 	Language, LanguageSystem         string
 	LaunchAtLogin, LaunchAtLoginDesc string
@@ -151,12 +155,12 @@ type Strings struct {
 	// stage, which FlightSpeedDesc explains.
 	FlightSpeed, FlightSpeedDesc string
 
-	// CompanionLabel names companions in the settings and on the cards'
-	// menus, from where the user is: the app they are using stays when one
-	// of these opens. CompanionTip says what they do.
-	CompanionLabel, CompanionTip    string
-	CompanionsEmpty, CompanionsHint string
-	AddCompanion, Browse, Remove    string
+	// CompanionLabel heads the list of companions in the exceptions pane,
+	// from where the user is: the app they are using stays when one of these
+	// opens. CompanionTip says what they do.
+	CompanionLabel, CompanionTip string
+	CompanionsEmpty              string
+	AddCompanion, Browse, Remove string
 	// Programs names executables in the file dialog that adds one.
 	Programs        string
 	CompanionByName string // %s: the executable's name

@@ -377,40 +377,49 @@ func TestSnapshots(t *testing.T) {
 		a.settings.Language = l
 		for i := range settingsIcons {
 			sw.tab = i
-			shoot(fmt.Sprintf("settings-%s-%d.png", l, i), sw.view, 620, 1000, nil)
+			shoot(fmt.Sprintf("settings-%s-%d.png", l, i), sw.view, 760, 1000, nil)
 			if l == i18n.SimplifiedChinese {
-				shoot(fmt.Sprintf("settings-dark-%d.png", i), dark, 620, 1000, nil)
+				shoot(fmt.Sprintf("settings-dark-%d.png", i), dark, 760, 1000, nil)
 			}
 		}
 	}
 	a.settings.Language = i18n.SimplifiedChinese
 	sw.tab = 1
 	shoot("settings-wide.png", sw.view, 1100, 600, nil)
+	// Too narrow for the sidebar's names, it keeps their icons.
+	shoot("settings-narrow.png", sw.view, 600, 800, nil)
 	// The pointer resting on the info mark after a title shows its tip.
 	tipAt := func(tt *ui.Tester) {
 		if r, ok := tt.Find(a.tr().CardsAt); ok {
 			tt.Move(r.X+r.W+6+8, r.Y+r.H/2)
 		}
 	}
-	shoot("settings-tip.png", sw.view, 620, 1000, tipAt)
-	shoot("settings-tip-dark.png", dark, 620, 1000, tipAt)
+	shoot("settings-tip.png", sw.view, 760, 1000, tipAt)
+	shoot("settings-tip-dark.png", dark, 760, 1000, tipAt)
+	// The title shows its tip as the mark does: what the row does, and
+	// what each of its choices means, the one chosen in the accent.
+	shoot("settings-tip-mode.png", sw.view, 760, 1000, func(tt *ui.Tester) {
+		if r, ok := tt.Find(a.tr().Mode); ok {
+			tt.Move(r.X+r.W/2, r.Y+r.H/2)
+		}
+	})
 	// A newer release puts a red dot on the about pane's icon, and its
 	// version on the pane.
 	a.latest = update.Release{Version: "9.9.9", URL: update.ReleasesURL}
 	a.published = a.latest
 	for _, i := range []int{0, aboutTab} {
 		sw.tab = i
-		shoot(fmt.Sprintf("settings-update-%d.png", i), sw.view, 620, 1000, nil)
-		shoot(fmt.Sprintf("settings-update-dark-%d.png", i), dark, 620, 1000, nil)
+		shoot(fmt.Sprintf("settings-update-%d.png", i), sw.view, 760, 1000, nil)
+		shoot(fmt.Sprintf("settings-update-dark-%d.png", i), dark, 760, 1000, nil)
 	}
 	a.latest = update.Release{}
 	// Up to date, the pane still says which version is the latest.
 	sw.tab = aboutTab
-	shoot("settings-update-current.png", sw.view, 620, 1000, nil)
+	shoot("settings-update-current.png", sw.view, 760, 1000, nil)
 	// Without a network, the pane says it could not tell.
 	a.checkFailed = true
 	sw.tab = aboutTab
-	shoot("settings-update-failed.png", sw.view, 620, 1000, nil)
+	shoot("settings-update-failed.png", sw.view, 760, 1000, nil)
 	a.checkFailed = false
 	// The tray icon with the dot, as the tray shows it.
 	if icon, err := os.ReadFile(filepath.Join("..", "..", "resources", "icon.png")); err == nil {

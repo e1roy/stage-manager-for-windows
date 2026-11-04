@@ -5,6 +5,7 @@ var zhHans = Strings{
 	TabGeneral:    "通用",
 	TabStrip:      "侧边栏",
 	TabStage:      "舞台",
+	TabOverview:   "所有窗口",
 	TabCompanions: "例外",
 	TabAbout:      "关于",
 
@@ -24,6 +25,9 @@ var zhHans = Strings{
 	DisplayPrimary:     " · 主显示器",
 	SideLeft:           "左侧",
 	SideRight:          "右侧",
+
+	Cards:      "卡片",
+	StripShows: "显示内容",
 
 	Mode:         "显示方式",
 	ModeDesc:     "侧边栏怎样和窗口共用屏幕。",
@@ -95,7 +99,7 @@ var zhHans = Strings{
 	FlightSpeedDesc:  "窗口从侧边栏飞到舞台、以及从舞台收回侧边栏的快慢。",
 
 	CompanionLabel: "打开时不收起当前应用",
-	CompanionTip:   "勾选的应用打开窗口时，会和你正在用的应用一起留在桌面上，不会把它收进侧边栏；关掉后桌面回到原样。适合 TortoiseSVN 提交框这类用一下就关的工具。",
+	CompanionTip:   "列表里的应用打开窗口时，会和你正在用的应用一起留在桌面上，不会把它收进侧边栏；关掉后桌面回到原样。适合 TortoiseSVN 提交框这类用一下就关的工具。",
 	Programs:       "程序",
 
 	AppName:       "台前调度",
@@ -139,7 +143,6 @@ var zhHans = Strings{
 	Identify:              "识别",
 	ClickDesktopNeedsHide: "需先开启「隐藏舞台之外的窗口」。",
 	CompanionsEmpty:       "还没有例外应用。",
-	CompanionsHint:        "也可以在侧边栏卡片上右键勾选。",
 	AddCompanion:          "添加应用",
 	Browse:                "浏览…",
 	CompanionByName:       "%s.exe · 所有同名程序",

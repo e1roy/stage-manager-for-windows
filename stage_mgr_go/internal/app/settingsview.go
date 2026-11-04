@@ -70,13 +70,15 @@ func (a *App) openSettings() {
 	}
 	sw.win = mygo.NewWindow(mygo.WindowOptions{
 		Title:     a.tr().SettingsTitle,
-		Width:     620,
-		Height:    560,
+		Width:     760,
+		Height:    580,
 		MinWidth:  480,
 		MinHeight: minSettingsHeight,
 		Vibrancy:  mygo.VibrancyMica,
-		StateKey:  "settings",
-		Content:   ui.View(sw.view),
+		// The panes moved from a toolbar to a sidebar, which wants a wider
+		// window: the size remembered for the toolbar is left behind.
+		StateKey: "settings-nav",
+		Content:  ui.View(sw.view),
 	})
 	// The title bar and the taskbar show the icon the tray and the page
 	// show, whether or not the build embedded it in the program.
@@ -87,7 +89,7 @@ func (a *App) openSettings() {
 	// it; one remembered from a build that fit it to its pane too short
 	// starts over.
 	if w, h := sw.win.ContentSize(); h < minSettingsHeight {
-		sw.win.SetContentSize(w, 560)
+		sw.win.SetContentSize(w, 580)
 	}
 	sw.win.OnClosed(func() { a.settingsUI = nil })
 	a.settingsUI = sw
@@ -153,19 +155,33 @@ func (sw *settingsWindow) apply() {
 	sw.s = sw.a.settings.Clone()
 }
 
-// The icons of the panes, as the toolbar of a macOS preferences window
-// shows them over their names, one pane at a time. They are drawn in the
-// text color, so they follow the theme and the choice.
+// The icons of the panes, beside their names in the window's sidebar as
+// Windows' Settings and macOS' System Settings list theirs. They are drawn
+// in the text color, so they follow the theme.
 var settingsIcons = []*ui.SVG{
 	lineIcon(`<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>`),
 	lineIcon(`<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16M5.5 8h1M5.5 12h1M5.5 16h1"/>`),
 	lineIcon(`<rect x="3" y="4" width="18" height="16" rx="2.5"/><rect x="9" y="8" width="9" height="8" rx="1"/><path d="M5.5 9.5v1M5.5 13.5v1"/>`),
+	lineIcon(`<rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/>`),
 	lineIcon(`<path d="M15 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4"/><rect x="9" y="9" width="12" height="12" rx="2"/>`),
 	lineIcon(`<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.01"/>`),
 }
 
-// aboutTab is the about pane's index in settingsIcons, the last.
-const aboutTab = 4
+// The panes' indexes in settingsIcons. The overview's has its own pane, as
+// the three ways into it and the looks of its buttons made the strip's
+// pane the longest by far.
+const (
+	overviewTab = 3
+	aboutTab    = 5
+)
+
+// The sidebar's width, and its width as icons alone in a window too
+// narrow for both it and rows that read in a line or two.
+const navWidth, navCompact, compactBelow = 184, 48, 700
+
+// paneMaxWidth keeps a pane's rows from running so wide in a wide window
+// that a row's title is far from its control.
+const paneMaxWidth = 720
 
 // uiDotColor is dotColor, the red dot of a newer release, as the panes
 // paint it.
@@ -189,11 +205,14 @@ func lineIcon(body string) *ui.SVG {
 type form struct {
 	t    *ui.Theme
 	card ui.Color
+	// disabled turns off the controls of a row that only applies while a
+	// switch above it is on, as child hands the form to them.
+	disabled bool
 }
 
-// option is a line under a row's description that explains one of its
-// choices, set apart so that a row of several reads at a glance; on marks
-// the one chosen. Without a label it is a line of its own.
+// option is a line of a row's tip that explains one of its choices, set
+// apart so that a row of several reads at a glance; on marks the one
+// chosen. Without a label it is a line of its own.
 type option struct {
 	label, text string
 	on          bool
@@ -201,17 +220,24 @@ type option struct {
 
 // rowPadX is the inset of every row in a card, which lines up the text of
 // all of them, and their controls.
-const rowPadX = 18
+const rowPadX = 14
 
 // section is a card of rows. A pane's first card goes without a title,
-// as the pane's name in the toolbar says it; trailing, if any, goes at the
-// end of the title, as a button acting on the whole card.
+// as the pane's name over it says it; trailing, if any, goes at the end of
+// the title, as a button acting on the whole card.
 func (f form) section(c *ui.Context, title string, rows func(), trailing ...func()) {
+	f.group(c, title, nil, rows, trailing...)
+}
+
+// group is a section whose title has an info mark, for a thing the titles
+// of its rows don't say what it is, such as a button the user may not have
+// met yet.
+func (f form) group(c *ui.Context, title string, tp *tip, rows func(), trailing ...func()) {
 	if title == "" {
-		ui.Box(c).Height(14)
+		ui.Box(c).Height(8)
 	} else {
-		ui.Row(c).AlignItems(ui.Center).Margin(16, 0, 6, 2).Children(func() {
-			ui.Text(c, title).FontSize(14).Bold().Grow(1)
+		ui.Row(c).AlignItems(ui.Center).Gap(12).MinHeight(28).Margin(14, 0, 6, 2).Children(func() {
+			ui.Row(c).Grow(1).Shrink(1).Children(func() { f.title(c, title, f.t.Text, true, tp) })
 			for _, fn := range trailing {
 				fn()
 			}
@@ -220,15 +246,13 @@ func (f form) section(c *ui.Context, title string, rows func(), trailing ...func
 	ui.Column(c).Background(f.card).Radius(8).Border(1, f.t.Border.Alpha(0.6)).Dividers(1, f.t.Border.Alpha(0.5)).Children(rows)
 }
 
+// row is a setting: its title, and its control at the end. What it does,
+// desc, and what each of its choices means, opts, go in the tip of an info
+// mark after the title rather than under it: every row is one line, so a
+// pane reads as a list of titles and controls in two even columns, and
+// the words are there for one who wants them.
 func (f form) row(c *ui.Context, title, desc string, control func(), opts ...option) {
-	f.rowAt(c, false, title, desc, nil, control, opts...)
-}
-
-// rowTip is a row whose title has an info mark after it in place of a
-// description: the row stays as short as those around it, and the mark
-// explains the setting point by point, as tip does, to one who wants it.
-func (f form) rowTip(c *ui.Context, title string, tip *tip, control func()) {
-	f.rowAt(c, false, title, "", tip, control)
+	f.rowAt(c, false, title, "", explain(desc, opts), control)
 }
 
 // tip is what an info mark explains: a line saying what the setting is,
@@ -238,76 +262,98 @@ type tip struct {
 	points []option
 }
 
-// child is a row of a setting that only applies while the one above it is
-// on, dimmed while it is off. It keeps the left edge every row's text
-// shares rather than indent under it.
-func (f form) child(c *ui.Context, on bool, title, desc string, control func()) {
-	f.rowAt(c, !on, title, desc, nil, control)
+// explain is the tip of a row of desc and opts, or nil without either.
+func explain(desc string, opts []option) *tip {
+	if desc == "" && len(opts) == 0 {
+		return nil
+	}
+	return &tip{desc, opts}
 }
 
-func (f form) rowAt(c *ui.Context, dim bool, title, desc string, tip *tip, control func(), opts ...option) {
+// child is a row of a setting that only applies while the one above it is
+// on, dimmed while it is off, and its control is handed the form, disabled
+// then. It keeps the left edge every row's text shares rather than indent
+// under it.
+func (f form) child(c *ui.Context, on bool, title, desc string, control func(form)) {
+	f.disabled = !on
+	f.rowAt(c, !on, title, "", explain(desc, nil), func() { control(f) })
+}
+
+// rowH is the height of every row, which lines them all up whether their
+// control is a switch, a slider or a list.
+const rowH = 48
+
+// rowAt lays out every row: dim while it does not apply, with sub, if any, a
+// line under its title that tells which thing it is, such as a display's
+// size, rather than what the setting does, and the info mark of tip.
+func (f form) rowAt(c *ui.Context, dim bool, title, sub string, tip *tip, control func()) {
 	t := f.t
 	fg := t.Text
 	if dim {
 		fg = t.TextMuted
 	}
-	ui.Row(c).Padding(14, rowPadX).Gap(18).AlignItems(ui.Center).MinHeight(64).Children(func() {
-		ui.Column(c).Grow(1).Shrink(1).Gap(3).Children(func() {
-			if tip == nil {
-				ui.Text(c, title).TextColor(fg)
-			} else {
-				ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
-					ui.Text(c, title).TextColor(fg)
-					f.info(c, tip)
-				})
+	ui.Row(c).Padding(6, rowPadX).Gap(16).AlignItems(ui.Center).MinHeight(rowH).Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
+			f.title(c, title, fg, false, tip)
+			if sub != "" {
+				ui.Text(c, sub).FontSize(12).TextColor(t.TextMuted).SingleLine()
 			}
-			if desc != "" {
-				ui.Text(c, desc).FontSize(12).TextColor(t.TextMuted)
-			}
-			if len(opts) == 0 {
-				return
-			}
-			ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(10).GapY(3).Margin(3, 0, 0, 0).Children(func() {
-				for _, o := range opts {
-					if o.label == "" {
-						ui.Text(c, o.text).FontSize(12).TextColor(t.TextMuted).ColumnSpan(-1)
-						continue
-					}
-					fg := t.Text
-					if o.on {
-						fg = t.Accent
-					}
-					ui.Text(c, o.label).FontSize(12).Bold().TextColor(fg)
-					ui.Text(c, o.text).FontSize(12).TextColor(t.TextMuted)
-				}
-			})
 		})
 		control()
 	})
 }
 
-// info is the mark after a row's title that shows its tip while the
-// pointer rests on it: below it, a card of the window's own look rather
-// than the dark strip of a tooltip, as it is a few lines to read, with the
-// labels of the points in a column of their own so they read at a glance.
-func (f form) info(c *ui.Context, tp *tip) {
+// title is a row's or a section's title, with the info mark of tp after
+// it, if any. The title and the mark show the tip alike while the pointer
+// rests on them, as the title is the bigger target and where the eye is:
+// below them, a card of the window's own look rather than the dark strip
+// of a tooltip, as it is a few lines to read, with the labels of the
+// points in a column of their own so they read at a glance, the one
+// chosen in the accent.
+func (f form) title(c *ui.Context, title string, fg ui.Color, bold bool, tp *tip) {
 	t := f.t
-	mark := ui.Box(c).Shrink(0)
-	fg := t.TextMuted
-	if mark.Hovered() {
-		fg = t.Accent
+	mark := ui.Row(c).AlignSelf(ui.Start).AlignItems(ui.Center).Gap(6).Shrink(1)
+	over := tp != nil && mark.Hovered()
+	mark.Children(func() {
+		txt := ui.Text(c, title).TextColor(fg).Shrink(1)
+		if bold {
+			txt.Bold()
+		}
+		if tp == nil {
+			return
+		}
+		ic := t.TextMuted
+		if over {
+			ic = t.Accent
+		}
+		ui.Icon(c, infoIcon).FontSize(14).TextColor(ic).Shrink(0)
+	})
+	if tp == nil {
+		return
 	}
-	mark.Children(func() { ui.Icon(c, infoIcon).FontSize(16).TextColor(fg) })
 	ui.TooltipBase(c, mark, func(el ui.Element) {
-		el.AttachTo(mark, ui.AnchorTopLeft, ui.AnchorBottomLeft).Margin(6, 0, 0, -12)
-		el.Width(380).Padding(12, 14).Radius(8).Background(t.Surface).Border(1, t.Border).
+		el.AttachTo(mark, ui.AnchorTopLeft, ui.AnchorBottomLeft).Margin(6, 0, 0, -8)
+		el.Width(340).Padding(10, 12).Radius(8).Background(t.Surface).Border(1, t.Border).
 			Shadow(0, 4, 16, 0, ui.RGBA(0, 0, 0, 0.18)).TextColor(t.Text).FontSize(12)
 		el.Children(func() {
 			ui.Column(c).Gap(8).Children(func() {
-				ui.Text(c, tp.lead)
+				if tp.lead != "" {
+					ui.Text(c, tp.lead)
+				}
+				if len(tp.points) == 0 {
+					return
+				}
 				ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(12).GapY(6).Children(func() {
 					for _, p := range tp.points {
-						ui.Text(c, p.label).Bold()
+						if p.label == "" {
+							ui.Text(c, p.text).TextColor(t.TextMuted).ColumnSpan(-1)
+							continue
+						}
+						fg := t.Text
+						if p.on {
+							fg = t.Accent
+						}
+						ui.Text(c, p.label).Bold().TextColor(fg)
 						ui.Text(c, p.text).TextColor(t.TextMuted)
 					}
 				})
@@ -318,7 +364,7 @@ func (f form) info(c *ui.Context, tp *tip) {
 
 // The sliders' width, and how far the built-in slider keeps the middle of
 // its thumb, and its ticks, from its ends.
-const sliderWidth, sliderInset = 180, 10
+const sliderWidth, sliderInset = 160, 10
 
 // slider sets *v between lo and hi, in steps of step when it is not 0,
 // with the value beside it, where the eye already is, and a mark under
@@ -341,7 +387,7 @@ func (f form) slider(c *ui.Context, tr *i18n.Strings, v *float64, lo, hi, step, 
 		} else {
 			s = ui.Slider(c, v, lo, hi)
 		}
-		changed = s.Width(sliderWidth).Changed()
+		changed = s.Width(sliderWidth).Disabled(f.disabled).Changed()
 		ui.Box(c).Width(sliderWidth).Height(8).Children(func() {
 			x := sliderInset + float32((def-lo)/(hi-lo))*(sliderWidth-2*sliderInset)
 			mark := ui.Box(c).Absolute().Left(x-6).Top(0).Size(12, 8).Tooltip(fmt.Sprintf(tr.DefaultValue, label(def)))
@@ -357,17 +403,22 @@ func (f form) slider(c *ui.Context, tr *i18n.Strings, v *float64, lo, hi, step, 
 				cx := r.X + r.W/2
 				p.FillPath(new(ui.Path).MoveTo(cx, r.Y+1).LineTo(cx+4, r.Y+7).LineTo(cx-4, r.Y+7).Close(), fg)
 			})
-			if mark.Clicked() && !at {
+			if mark.Clicked() && !at && !f.disabled {
 				*v, changed = def, true
 			}
 		})
 	})
 	// Right-aligned, the value ends where the switches of other rows do.
-	ui.Text(c, label(*v)).FontSize(12).TextColor(t.TextMuted).Width(64).Shrink(0).SingleLine().TextAlign(ui.End)
+	ui.Text(c, label(*v)).FontSize(12).TextColor(t.TextMuted).Width(72).Shrink(0).SingleLine().TextAlign(ui.End)
 	return changed
 }
 
 func (sw *settingsWindow) view(c *ui.Context) {
+	// Smaller text and tighter controls than MyGo's defaults, as the
+	// window is a list of many rows to scan rather than a page to read.
+	th := *c.Theme()
+	th.FontSize, th.Spacing = 13, 3.5
+	c.SetTheme(&th)
 	t, tr := c.Theme(), sw.a.tr()
 	if sw.notice != "" {
 		c.Toast(sw.notice)
@@ -384,55 +435,85 @@ func (sw *settingsWindow) view(c *ui.Context) {
 		}
 	}
 
-	names := []string{tr.TabGeneral, tr.TabStrip, tr.TabStage, tr.TabCompanions, tr.TabAbout}
-	ui.Column(c).Fill().Children(func() {
-		ui.Column(c).Children(func() {
-			tabs := ui.TabsBase(c, &sw.tab, len(names))
-			tabs.List.Justify(ui.Center).Gap(2).Padding(10, 16, 8, 16).Children(func() {
-				for i, name := range names {
-					tab := tabs.Tab(i).Column().AlignItems(ui.Center).Gap(3).MinWidth(64).Padding(6, 10, 5, 10).Radius(6)
-					fg := t.TextMuted
-					switch {
-					case i == sw.tab:
-						tab.Background(t.Text.Alpha(0.07))
-						fg = t.Accent
-					case tab.Hovered():
-						tab.Background(t.Text.Alpha(0.04))
+	names := []string{tr.TabGeneral, tr.TabStrip, tr.TabStage, tr.TabOverview, tr.TabCompanions, tr.TabAbout}
+	w, _ := c.Size()
+	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+		sw.nav(c, t, names, w < compactBelow)
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Justify(ui.Start).Children(func() {
+			// The pane's name stays over it as it scrolls, which tells where
+			// one is, and names its first card.
+			ui.Column(c).WidthPercent(100).MaxWidth(paneMaxWidth).Margin(0, ui.Auto).Padding(14, 20, 0, 20).Children(func() {
+				ui.Text(c, names[sw.tab]).FontSize(18).Bold().SingleLine()
+			})
+			// Each pane keeps its own scroll position.
+			c.Key(sw.tab)
+			ui.Scroll(c).Grow(1).Children(func() {
+				ui.Column(c).WidthPercent(100).MaxWidth(paneMaxWidth).Margin(0, ui.Auto).Padding(0, 20, 20, 20).Gap(2).Children(func() {
+					switch sw.tab {
+					case 0:
+						sw.generalPane(c, f, tr)
+					case 1:
+						sw.stripPane(c, f, tr)
+					case 2:
+						sw.stagePane(c, f, tr)
+					case overviewTab:
+						sw.overviewPane(c, f, tr)
+					case 4:
+						sw.companionsPane(c, f, tr)
+					case aboutTab:
+						sw.aboutPane(c, f, tr)
 					}
-					tab.Children(func() {
-						ui.Box(c).Size(22, 22).Children(func() {
-							ui.Icon(c, settingsIcons[i]).FontSize(22).TextColor(fg)
-							// A newer release puts the tray icon's red dot
-							// on the about pane's icon too.
-							if _, ok := sw.a.newer(); ok && i == aboutTab {
-								ui.Box(c).Absolute().Top(-1).Right(-3).Size(8, 8).Radius(4).Background(uiDotColor)
-							}
-						})
-						ui.Text(c, name).FontSize(12).TextColor(fg).SingleLine()
-					})
-				}
-			})
-			ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
-		})
-		// Each pane keeps its own scroll position.
-		c.Key(sw.tab)
-		ui.Scroll(c).Grow(1).Children(func() {
-			// The pane is centered under the toolbar, which is.
-			ui.Column(c).WidthPercent(100).MaxWidth(760).Margin(0, ui.Auto).Padding(0, 30, 28, 30).Gap(4).Children(func() {
-				switch sw.tab {
-				case 0:
-					sw.generalPane(c, f, tr)
-				case 1:
-					sw.stripPane(c, f, tr)
-				case 2:
-					sw.stagePane(c, f, tr)
-				case 3:
-					sw.companionsPane(c, f, tr)
-				case aboutTab:
-					sw.aboutPane(c, f, tr)
-				}
+				})
 			})
 		})
+	})
+}
+
+// nav lists the panes down the window's left side, as Windows' Settings
+// does: an icon and a name each, the pane shown marked with the accent's
+// bar. Every pane is a click away and the list stays put, rather than a
+// toolbar that runs out of room; too narrow, it keeps the icons alone, with
+// their names as tooltips.
+func (sw *settingsWindow) nav(c *ui.Context, t *ui.Theme, names []string, compact bool) {
+	width := float32(navWidth)
+	if compact {
+		width = navCompact
+	}
+	_, dot := sw.a.newer()
+	tabs := ui.TabsBase(c, &sw.tab, len(names))
+	tabs.List.Column().Justify(ui.Start).AlignItems(ui.Stretch).Width(width).Shrink(0).Gap(1).Padding(10, 6).Children(func() {
+		for i, name := range names {
+			tab := tabs.Tab(i).Row().AlignItems(ui.Center).Gap(10).Height(32).Padding(0, 10).Radius(5)
+			if compact {
+				tab.Justify(ui.Center).Padding(0).Tooltip(name)
+			}
+			switch {
+			case i == sw.tab:
+				tab.Background(t.Text.Alpha(0.07))
+			case tab.Hovered():
+				tab.Background(t.Text.Alpha(0.04))
+			}
+			tab.Children(func() {
+				if i == sw.tab {
+					ui.Box(c).Absolute().Left(0).Top(9).Size(3, 14).Radius(1.5).Background(t.Accent)
+				}
+				ui.Box(c).Size(16, 16).Shrink(0).Children(func() {
+					ui.Icon(c, settingsIcons[i]).FontSize(16).TextColor(t.Text)
+					// A newer release puts the tray icon's red dot on the
+					// about pane too.
+					if dot && i == aboutTab && compact {
+						ui.Box(c).Absolute().Top(-2).Right(-3).Size(7, 7).Radius(3.5).Background(uiDotColor)
+					}
+				})
+				if compact {
+					return
+				}
+				ui.Text(c, name).SingleLine().Grow(1).Shrink(1)
+				if dot && i == aboutTab {
+					ui.Box(c).Size(8, 8).Shrink(0).Radius(4).Background(uiDotColor)
+				}
+			})
+		}
 	})
 }
 
@@ -476,7 +557,9 @@ func (sw *settingsWindow) generalPane(c *ui.Context, f form, tr *i18n.Strings) {
 			}
 			on := sw.s.DisplayEnabled(m.Device)
 			c.Key(m.Device)
-			f.row(c, fmt.Sprintf(tr.Display, i+1), desc, func() {
+			// Under its title, the display's size tells it from its
+			// neighbors without pointing at each.
+			f.rowAt(c, false, fmt.Sprintf(tr.Display, i+1), desc, nil, func() {
 				// Which edge the strip keeps to, beside whether there is
 				// one: a display whose neighbor is on its left may want it
 				// on the right, away from where the pointer crosses over.
@@ -547,6 +630,8 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 				sw.widthTimer = after(180*time.Millisecond, sw.apply)
 			}
 		})
+	})
+	f.section(c, tr.Cards, func() {
 		f.row(c, tr.Spacing, "", func() {
 			if f.slider(c, tr, &sw.spacing, 0, settings.MaxSpacing, 0, def.Spacing, px) {
 				sw.spacing = math.Round(sw.spacing)
@@ -555,20 +640,18 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 			}
 		})
 		pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
-		cardsAt := &tip{tr.CardsAtTip, []option{
-			{label: tr.CardsAtMid, text: tr.CardsAtMidDesc},
-			{label: tr.CardsAtDown, text: tr.CardsAtDownDesc},
-			{label: tr.CardsAtUp, text: tr.CardsAtUpDesc},
-			{label: tr.CardsAtList, text: tr.CardsAtListDesc},
-			{label: tr.CardsAtCrowd, text: tr.CardsAtCrowdDesc},
-		}}
-		f.rowTip(c, tr.CardsAt, cardsAt, func() {
+		f.row(c, tr.CardsAt, tr.CardsAtTip, func() {
 			if f.slider(c, tr, &sw.cardsAt, settings.MinCardsAt, settings.MaxCardsAt, 0, def.CardsAt, pct) {
 				sw.cardsAt = math.Round(sw.cardsAt*100) / 100
 				sw.s.CardsAt = sw.cardsAt
 				sw.apply()
 			}
-		})
+		},
+			option{label: tr.CardsAtMid, text: tr.CardsAtMidDesc},
+			option{label: tr.CardsAtDown, text: tr.CardsAtDownDesc},
+			option{label: tr.CardsAtUp, text: tr.CardsAtUpDesc},
+			option{label: tr.CardsAtList, text: tr.CardsAtListDesc},
+			option{label: tr.CardsAtCrowd, text: tr.CardsAtCrowdDesc})
 		f.row(c, tr.IconSize, "", func() {
 			if f.slider(c, tr, &sw.icon, settings.MinIconScale, settings.MaxIconScale, 0, def.IconScale, pct) {
 				sw.s.IconScale = sw.icon
@@ -608,8 +691,8 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 		})
 	})
 	// What the strip shows besides the cards: the windows on the stage,
-	// and which card is the stage last left.
-	f.section(c, "", func() {
+	// which card is the stage last left, and the stage's own.
+	f.section(c, tr.StripShows, func() {
 		f.row(c, tr.StageList, tr.StageListDesc, func() {
 			if ui.Switch(c, &sw.s.StageList).Changed() {
 				sw.apply()
@@ -627,14 +710,14 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 				sw.apply()
 			}
 		})
-		f.child(c, sw.s.AllStages, tr.Opacity, "", func() {
+		f.child(c, sw.s.AllStages, tr.Opacity, "", func(f form) {
 			if f.slider(c, tr, &sw.stagedOp, settings.MinStagedOpacity, settings.MaxStagedOpacity, 0, def.StagedOpacity, pct) {
 				sw.stagedOp = math.Round(sw.stagedOp*100) / 100
 				sw.s.StagedOpacity = sw.stagedOp
 				sw.apply()
 			}
 		})
-		f.child(c, sw.s.AllStages, tr.Grayscale, "", func() {
+		f.child(c, sw.s.AllStages, tr.Grayscale, "", func(f form) {
 			if f.slider(c, tr, &sw.stagedGray, 0, 1, 0, def.StagedGray, pct) {
 				sw.stagedGray = math.Round(sw.stagedGray*100) / 100
 				sw.s.StagedGray = sw.stagedGray
@@ -642,9 +725,13 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 			}
 		})
 	})
-	sw.panelSection(c, f, tr)
-	sw.cornerSection(c, f, tr)
-	// The third way into the overview, after the panel and the corner.
+}
+
+// overviewPane sets the three ways into the overview of every window: the
+// keys first, as they need no button to be found, then the panel at the
+// bottom of the strip and the button over the corner, and the color both
+// buttons light up in.
+func (sw *settingsWindow) overviewPane(c *ui.Context, f form, tr *i18n.Strings) {
 	f.section(c, "", func() {
 		f.row(c, tr.WinTab, tr.WinTabDesc, func() {
 			if ui.Switch(c, &sw.s.WinTab).Changed() {
@@ -652,6 +739,8 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 			}
 		})
 	})
+	sw.panelSection(c, f, tr)
+	sw.cornerSection(c, f, tr)
 	sw.highlightRow(c, f, tr)
 }
 
@@ -659,11 +748,7 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 // sized, as it is hidden till the pointer comes near.
 func (sw *settingsWindow) panelSection(c *ui.Context, f form, tr *i18n.Strings) {
 	def := settings.Default()
-	ui.Column(c).Gap(4).Margin(16, 0, 2, 2).Children(func() {
-		ui.Text(c, tr.OverviewPanel).FontSize(14).Bold()
-		ui.Text(c, tr.OverviewPanelDesc).FontSize(12).TextColor(f.t.TextMuted)
-	})
-	f.section(c, "", func() {
+	f.group(c, tr.OverviewPanel, &tip{lead: tr.OverviewPanelDesc}, func() {
 		pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
 		px := func(v float64) string { return fmt.Sprintf(tr.WidthValue, v) }
 		f.row(c, tr.Width, "", func() {
@@ -716,11 +801,7 @@ func (sw *settingsWindow) panelSection(c *ui.Context, f form, tr *i18n.Strings) 
 func (sw *settingsWindow) cornerSection(c *ui.Context, f form, tr *i18n.Strings) {
 	def := settings.Default()
 	px := func(v float64) string { return fmt.Sprintf(tr.WidthValue, v) }
-	ui.Column(c).Gap(4).Margin(16, 0, 2, 2).Children(func() {
-		ui.Text(c, tr.OverviewCorner).FontSize(14).Bold()
-		ui.Text(c, tr.OverviewCornerDesc).FontSize(12).TextColor(f.t.TextMuted)
-	})
-	f.section(c, "", func() {
+	f.group(c, tr.OverviewCorner, &tip{lead: tr.OverviewCornerDesc}, func() {
 		f.row(c, tr.Width, "", func() {
 			if f.slider(c, tr, &sw.cornerW, settings.MinCornerWidth, settings.MaxCornerWidth, 0, def.CornerWidth, px) {
 				sw.cornerW = math.Round(sw.cornerW)
@@ -803,8 +884,8 @@ func (sw *settingsWindow) stagePane(c *ui.Context, f form, tr *i18n.Strings) {
 		if !sw.s.HideInactive {
 			desc = tr.ClickDesktopNeedsHide
 		}
-		f.child(c, sw.s.HideInactive, tr.ClickDesktop, desc, func() {
-			if ui.Switch(c, &sw.s.ClickDesktopClears).Disabled(!sw.s.HideInactive).Changed() {
+		f.child(c, sw.s.HideInactive, tr.ClickDesktop, desc, func(f form) {
+			if ui.Switch(c, &sw.s.ClickDesktopClears).Disabled(f.disabled).Changed() {
 				sw.apply()
 			}
 		})
@@ -874,24 +955,36 @@ func (sw *settingsWindow) companions(tr *i18n.Strings) []companion {
 
 // companionsPane lists the companions to remove and adds them from the
 // apps at hand or from a file, rather than have their executables typed.
+// The button that adds one is at the head of the list, where the eye is
+// when the list is empty or long.
 func (sw *settingsWindow) companionsPane(c *ui.Context, f form, tr *i18n.Strings) {
 	t := f.t
-	ui.Column(c).Gap(4).Margin(16, 0, 2, 2).Children(func() {
-		ui.Text(c, tr.CompanionLabel).FontSize(14).Bold()
-		ui.Text(c, tr.CompanionTip).FontSize(12).TextColor(t.TextMuted)
-	})
-	f.section(c, "", func() {
+	add := func() {
+		ui.MenuButton(c, tr.AddCompanion, func(m *ui.Menu) {
+			for _, g := range sw.running() {
+				if exe := g.front().Exe; !sw.s.Companion(exe) && m.Item(g.name).Chosen() {
+					sw.s = sw.s.WithCompanion(exe, true)
+					sw.apply()
+				}
+			}
+			m.Separator()
+			if m.Item(tr.Browse).Chosen() {
+				sw.browseCompanion(tr)
+			}
+		})
+	}
+	f.group(c, tr.CompanionLabel, &tip{lead: tr.CompanionTip}, func() {
 		items := sw.companions(tr)
 		if len(items) == 0 {
-			ui.Text(c, tr.CompanionsEmpty).FontSize(12).TextColor(t.TextMuted).Padding(18, rowPadX)
+			ui.Text(c, tr.CompanionsEmpty).FontSize(12).TextColor(t.TextMuted).Padding(14, rowPadX)
 		}
 		for _, it := range items {
-			ui.Row(c).Key(it.entry).Padding(10, rowPadX).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Key(it.entry).Padding(7, rowPadX).Gap(10).AlignItems(ui.Center).Children(func() {
 				if it.icon != nil {
-					ui.Image(c, it.icon).Size(28, 28)
+					ui.Image(c, it.icon).Size(24, 24)
 				} else {
-					ui.Box(c).Size(28, 28).Center().Children(func() {
-						ui.Icon(c, appIcon).FontSize(22).TextColor(t.TextMuted)
+					ui.Box(c).Size(24, 24).Center().Children(func() {
+						ui.Icon(c, appIcon).FontSize(20).TextColor(t.TextMuted)
 					})
 				}
 				ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
@@ -905,22 +998,7 @@ func (sw *settingsWindow) companionsPane(c *ui.Context, f form, tr *i18n.Strings
 				}
 			})
 		}
-	})
-	ui.Row(c).Gap(14).AlignItems(ui.Center).Margin(10, 0, 0, 0).Children(func() {
-		ui.MenuButton(c, tr.AddCompanion, func(m *ui.Menu) {
-			for _, g := range sw.running() {
-				if exe := g.front().Exe; !sw.s.Companion(exe) && m.Item(g.name).Chosen() {
-					sw.s = sw.s.WithCompanion(exe, true)
-					sw.apply()
-				}
-			}
-			m.Separator()
-			if m.Item(tr.Browse).Chosen() {
-				sw.browseCompanion(tr)
-			}
-		})
-		ui.Text(c, tr.CompanionsHint).FontSize(12).TextColor(t.TextMuted).Shrink(1)
-	})
+	}, add)
 }
 
 // browseCompanion adds the program chosen in a file dialog, by its name,
@@ -943,11 +1021,11 @@ func (sw *settingsWindow) browseCompanion(tr *i18n.Strings) {
 // it is, which version, and where it lives.
 func (sw *settingsWindow) aboutPane(c *ui.Context, f form, tr *i18n.Strings) {
 	t := f.t
-	ui.Column(c).AlignItems(ui.Center).Gap(6).Margin(36, 0, 8, 0).Children(func() {
+	ui.Column(c).AlignItems(ui.Center).Gap(4).Margin(20, 0, 8, 0).Children(func() {
 		if sw.icon0 != nil {
-			ui.Image(c, sw.icon0).Size(88, 88).Margin(0, 0, 8, 0)
+			ui.Image(c, sw.icon0).Size(64, 64).Margin(0, 0, 6, 0)
 		}
-		ui.Text(c, tr.AppName).FontSize(24).Bold()
+		ui.Text(c, tr.AppName).FontSize(20).Bold()
 		ui.Text(c, tr.Tagline).TextColor(t.TextMuted).TextAlign(ui.Center)
 		ui.Text(c, fmt.Sprintf(tr.Version, mygo.App.Version())).FontSize(12).TextColor(t.TextMuted).Margin(6, 0, 0, 0)
 		// The version released last, as the last check found it: with a
@@ -975,11 +1053,11 @@ func (sw *settingsWindow) aboutPane(c *ui.Context, f form, tr *i18n.Strings) {
 				}
 			})
 		}
-		ui.Row(c).Gap(18).Margin(14, 0, 0, 0).Children(func() {
+		ui.Row(c).Gap(16).Margin(10, 0, 0, 0).Children(func() {
 			ui.Link(c, tr.Website, repo)
 			ui.Link(c, tr.Issues, repo+"/issues")
 		})
-		ui.Text(c, tr.Privacy).FontSize(12).TextColor(t.TextMuted).Margin(22, 0, 0, 0)
+		ui.Text(c, tr.Privacy).FontSize(12).TextColor(t.TextMuted).Margin(16, 0, 0, 0)
 		ui.Row(c).Gap(6).Children(func() {
 			ui.Text(c, "© 2026 Renkai ·").FontSize(12).TextColor(t.TextMuted)
 			ui.Link(c, tr.License, repo+"/blob/main/LICENSE").FontSize(12)

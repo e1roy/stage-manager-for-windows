@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"image"
 	"image/png"
-	"slices"
 	"sync"
 	"time"
 
@@ -147,18 +146,6 @@ type shot struct {
 // the stage; the others are a card's size, which a window flying out shrinks
 // into and a flight back in grows from.
 func (m *media) capture(hs []winapi.HWND, full bool, timeout time.Duration, done func()) {
-	// Explorer's windows are not asked to draw themselves: the process that
-	// also runs the taskbar and the Start menu, whose XAML has failed fast
-	// while the desktop stalled, and no capture is worth that risk. They show
-	// as a card with the app's icon, as a window that draws nothing does, and
-	// are marked tried so that the refresh does not ask again at once.
-	hs = slices.DeleteFunc(slices.Clone(hs), func(h winapi.HWND) bool {
-		if !winapi.InExplorer(h) {
-			return false
-		}
-		m.tried[h] = time.Now()
-		return true
-	})
 	if len(hs) == 0 {
 		if done != nil {
 			done()

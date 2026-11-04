@@ -69,7 +69,7 @@ stage_mgr_go/
       keyboard.go     Win+Tab 低级键盘钩子（独立线程，只 post 回主线程；回调会被自己注入的按键重入，状态只用原子变量、不加锁，有单测）
       capture.go      PrintWindow 静帧、`CaptureScreen`（读 DWM 合成后的屏幕，舞台窗口列表取色用）；thumbnail.go 是 DWM 缩略图（自绘阴影、peek）
       taskbar.go      任务栏按钮（peek 用）；taskbarcorner.go 是 WindowsBuild / TaskbarCornerFree / IsTaskbar
-      process.go（含 `InExplorer`）/ version.go / locale.go；proxy.go 读注册表里的系统代理（SystemProxy）
+      process.go / version.go / locale.go；proxy.go 读注册表里的系统代理（SystemProxy）
     catalog/   枚举/过滤应用窗口，识别所属应用（含 UWP 宿主），应用显示名；STAGEMANAGER_APP_FILTER 在这里生效
     parking/   停放/放回窗口 + 崩溃恢复日志（Park/Unpark/Rehome/Lift/Recover/CollectEscaped）
     stage/     纯逻辑：每台显示器的舞台、侧边栏分组与顺序（不认识窗口，有单测）；`Keep` 打开后侧边栏把舞台上的应用也列成一组，切换时没有卡片换位置（`AllStages`）
@@ -95,9 +95,9 @@ stage_mgr_go/
       overview.go     “所有窗口”概览（类 Mission Control）：侧边栏底部按钮打开，铺开本显示器所有窗口，点选切换舞台；Win+Tab 时每个显示器各开一个（与 Windows 任务视图一致），任意一个收起时全部收起
       corner.go       左下角触发角：Win11 任务栏居中且关闭小组件时，在显示器左下角盖一个不抢焦点的小窗口，靠近时显示标记，点击打开概览；侧边栏在左侧时它与侧边栏底部的概览面板“合体”（`joined`）：面板贴到左边和任务栏顶，触发角与面板同宽，两个窗口一起显示、一起亮、一起按下，画成一个四角圆角的按钮
       glass.go        概览面板（及合体的触发角）的毛玻璃：面板从看不见到出现的那一刻，在 goroutine 里 `CaptureScreen` 截下按钮后面的屏幕，缩小后做三次盒式模糊（近似高斯，耗时与半径无关），面板和触发角各画它的一段；不透明度与模糊半径是设置项 `PanelOpacity` / `PanelBlur`（纯算法有单测）
-      settingsview.go 设置窗口（通用/侧边栏/舞台/例外/关于 五个标签页）
+      settingsview.go 设置窗口：左侧导航（`nav`，窗口窄于 `compactBelow` 时只留图标）列出通用/侧边栏/舞台/所有窗口/例外/关于 六页，页名固定在内容上方；每行只有标题和控件，说明文字和各选项的解释放进标题后 ⓘ 的悬停提示（`form.title`），分组的说明同样（`form.group`）
       tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
-      update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `.version`，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口“关于”标签和页面按 `a.newer()` 画红点，页面同时显示本地版本和最新版本（`a.published`），旁边有立即再查一次的按钮（检查中置灰）
+      update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `.version`，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口左侧导航的“关于”和页面按 `a.newer()` 画红点，页面同时显示本地版本和最新版本（`a.published`），旁边有立即再查一次的按钮（检查中置灰）
       *_test.go       无头测试：layout、lineup、stripview、staged、set、corner、flights、iconfit、peek、update、snapshot
 ```
 
@@ -130,7 +130,7 @@ stage_mgr_go/
 
 ## 测试
 
-- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`lineup`、`tint`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`staged`（台前卡片、滚动到离场卡片、`arrange` 的分组）、`set`、`corner`、`flights`、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
+- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`lineup`、`tint`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`staged`（台前卡片、滚动到离场卡片、`arrange` 的分组、拆开台前的组）、`set`、`corner`、`flights`、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
 - `catalog`、`parking`、飞行动画、窗口交接**没有自动化测试**，改动后需要手动验证：
   - 固定模式和浮动模式各切换几次，包括快速连点打断正在进行的切换；
   - 多显示器（不同 DPI）下切换、把窗口拖到另一台显示器、把窗口拖进侧边栏；
@@ -142,7 +142,7 @@ stage_mgr_go/
 
 - 飞行起飞与落地时窗口阴影“嘭”一下跳变：飞行代理的假阴影与真实 DWM 阴影在交接帧叠加。相关代码在 `flights.go`（`takeOffDelay`、`landingDelay`、`ownShadow`、`shade`）和 `switch.go` 的 `handover`；改这里的时序要录屏逐帧确认。
 - 侧边栏显示的是离场时的静帧（Windows 不绘制桌面外的窗口）；`PrintWindow` 拍不到内容的窗口显示为带图标的磨砂卡片。
-- explorer.exe 进程的窗口（文件资源管理器）从不拍静帧，一律是图标卡片，也没有飞行动画（`media.capture` 里用 `winapi.InExplorer` 跳过）：该进程同时跑任务栏和开始菜单的 XAML。2026-11-03 23:46 桌面停了约 66 秒，Explorer 因 `Windows.UI.Xaml.dll` 崩溃（0xc000027b）；日志里没有拍过外壳窗口，也没有证据表明是我们引起的，但拍它是我们对 Explorer 干扰最大的一条路径，所以宁可不拍。排查同类问题时注意：除了下面 Win+Tab 钩子锁死的那次，`hang-*.log` 里主线程都停在 `GetMessageW`（空闲，不是被我们的代码占住），看门狗报的“卡死”多半是桌面级的消息停滞，不是 Stage Manager 自己卡。
+- 2026-11-03 23:46 桌面停了约 66 秒，Explorer 因 `Windows.UI.Xaml.dll` 崩溃（0xc000027b）；日志里没有拍过外壳窗口，也没有证据表明是我们引起的。曾试过不给 explorer.exe 的窗口（文件资源管理器）拍静帧，但那样它们没有缩小/放大的飞行动画，得不偿失，已撤回。排查同类问题时注意：除了下面 Win+Tab 钩子锁死的那次，`hang-*.log` 里主线程都停在 `GetMessageW`（空闲，不是被我们的代码占住），看门狗报的“卡死”多半是桌面级的消息停滞，不是 Stage Manager 自己卡。
 - Win+Tab 钩子：回调里发 `SendInput` 时，Windows 会在同一线程上重入回调（用户很快松开 Tab 就会赶上）。以前持锁发送，重入时自己等自己，钩子线程和关闭流程都永久卡死。现在状态全用原子变量，`held` 在发送前置位，自己发的键用 `dwExtraInfo`（`maskTag`）标记并直接放行。别在钩子回调里加锁、等待或做任何会阻塞的事。
 - 以管理员权限运行的窗口，非管理员的 Stage Manager for Windows 可能无法移动或激活。
 - 拖动窗口时，飞行层不能压到被拖窗口下面：那样系统很少把飞行层的画面送上屏幕，约 700ms 只有 30–40 帧。现在飞行层留在最上层，每帧避开被拖窗口所在的区域（`flights.go` 的 `hole`），看起来像从它下面飞过。`STAGEMANAGER_DEBUG` 下每次飞行结束记一行 `flights: ...: N frames in ..., longest gap ...`，排查卡顿先看这一行。
@@ -153,7 +153,7 @@ stage_mgr_go/
   - 拖卡片时别让其他卡片响应悬停（会按原尺寸截图）；侧边栏内排序时卡片留在侧边栏窗口里画，只有拖出去（加入舞台、去另一台显示器）才交给飞行层。
   - 高分屏上原尺寸截图很大，设置里的“高分屏上减轻动画负担”（`LightFlights`，默认开）按 100% 缩放的清晰度截飞行用的图。
 - 拍静帧（`PrintWindow` + `PW_RENDERFULLCONTENT`）会让部分应用闪一下，已确认的有 JetBrains IDE。IDEA 打开“查找引用”等弹窗时，前台会先切到弹窗（`SunAwtWindow`），约 10ms 后又切回主窗口（`SunAwtFrame`）。`events.go: onForeground` 原来会把主窗口当成“刚离开的窗口”去拍静帧，导致每次打开弹窗都闪。现在焦点只在同一进程内移动时不拍（`sameProcess`）。以后新增拍照时机时，不要在用户正在用的、舞台上的窗口上随便拍；`STAGEMANAGER_DEBUG` 下每次拍照都会记一行 `capture [...]`，可以用来排查。
-- “侧边栏显示所有舞台”（`settings.AllStages`，默认关）：`stage.Display.Keep` 打开后，台前的应用也是侧边栏里的一张卡片（`set.staged`），切换时离场的应用回自己的槽位、不再占被点卡片的槽位，新应用追加在最下面；台前那张卡片画成“幽灵”（`StagedOpacity` 不透明度、`StagedGray` 灰度，由 `stripview.go` 的 `card` 画）。注意：①`d.sets` 此时包含台前的卡片，凡是“侧边栏里等待的卡片”的逻辑要用 `d.waiting()` 或跳过 `staged`（概览、浮动模式显示条件、周期性刷新静帧都已处理）；②台前窗口的静帧不能周期性重拍（会让 JetBrains 之类的应用闪），只靠离场时拍的那张和指针靠近侧边栏时的 `freshenStage`；③离场卡片的槽位可能在可视区外，`reveal` 在飞行前滚到它（`layout.go: scrollTo`）；④（徽章）MyGo 在倾斜的父层里再反向旋转不会抵消，所以对钩徽章不放进窗口层，而是自己算位置（`turnedPoint`）、自己转半个角；⑤MyGo 的 `Opacity` 是逐图形相乘，叠放的窗口会互相透出来，所以“幽灵”的窗口层用 `Cache()` 当成一张图再整体淡出；`Grayscale()` 只有开关，没有程度，所以灰度是在原图上叠一张灰度副本、按 `StagedGray` 设不透明度。飞行动画与窗口交接没有自动化测试，改这里要手动验证（见“测试”）。
+- “侧边栏显示所有舞台”（`settings.AllStages`，默认关）：`stage.Display.Keep` 打开后，台前的应用也是侧边栏里的一张卡片（`set.staged`），切换时离场的应用回自己的槽位、不再占被点卡片的槽位，新应用追加在最下面；台前那张卡片画成“幽灵”（`StagedOpacity` 不透明度、`StagedGray` 灰度，由 `stripview.go` 的 `card` 画）。注意：①`d.sets` 此时包含台前的卡片，凡是“侧边栏里等待的卡片”的逻辑要用 `d.waiting()` 或跳过 `staged`（概览、浮动模式显示条件、周期性刷新静帧都已处理）；②台前窗口的静帧不能周期性重拍（会让 JetBrains 之类的应用闪），只靠离场时拍的那张和指针靠近侧边栏时的 `freshenStage`；③离场卡片的槽位可能在可视区外，`reveal` 在飞行前滚到它（`layout.go: scrollTo`）；④（徽章）MyGo 在倾斜的父层里再反向旋转不会抵消，所以对钩徽章不放进窗口层，而是自己算位置（`turnedPoint`）、自己转半个角；⑤MyGo 的 `Opacity` 是逐图形相乘，叠放的窗口会互相透出来，所以“幽灵”的窗口层用 `Cache()` 当成一张图再整体淡出；`Grayscale()` 只有开关，没有程度，所以灰度是在原图上叠一张灰度副本、按 `StagedGray` 设不透明度；⑥拆开台前的组（`App.split`）不能先改模型再切换：切换可能被丢弃（显示器不归我们管）或被后来的请求接管，模型里舞台就碎成几张“幽灵”卡片。所以 `Split` 跟着请求走（`switchRequest.split`），在 `commit` 里和 `Switch` 同一刻生效；离场的应用从 `heading(d)` 里去掉，正在加入舞台的应用照样加入。飞行动画与窗口交接没有自动化测试，改这里要手动验证（见“测试”）。
 - 舞台窗口列表（`lineup.go`）的缩略图是 DWM 画在侧边栏窗口之上的：MyGo 画的 tooltip 和遮罩都盖不住它，位置只能每帧用 `placeThumbs` 同步，隐藏时 `dropThumbs`。小框的底色靠 `winapi.CaptureScreen` 读 DWM 合成后的屏幕（不要用 `PrintWindow`，那会让应用重画、闪）；侧边栏不在屏幕上、飞行中、概览中不取色，锁屏时读到纯色就保留旧色。
 - 概览面板的毛玻璃（`glass.go`）是面板出现那一刻截的静态画面：面板显示期间后面的内容变了不会跟着变；纯色背景（`blank`）不截。DWM 只能模糊整个窗口，面板只是侧边栏窗口的一部分，所以自己截屏模糊；截屏时机必须在面板还没画出来时（`strip.frosted`），否则会把面板自己截进去。
 - 检查更新是唯一的联网行为：只在 `app/update.go` 的 goroutine 里发请求（15s 超时），`go run` 没有版本号或关掉 `CheckUpdates` 时不联网；代理要自己读 `winapi.SystemProxy()`，Go 默认只认环境变量代理。新增联网功能先想想是否真的必要。

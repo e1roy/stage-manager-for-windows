@@ -317,11 +317,13 @@ func (d *Display) Previous() []string {
 }
 
 // Split breaks the set of app in the strip into sets of one app each, in
-// its place.
+// its place. A kept strip (Keep) can break the stage's set too: the apps
+// stay on the stage until the next switch, which leaves each in a slot of
+// its own rather than together.
 func (d *Display) Split(app string) {
 	i := d.setIndex(app)
-	// The apps on the stage are one set while they are there.
-	if i < 0 || len(d.sets[i]) < 2 || d.OnStage(app) {
+	// Elsewhere the apps on the stage are one set while they are there.
+	if i < 0 || len(d.sets[i]) < 2 || d.OnStage(app) && !d.keep {
 		return
 	}
 	apart := make([][]string, len(d.sets[i]))

@@ -585,27 +585,13 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 			if !d.model.Empty() && m.Item(tr.JoinStage).Chosen() {
 				a.request(actJoin, d, g)
 			}
-			if len(g.apps) > 1 && m.Item(tr.SplitSet).Chosen() {
-				a.request(actSplit, d, g)
-			}
 		}
-		// Companions are picked here, from the apps at hand, rather than
-		// typed into the settings by the name of their executable.
-		companion := func(m *ui.Menu, label string, app *group) {
-			if exe := app.front().Exe; exe != "" && m.Item(label).Checked(a.settings.Companion(exe)).Chosen() {
-				a.request(actCompanion, d, newSet([]*group{app}))
-			}
+		if len(g.apps) > 1 && m.Item(tr.SplitSet).Chosen() {
+			a.request(actSplit, d, g)
 		}
-		if len(g.apps) == 1 {
-			companion(m, tr.CompanionLabel, g.apps[0])
-		} else {
-			m.Submenu(tr.CompanionLabel, func(m *ui.Menu) {
-				for _, app := range g.apps {
-					companion(m, app.name, app)
-				}
-			})
+		if !g.staged || len(g.apps) > 1 {
+			m.Separator()
 		}
-		m.Separator()
 		label := tr.CloseWindow
 		if len(g.windows) > 1 {
 			label = tr.CloseWindows

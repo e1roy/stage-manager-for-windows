@@ -432,12 +432,32 @@ func TestKeptSetsStayTogetherInTheirSlots(t *testing.T) {
 	if got, want := d.Strip(apps), [][]string{{"1"}, {"3"}, {"4"}, {"2"}, {"5"}}; !equalSets(got, want) {
 		t.Fatalf("strip %v, want %v", got, want)
 	}
-	// The stage's set cannot be split; the others can.
+	// The stage's set splits in its slot; its apps stay on the stage until
+	// the next switch, which leaves each where it is.
 	d.Switch(d.SetOf("5"), t0)
-	d.Switch(append(d.Stage(), "1"), t0)
-	d.Split("5")
-	if got := d.SetOf("5"); !slices.Equal(got, []string{"5", "1"}) {
-		t.Fatalf("set of 5 %v after splitting the stage", got)
+	d.Switch(append(d.Stage(), "1", "3"), t0)
+	if got, want := d.Strip(apps), [][]string{{"4"}, {"2"}, {"5", "1", "3"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	d.Split("1")
+	if got, want := d.Stage(), []string{"5", "1", "3"}; !slices.Equal(got, want) {
+		t.Fatalf("stage %v, want %v", got, want)
+	}
+	d.Switch([]string{"1"}, t0)
+	if got, want := d.Strip(apps), [][]string{{"4"}, {"2"}, {"5"}, {"1"}, {"3"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+}
+
+// Elsewhere the stage's set cannot be split: it is not in the strip.
+func TestStageSetDoesNotSplit(t *testing.T) {
+	var d Display
+	d.Init("code", t0)
+	d.Strip([]string{"code", "chrome", "mail"})
+	d.Switch(append(d.Stage(), "chrome"), t0)
+	d.Split("code")
+	if got := d.SetOf("code"); !slices.Equal(got, []string{"code", "chrome"}) {
+		t.Fatalf("set of code %v after splitting the stage", got)
 	}
 }
 

@@ -7,6 +7,7 @@ var ja = Strings{
 	TabGeneral:    "一般",
 	TabStrip:      "サイドバー",
 	TabStage:      "ステージ",
+	TabOverview:   "すべてのウインドウ",
 	TabCompanions: "例外",
 	TabAbout:      "情報",
 
@@ -26,6 +27,9 @@ var ja = Strings{
 	DisplayPrimary:     " · メインディスプレイ",
 	SideLeft:           "左側",
 	SideRight:          "右側",
+
+	Cards:      "カード",
+	StripShows: "表示内容",
 
 	Mode:         "表示方法",
 	ModeDesc:     "サイドバーとウインドウで画面をどう分け合うか。",
@@ -97,7 +101,7 @@ var ja = Strings{
 	FlightSpeedDesc:  "ウインドウがサイドバーからステージへ、ステージからサイドバーへ飛ぶ速さです。",
 
 	CompanionLabel: "開いても現在のアプリをしまわない",
-	CompanionTip:   "チェックしたアプリがウインドウを開くと、使用中のアプリと一緒にデスクトップに残り、使用中のアプリをサイドバーにしまいません。閉じるとデスクトップは元に戻ります。TortoiseSVN のコミット画面のように、少しだけ使うツールに向いています。",
+	CompanionTip:   "この一覧のアプリがウインドウを開くと、使用中のアプリと一緒にデスクトップに残り、使用中のアプリをサイドバーにしまいません。閉じるとデスクトップは元に戻ります。TortoiseSVN のコミット画面のように、少しだけ使うツールに向いています。",
 	Programs:       "プログラム",
 
 	AppName:       "ステージマネージャ",
@@ -141,7 +145,6 @@ var ja = Strings{
 	Identify:              "識別",
 	ClickDesktopNeedsHide: "先に「ステージ外のウインドウを隠す」をオンにしてください。",
 	CompanionsEmpty:       "例外のアプリはまだありません。",
-	CompanionsHint:        "サイドバーのカードを右クリックして追加することもできます。",
 	AddCompanion:          "アプリを追加",
 	Browse:                "参照…",
 	CompanionByName:       "%s.exe · 同じ名前のすべてのプログラム",
