@@ -85,13 +85,14 @@ stage_mgr_go/
 
 - `App`（`app.go`）：`settings` / `store`、`cat`（窗口目录）、`park`（停放）、`media`（静帧与图标）、`displays`、`windows`（最近一次列出的窗口）、`busy` + `running` + `queued`（切换状态）、`drag` / `cardDrag`、`flights`、`tray`、`settingsUI`、`latest` + `checking` + `checkFailed` + `dotted`（更新检查，`update.go`）。
 - `display`（`app.go`）：一台显示器的 `mon`、纯逻辑模型 `model stage.Display`、`strip` 窗口、`sets`（卡片，顶在前）、`onStage`、`cards`（每张卡片的帧间状态）、`scroll`、`layout`、`landing`、`dropPoses`、以 `ov` 表示的概览。
-- `group`：一个应用在这台显示器上的窗口，按 z 序，`z` 是它最前面那扇窗口在应用之间的位置。`set`：一张卡片，可能包含多个一起上/下舞台的应用；`windows` 前面是每个应用的窗口，后面是其余窗口。
+- `group`：一个应用在这台显示器上的窗口，按 z 序，`z` 是它最前面那扇窗口在应用之间的位置。开了 `SplitWindows` 时一个 `group` 只有一扇窗口，`label()` 用窗口标题当卡片名。`set`：一张卡片，可能包含多个一起上/下舞台的应用；`windows` 前面是每个应用的窗口，后面是其余窗口。
 - `cardState`（`stripview.go`）：卡片在帧间要记住的拖动偏移、松手去向、飞行起点（`poses`）、`tilt`/`lift`。
 - `strip`（`strip.go`）：窗口与其物理矩形、缩放、`shown`/`away`、`clickThrough`、命中的卡片矩形（DIP）、浮动模式的边缘计时。
 - `flights` / `layer` / `flight`（`flights.go`）：每台显示器一层或两层（`under` 放应用自绘阴影），`flight` 是从 `from` 到 `to` 的一扇窗口；`trip` 是一次飞行的一组。
 - `lineup`（`lineup.go`）：舞台窗口列表跨帧记住的顺序 `order`、每扇窗口的 DWM 缩略图 `lineThumb`、取色结果的 `lineTint`，以及 `sampling`/`wake`（取色进行中与何时重新取）。`strip.line` 是每台显示器的一份。
 - `parking.Service`：`Park` / `Unpark` / `UnparkUnder` / `Rehome` / `Lift` / `Lower` / `RestoreAll` / `CollectEscaped` / `Recover` / `Chase` / `Settle`，每次变动写 `parked-windows.json`。
-- `stage.Display`：舞台上应用的有序列表、侧边栏的卡片分组、`above`（从哪张卡片上来的）、`recent`（回退用）、`changedAt`（`Settling` 靠它）、`keep`（`Keep(true)` 后侧边栏把台前的应用也列成一组，在 `sets` 里占一个槽位，`Switch` 不挪任何卡片：离场的应用留在自己的槽位，台前的新组取被点卡片的槽位，加入舞台的取舞台自己的槽位；新应用追加在最下面；`Leave` 原地不动；`Split` 也能拆台前的组：应用先都留在台上，下一次 `Switch` 时各回各的槽位；不 `Keep` 时台前的组不在侧边栏里，拆不了）。
+- `stage.Display`：舞台上应用的有序列表、侧边栏的卡片分组、`above`（从哪张卡片上来的）、`recent`（回退用）、`changedAt`（`Settling` 靠它）、`Rekey`（窗口拆开或合回时给舞台和侧边栏里的应用改名，位置不变）、`keep`（`Keep(true)` 后侧边栏把台前的应用也列成一组，在 `sets` 里占一个槽位，`Switch` 不挪任何卡片：离场的应用留在自己的槽位，台前的新组取被点卡片的槽位，加入舞台的取舞台自己的槽位；新应用追加在最下面；`Leave` 原地不动；`Split` 也能拆台前的组：应用先都留在台上，下一次 `Switch` 时各回各的槽位；不 `Keep` 时台前的组不在侧边栏里，拆不了）。
+- `catalog.Window`：`App` 是一起上下舞台的单元——应用本身，或开了 `SplitWindows` 时的单扇窗口（`catalog.Unit` = `程序key#HWND`）；`Program` 始终是应用本身，图标缓存（`media.cachedIcon`）和应用名按它。`Catalog.Splits` 由 app 注入，读的是 `App.grouping`。
 - `catalog.Catalog`：`Windows()`（可见的应用窗口，z 序）、`Movable()`（所有可能被移走的窗口）、`Name()`；`catalog.ShadowWindow` 找应用自绘的阴影窗口。
 
 ## 关键流程
@@ -102,7 +103,7 @@ stage_mgr_go/
 
 ### 一次刷新
 
-`refresh`（事件驱动经 `refreshSoon` 提前）重新列窗口 → 每个显示器 `groupsOf` → `parkStrays`（`HideInactive` 时把不在舞台的窗口停放）→ `reparkEscaped` → 重建 `sets`/`onStage` → 重绘侧边栏。`refill` 处理“舞台的应用全关掉了”，按 `recent` 让上一个应用回来。
+`refresh`（事件驱动经 `refreshSoon` 提前）重新列窗口 → 每个显示器 `groupsOf` → `parkStrays`（`HideInactive` 时把不在舞台的窗口停放）→ `reparkEscaped` → 重建 `sets`/`onStage` → 重绘侧边栏。设置里的窗口分组（`SplitWindows`/`KeepTogether`）变了时，`refresh` 在没有排队切换时先 `regroup`：`App.grouping` 跟上设置、各显示器 `model.Rekey`，再由 `restageNext` 逐台切换，让拆出去的窗口立刻飞进侧边栏、合回来的窗口回到舞台。`refill` 处理“舞台的应用全关掉了”，按 `recent` 让上一个应用回来。
 
 ### 一次切换
 

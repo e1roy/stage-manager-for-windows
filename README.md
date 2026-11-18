@@ -42,6 +42,7 @@ Only the app you're using stays on the desktop. Everything else shrinks into car
 - Drag a card up or down to reorder the strip, or into another monitor's strip to move the app there without opening it.
 - Fixed or floating strip, per monitor, with adjustable width, icons, spacing, card position and tilt; the cards can sit lower than the middle, nearer to hand.
 - Right-click a card to switch to it, join the stage, split a group (the stage's own card too), or close its windows.
+- Separate windows of the same app (Settings → Stage, off by default): every window gets a card and a stage of its own, so one click brings back just that window. Apps you list there, File Explorer by default, keep their windows on one card; a card's right-click menu adds or removes its app.
 - Companions: tools you open beside an app (say, a commit dialog) join the stage instead of taking it. Pick them in Settings.
 - Nothing gets lost: quitting, crashing or signing out puts every window back, and a taskbar thumbnail peek brings one home for a moment.
 - Interface in Simplified Chinese, Traditional Chinese, English and Japanese.
