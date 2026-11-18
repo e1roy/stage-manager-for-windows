@@ -374,3 +374,87 @@ func (d *Display) Init(app string, now time.Time) {
 	}
 	d.changedAt = now
 }
+
+// Rekey renames the apps as windows come to be told apart otherwise, as
+// when each window of an app gets a card of its own or they go back to
+// sharing one. units gives what an app is now, front first: one name, or
+// several when its windows part, and the same name for apps that merge.
+// The first of an app that parts stays where the app was, on the stage or
+// in its set; the others of an app that had a card of its own get one
+// each, right below. Those of the stage get one each as if they had just
+// left it; a kept strip (Keep) has the stage's set part in its slot as any
+// other. An app that merges with one already seen is already there.
+func (d *Display) Rekey(units func(app string) []string, now time.Time) {
+	seen := map[string]bool{}
+	take := func(app string) []string {
+		var out []string
+		for _, u := range units(app) {
+			if !seen[u] {
+				seen[u] = true
+				out = append(out, u)
+			}
+		}
+		return out
+	}
+	var stage, spilled []string
+	for _, a := range d.stage {
+		us := units(a)
+		if !d.keep {
+			// The strip holds no app of the stage: those that part from it
+			// are placed below, once the strip is renamed.
+			us = take(a)
+		} else {
+			us = slices.DeleteFunc(slices.Clone(us), func(u string) bool { return slices.Contains(stage, u) })
+		}
+		if len(us) > 0 {
+			stage = append(stage, us[0])
+			spilled = append(spilled, us[1:]...)
+		}
+	}
+	var sets [][]string
+	for _, s := range d.sets {
+		if len(s) == 1 {
+			for _, u := range take(s[0]) {
+				sets = append(sets, []string{u})
+			}
+			continue
+		}
+		var set []string
+		for _, a := range s {
+			set = append(set, take(a)...)
+		}
+		if len(set) > 0 {
+			sets = append(sets, set)
+		}
+	}
+	// The stage came from below the set that is now last of those the app
+	// above it parted into.
+	above := ""
+	if d.above != "" {
+		was := units(d.above)
+		for _, s := range sets {
+			if slices.ContainsFunc(s, func(a string) bool { return slices.Contains(was, a) }) {
+				above = s[0]
+			}
+		}
+	}
+	var recent []string
+	for _, a := range d.recent {
+		for _, u := range units(a) {
+			if !slices.Contains(recent, u) {
+				recent = append(recent, u)
+			}
+		}
+	}
+	d.stage, d.sets, d.above, d.recent = stage, sets, above, recent
+	if len(spilled) > 0 {
+		if !d.keep {
+			at := d.cameFrom()
+			for i, a := range spilled {
+				d.sets = slices.Insert(d.sets, at+i, []string{a})
+			}
+		}
+		d.recent = slices.Insert(slices.DeleteFunc(d.recent, func(a string) bool { return slices.Contains(spilled, a) }), 0, spilled...)
+	}
+	d.changedAt = now
+}

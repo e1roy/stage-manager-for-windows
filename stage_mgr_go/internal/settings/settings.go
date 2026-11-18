@@ -163,6 +163,13 @@ type Settings struct {
 	// from. An entry is an executable's name without ".exe", for every
 	// copy of it, or its full path, for that one.
 	Companions []string `json:"companions"`
+	// SplitWindows gives every window a card and a stage of its own, rather
+	// than every app: one click on a card brings back that window alone.
+	SplitWindows bool `json:"splitWindows"`
+	// KeepTogether lists the apps whose windows stay one card even with
+	// SplitWindows on, as the file manager's do for most people. Its
+	// entries are as the companions'.
+	KeepTogether []string `json:"keepTogether"`
 	// Displays turns the strip off on some displays, by device name
 	// (\\.\DISPLAY2). Displays not listed have one.
 	Displays map[string]bool `json:"displays,omitempty"`
@@ -246,6 +253,9 @@ func Default() Settings {
 		StagedGray:         0.6,
 		// TortoiseSVN's and TortoiseGit's dialogs all come from these.
 		Companions: []string{"tortoiseproc", "tortoisegitproc"},
+		// File Explorer windows are most often used side by side, as
+		// folders to copy between.
+		KeepTogether: []string{"explorer"},
 	}
 }
 
@@ -329,13 +339,8 @@ func (s Settings) Normalize() Settings {
 	if s.Quality != Low && s.Quality != Medium && s.Quality != High {
 		s.Quality = Low
 	}
-	var companions []string
-	for _, c := range s.Companions {
-		if c = companion(c); c != "" && !slices.Contains(companions, c) {
-			companions = append(companions, c)
-		}
-	}
-	s.Companions = companions
+	s.Companions = normalizeApps(s.Companions)
+	s.KeepTogether = normalizeApps(s.KeepTogether)
 	// Only the right is kept, as the left is where an unlisted display's
 	// strip is anyway: a strip moved there and back is as it was.
 	var sides map[string]Side
@@ -351,37 +356,72 @@ func (s Settings) Normalize() Settings {
 	return s
 }
 
-// Companion reports whether the app of an executable, by its path, is a
-// companion: listed by its name or by that path.
-func (s Settings) Companion(exe string) bool {
-	if exe == "" {
-		return false
+// normalizeApps keeps a list of apps, as the companions are, in the form
+// entry gives, without blanks or repeats.
+func normalizeApps(list []string) []string {
+	var out []string
+	for _, e := range list {
+		if e = entry(e); e != "" && !slices.Contains(out, e) {
+			out = append(out, e)
+		}
 	}
-	return slices.ContainsFunc(s.Companions, func(c string) bool { return CompanionMatches(c, exe) })
+	return out
 }
 
-// CompanionMatches reports whether an entry of the companions, as Normalize
+// listed reports whether a list of apps, as Normalize keeps it, has the
+// app of an executable, by its path: by its name or by that path.
+func listed(list []string, exe string) bool {
+	return exe != "" && slices.ContainsFunc(list, func(e string) bool { return CompanionMatches(e, exe) })
+}
+
+// withApp adds the app of an executable to a list of apps, by its name, or
+// takes it out, however it was listed.
+func withApp(list []string, exe string, on bool) []string {
+	path, name := entry(exe), exeName(exe)
+	list = slices.DeleteFunc(slices.Clone(list), func(e string) bool { return e == path || e == name })
+	if on && name != "" {
+		list = append(list, name)
+	}
+	return normalizeApps(list)
+}
+
+// Companion reports whether the app of an executable, by its path, is a
+// companion: listed by its name or by that path.
+func (s Settings) Companion(exe string) bool { return listed(s.Companions, exe) }
+
+// CompanionMatches reports whether an entry of a list of apps, as Normalize
 // keeps it, stands for the app of an executable, by its path.
-func CompanionMatches(entry, exe string) bool {
-	return exe != "" && (entry == companion(exe) || entry == exeName(exe))
+func CompanionMatches(e, exe string) bool {
+	return exe != "" && (e == entry(exe) || e == exeName(exe))
 }
 
 // WithCompanion makes the app of an executable a companion, by its name,
 // or no longer one, however it was listed.
 func (s Settings) WithCompanion(exe string, on bool) Settings {
-	path, name := companion(exe), exeName(exe)
-	s.Companions = slices.DeleteFunc(slices.Clone(s.Companions), func(c string) bool { return c == path || c == name })
-	if on && name != "" {
-		s.Companions = append(s.Companions, name)
-	}
+	s.Companions = withApp(s.Companions, exe, on)
 	return s.Normalize()
 }
 
-// companion returns an entry of the companions as it is kept: a path, told
-// by its folder, in lower case with backslashes; else a name, as exeName
+// KeptTogether reports whether the windows of the app of an executable stay
+// one card with SplitWindows on.
+func (s Settings) KeptTogether(exe string) bool { return listed(s.KeepTogether, exe) }
+
+// WithKeepTogether keeps the windows of the app of an executable together,
+// by its name, or no longer, however it was listed.
+func (s Settings) WithKeepTogether(exe string, on bool) Settings {
+	s.KeepTogether = withApp(s.KeepTogether, exe, on)
+	return s.Normalize()
+}
+
+// Splits reports whether each window of the app of an executable is a card
+// of its own. Windows whose executable is unknown are.
+func (s Settings) Splits(exe string) bool { return s.SplitWindows && !s.KeptTogether(exe) }
+
+// entry returns an entry of a list of apps as it is kept: a path, told by
+// its folder, in lower case with backslashes; else a name, as exeName
 // returns it.
-func companion(entry string) string {
-	n := strings.ToLower(strings.Trim(strings.TrimSpace(entry), `"`))
+func entry(e string) string {
+	n := strings.ToLower(strings.Trim(strings.TrimSpace(e), `"`))
 	if !strings.ContainsAny(n, `\/`) {
 		return exeName(n)
 	}
@@ -409,6 +449,7 @@ func (s Settings) Clone() Settings {
 	s.Displays = maps.Clone(s.Displays)
 	s.Sides = maps.Clone(s.Sides)
 	s.Companions = slices.Clone(s.Companions)
+	s.KeepTogether = slices.Clone(s.KeepTogether)
 	return s
 }
 

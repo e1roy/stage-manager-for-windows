@@ -98,6 +98,14 @@ var en = Strings{
 	FlightSpeed:      "Switch animation speed",
 	FlightSpeedDesc:  "How fast windows fly from the sidebar to the stage and back.",
 
+	Grouping:          "Grouping",
+	SplitWindows:      "Separate windows of the same app",
+	SplitWindowsDesc:  "Each window gets a card and a stage of its own, so one click brings back just that window. When off, the windows of an app share one card and come and go together.",
+	KeepTogether:      "Apps that keep their windows together",
+	KeepTogetherTip:   "With separate windows on, these apps still keep all their windows on one card, as File Explorer does.",
+	KeepTogetherEmpty: "No exceptions: the windows of every app are separate.",
+	KeepTogetherLabel: "Keep this app's windows together",
+
 	CompanionLabel: "Keep the current app when opened",
 	CompanionTip:   "When an app in this list opens a window, it stays on the desktop with the app you're using instead of sending that app to the sidebar; once it's closed, the desktop is as it was. Good for tools used for a moment, like TortoiseSVN's commit dialog.",
 	Programs:       "Programs",

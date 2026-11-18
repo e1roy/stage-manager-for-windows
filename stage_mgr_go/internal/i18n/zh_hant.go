@@ -99,6 +99,14 @@ var zhHant = Strings{
 	FlightSpeed:      "展開與收起速度",
 	FlightSpeedDesc:  "視窗從側邊欄飛到舞台、以及從舞台收回側邊欄的快慢。",
 
+	Grouping:          "視窗分組",
+	SplitWindows:      "同一應用程式的視窗分開放",
+	SplitWindowsDesc:  "每個視窗各自一張卡片、一個舞台，按一下只切回這個視窗。關閉時，同一應用程式的視窗合成一張卡片，一起進出舞台。",
+	KeepTogether:      "仍然合併視窗的應用程式",
+	KeepTogetherTip:   "開啟「同一應用程式的視窗分開放」後，這些應用程式的視窗仍合成一張卡片，例如檔案總管。",
+	KeepTogetherEmpty: "沒有例外應用程式，每個應用程式的視窗都分開放。",
+	KeepTogetherLabel: "合併此應用程式的視窗",
+
 	CompanionLabel: "開啟時不收起目前的應用程式",
 	CompanionTip:   "清單中的應用程式開啟視窗時，會和你正在使用的應用程式一起留在桌面上，不會把它收進側邊欄；關閉後桌面恢復原樣。適合 TortoiseSVN 提交視窗這類用一下就關的工具。",
 	Programs:       "程式",

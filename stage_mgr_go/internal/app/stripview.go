@@ -2,6 +2,7 @@ package app
 
 import (
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
@@ -592,6 +593,33 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 		if !g.staged || len(g.apps) > 1 {
 			m.Separator()
 		}
+		// With every window on a card of its own, an app whose windows
+		// belong together is told so here, where its cards are.
+		if a.settings.SplitWindows {
+			keep := func(m *ui.Menu, label string, app *group) {
+				if exe := app.front().Exe; exe != "" && m.Item(label).Checked(a.settings.KeptTogether(exe)).Chosen() {
+					a.request(actKeepTogether, d, newSet([]*group{app}))
+				}
+			}
+			var apps []*group
+			for _, app := range g.apps {
+				if exe := app.front().Exe; exe != "" && !slices.ContainsFunc(apps, func(o *group) bool { return strings.EqualFold(o.front().Exe, exe) }) {
+					apps = append(apps, app)
+				}
+			}
+			if len(apps) == 1 {
+				keep(m, tr.KeepTogetherLabel, apps[0])
+			} else if len(apps) > 1 {
+				m.Submenu(tr.KeepTogetherLabel, func(m *ui.Menu) {
+					for _, app := range apps {
+						keep(m, app.name, app)
+					}
+				})
+			}
+			if len(apps) > 0 {
+				m.Separator()
+			}
+		}
 		label := tr.CloseWindow
 		if len(g.windows) > 1 {
 			label = tr.CloseWindows
@@ -674,7 +702,7 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 		overlay := ui.Box(c).Absolute().Left(0).Top(0).Size(box.W, box.H).TransformOrigin(originX, 0.5).Scale(lift, lift).Opacity(iconOp).PassThrough()
 		overlay.Children(func() {
 			for i := len(row) - 1; i >= 0; i-- {
-				if icon := a.media.icons[g.apps[i].app]; icon != nil {
+				if icon := a.media.cachedIcon(g.apps[i].front()); icon != nil {
 					r := row[i]
 					ui.Image(c.Key(g.apps[i].app), icon).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H)
 				}
@@ -826,7 +854,7 @@ func (s *strip) windowStill(c *ui.Context, g *set, i int, r ui.Rect, gray float3
 		Background(ui.RGBA(250, 250, 252, 0.2)).Border(1, ui.RGBA(255, 255, 255, 0.3)).
 		Shadow(0, r.H*0.05, r.H*0.16, 0, shadowSoft).Center().Gap(4).Padding(6)
 	pane.Children(func() {
-		if icon := s.a.media.icons[w.App]; icon != nil && i < len(g.apps) {
+		if icon := s.a.media.cachedIcon(w); icon != nil && i < len(g.apps) {
 			sz := min(r.H*0.38, 48)
 			ui.Image(c, icon).Size(sz, sz).Opacity(0.85)
 		}

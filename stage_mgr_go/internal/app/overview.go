@@ -366,7 +366,7 @@ func (o *overview) begin(ws []catalog.Window) {
 	items := make([]overviewItem, len(ws))
 	o.tiles = make([]ovTile, len(ws))
 	for i, w := range ws {
-		t := ovTile{w: w, ov: o, name: a.cat.Name(w), icon: a.media.icons[w.App], originOp: 1}
+		t := ovTile{w: w, ov: o, name: a.cat.Name(w), icon: a.media.cachedIcon(w), originOp: 1}
 		if st := a.media.still(w.HWND); st != nil {
 			t.still = st.fly
 			if t.still == nil {

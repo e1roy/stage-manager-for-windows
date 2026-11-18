@@ -2,6 +2,7 @@ package stage
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -544,5 +545,98 @@ func TestKeptMoveAndInsertCountTheStage(t *testing.T) {
 	d.Switch(d.SetOf("3"), t0)
 	if got := d.Strip(append(apps, "5")); !equalSets(got, [][]string{{"2"}, {"1"}, {"4"}, {"5"}, {"3"}}) {
 		t.Fatalf("strip %v", got)
+	}
+}
+
+// units parts code, chrome and a into windows #1 and #2.
+func units(app string) []string {
+	switch app {
+	case "code", "chrome", "a", "b":
+		return []string{app + "#1", app + "#2"}
+	}
+	return []string{app}
+}
+
+// merged takes the windows of units back into their apps.
+func merged(app string) []string {
+	if i := strings.IndexByte(app, '#'); i >= 0 {
+		return []string{app[:i]}
+	}
+	return []string{app}
+}
+
+func TestRekeySplitsWindows(t *testing.T) {
+	var d Display
+	d.Init("chrome", t0)
+	d.Strip([]string{"chrome", "code", "notes", "mail"})
+	d.Insert([]string{"code", "notes"}, 0)
+	if got, want := d.Strip([]string{"chrome", "code", "notes", "mail"}), [][]string{{"code", "notes"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip before %v, want %v", got, want)
+	}
+	d.Rekey(units, t0)
+	// The stage keeps the front window of its app; the other leaves it
+	// for where the stage came from, the top. A set of several apps stays
+	// one.
+	if got := d.Stage(); !slices.Equal(got, []string{"chrome#1"}) {
+		t.Fatalf("stage %v", got)
+	}
+	present := []string{"chrome#1", "chrome#2", "code#1", "code#2", "notes", "mail"}
+	if got, want := d.Strip(present), [][]string{{"chrome#2"}, {"code#1", "code#2", "notes"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// The window that left comes back first should what is on the stage close.
+	if got := d.Previous(); !slices.Equal(got, []string{"chrome#2"}) {
+		t.Fatalf("previous %v", got)
+	}
+
+	d.Rekey(merged, t0)
+	if got := d.Stage(); !slices.Equal(got, []string{"chrome"}) {
+		t.Fatalf("stage merged %v", got)
+	}
+	if got, want := d.Strip([]string{"chrome", "code", "notes", "mail"}), [][]string{{"code", "notes"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip merged %v, want %v", got, want)
+	}
+}
+
+func TestRekeySplitsCardsInPlace(t *testing.T) {
+	var d Display
+	d.Init("code", t0)
+	d.Strip([]string{"code", "a", "b", "c"})
+	d.Switch([]string{"b"}, t0) // above b is a
+	d.Rekey(units, t0)
+	// a parts into two cards in its place; b's other window goes below
+	// them, where b came from.
+	if got, want := d.Strip([]string{"b#1", "b#2", "a#1", "a#2", "code#1", "code#2", "c"}), [][]string{{"a#1"}, {"a#2"}, {"b#2"}, {"code#1"}, {"code#2"}, {"c"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	// Merged back, an app takes the place of its first card.
+	d.Rekey(merged, t0)
+	if got, want := d.Strip([]string{"b", "a", "code", "c"}), [][]string{{"a"}, {"code"}, {"c"}}; !equalSets(got, want) {
+		t.Fatalf("strip merged %v, want %v", got, want)
+	}
+	if !d.OnStage("b") {
+		t.Fatalf("stage %v", d.Stage())
+	}
+}
+
+func TestRekeyKeptStripSplitsTheStagesCard(t *testing.T) {
+	d := kept("code", "chrome", "mail")
+	d.Switch([]string{"chrome"}, t0)
+	d.Rekey(units, t0)
+	// The stage's card parts in its slot like the others; the front window
+	// stays on the stage.
+	all := []string{"code#1", "code#2", "chrome#1", "chrome#2", "mail"}
+	if got, want := d.Strip(all), [][]string{{"code#1"}, {"code#2"}, {"chrome#1"}, {"chrome#2"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip %v, want %v", got, want)
+	}
+	if got := d.Stage(); !slices.Equal(got, []string{"chrome#1"}) {
+		t.Fatalf("stage %v", got)
+	}
+	d.Rekey(merged, t0)
+	if got, want := d.Strip([]string{"code", "chrome", "mail"}), [][]string{{"code"}, {"chrome"}, {"mail"}}; !equalSets(got, want) {
+		t.Fatalf("strip merged %v, want %v", got, want)
+	}
+	if got := d.Stage(); !slices.Equal(got, []string{"chrome"}) {
+		t.Fatalf("stage merged %v", got)
 	}
 }

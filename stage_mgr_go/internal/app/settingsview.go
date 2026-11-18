@@ -890,6 +890,25 @@ func (sw *settingsWindow) stagePane(c *ui.Context, f form, tr *i18n.Strings) {
 			}
 		})
 	})
+	f.section(c, tr.Grouping, func() {
+		f.row(c, tr.SplitWindows, tr.SplitWindowsDesc, func() {
+			if ui.Switch(c, &sw.s.SplitWindows).Changed() {
+				sw.apply()
+			}
+		})
+	})
+	// The apps whose windows share a card all the same.
+	sw.apps(c, f, tr, appList{
+		title:   tr.KeepTogether,
+		tip:     &tip{lead: tr.KeepTogetherTip},
+		entries: sw.s.KeepTogether,
+		empty:   tr.KeepTogetherEmpty,
+		has:     sw.s.KeptTogether,
+		add:     func(exe string) { sw.s = sw.s.WithKeepTogether(exe, true) },
+		remove: func(e string) {
+			sw.s.KeepTogether = slices.DeleteFunc(slices.Clone(sw.s.KeepTogether), func(x string) bool { return x == e })
+		},
+	})
 	f.section(c, tr.Animation, func() {
 		f.row(c, tr.FlightSpeed, tr.FlightSpeedDesc, func() {
 			times := func(v float64) string { return fmt.Sprintf("%.1f×", v) }
@@ -913,18 +932,19 @@ func (sw *settingsWindow) stagePane(c *ui.Context, f form, tr *i18n.Strings) {
 	})
 }
 
-// companion is an entry of the companions as the list shows it: the app's
-// name and icon when one of its windows is open, else what the entry says.
-type companion struct {
+// appItem is an entry of a list of apps, as the companions, as the list
+// shows it: the app's name and icon when one of its windows is open, else
+// what the entry says.
+type appItem struct {
 	entry, name, detail string
 	icon                *ui.Bitmap
 }
 
-func (sw *settingsWindow) companions(tr *i18n.Strings) []companion {
+func (sw *settingsWindow) appItems(entries []string, tr *i18n.Strings) []appItem {
 	running := sw.running()
-	var out []companion
-	for _, e := range sw.s.Companions {
-		it := companion{entry: e}
+	var out []appItem
+	for _, e := range entries {
+		it := appItem{entry: e}
 		byPath := strings.ContainsAny(e, `\/`)
 		if byPath {
 			it.name, it.detail = strings.TrimSuffix(filepath.Base(e), ".exe"), e
@@ -953,30 +973,41 @@ func (sw *settingsWindow) companions(tr *i18n.Strings) []companion {
 	return out
 }
 
-// companionsPane lists the companions to remove and adds them from the
+// appList is a list of apps the settings keep, as the companions.
+type appList struct {
+	title   string
+	tip     *tip
+	entries []string
+	empty   string                // shown when there are none
+	has     func(exe string) bool // whether the app of an executable is listed
+	add     func(exe string)
+	remove  func(entry string)
+}
+
+// apps shows a list of apps to remove them from, and adds to it from the
 // apps at hand or from a file, rather than have their executables typed.
 // The button that adds one is at the head of the list, where the eye is
 // when the list is empty or long.
-func (sw *settingsWindow) companionsPane(c *ui.Context, f form, tr *i18n.Strings) {
+func (sw *settingsWindow) apps(c *ui.Context, f form, tr *i18n.Strings, l appList) {
 	t := f.t
 	add := func() {
 		ui.MenuButton(c, tr.AddCompanion, func(m *ui.Menu) {
 			for _, g := range sw.running() {
-				if exe := g.front().Exe; !sw.s.Companion(exe) && m.Item(g.name).Chosen() {
-					sw.s = sw.s.WithCompanion(exe, true)
+				if exe := g.front().Exe; !l.has(exe) && m.Item(g.name).Chosen() {
+					l.add(exe)
 					sw.apply()
 				}
 			}
 			m.Separator()
 			if m.Item(tr.Browse).Chosen() {
-				sw.browseCompanion(tr)
+				sw.browse(tr, l.add)
 			}
 		})
 	}
-	f.group(c, tr.CompanionLabel, &tip{lead: tr.CompanionTip}, func() {
-		items := sw.companions(tr)
+	f.group(c, l.title, l.tip, func() {
+		items := sw.appItems(l.entries, tr)
 		if len(items) == 0 {
-			ui.Text(c, tr.CompanionsEmpty).FontSize(12).TextColor(t.TextMuted).Padding(14, rowPadX)
+			ui.Text(c, l.empty).FontSize(12).TextColor(t.TextMuted).Padding(14, rowPadX)
 		}
 		for _, it := range items {
 			ui.Row(c).Key(it.entry).Padding(7, rowPadX).Gap(10).AlignItems(ui.Center).Children(func() {
@@ -993,7 +1024,7 @@ func (sw *settingsWindow) companionsPane(c *ui.Context, f form, tr *i18n.Strings
 				})
 				c.Key(it.entry)
 				if ui.Button(c, "").Label(tr.Remove).Tooltip(tr.Remove).Children(func() { ui.Icon(c, removeIcon).FontSize(14) }).Clicked() {
-					sw.s.Companions = slices.DeleteFunc(slices.Clone(sw.s.Companions), func(e string) bool { return e == it.entry })
+					l.remove(it.entry)
 					sw.apply()
 				}
 			})
@@ -1001,9 +1032,24 @@ func (sw *settingsWindow) companionsPane(c *ui.Context, f form, tr *i18n.Strings
 	}, add)
 }
 
-// browseCompanion adds the program chosen in a file dialog, by its name,
-// as the menus add apps: every copy of it is one.
-func (sw *settingsWindow) browseCompanion(tr *i18n.Strings) {
+// companionsPane lists the companions.
+func (sw *settingsWindow) companionsPane(c *ui.Context, f form, tr *i18n.Strings) {
+	sw.apps(c, f, tr, appList{
+		title:   tr.CompanionLabel,
+		tip:     &tip{lead: tr.CompanionTip},
+		entries: sw.s.Companions,
+		empty:   tr.CompanionsEmpty,
+		has:     sw.s.Companion,
+		add:     func(exe string) { sw.s = sw.s.WithCompanion(exe, true) },
+		remove: func(e string) {
+			sw.s.Companions = slices.DeleteFunc(slices.Clone(sw.s.Companions), func(x string) bool { return x == e })
+		},
+	})
+}
+
+// browse adds the program chosen in a file dialog, by its name, as the
+// menus add apps: every copy of it is one.
+func (sw *settingsWindow) browse(tr *i18n.Strings, add func(exe string)) {
 	opts := mygo.OpenDialogOptions{Parent: sw.win, Title: tr.AddCompanion, Filters: []mygo.FileFilter{{Name: tr.Programs, Extensions: []string{"exe"}}}}
 	go func() {
 		paths, err := mygo.Dialog.Open(opts)
@@ -1011,7 +1057,7 @@ func (sw *settingsWindow) browseCompanion(tr *i18n.Strings) {
 			return
 		}
 		sw.win.Update(func() {
-			sw.s = sw.s.WithCompanion(paths[0], true)
+			add(paths[0])
 			sw.apply()
 		})
 	}()

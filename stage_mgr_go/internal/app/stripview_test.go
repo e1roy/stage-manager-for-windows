@@ -372,3 +372,33 @@ func TestCardCloseButton(t *testing.T) {
 		t.Fatalf("requests %v", *got)
 	}
 }
+
+// A window with a card of its own goes by its title, and its card's menu
+// keeps the windows of its app together again.
+func TestSplitWindowCard(t *testing.T) {
+	s, got, tt := testStrip(t)
+	g := s.d.sets[0].apps[0]
+	for _, ws := range [][]catalog.Window{g.windows, s.d.sets[0].windows} {
+		ws[0].Exe, ws[0].Program, ws[0].Title = `C:\Tools\mail.exe`, `C:\TOOLS\MAIL.EXE`, "Inbox"
+		ws[0].App = catalog.Unit(ws[0].Program, ws[0].HWND)
+	}
+	if title := s.d.sets[0].title(); title != "Inbox" {
+		t.Fatalf("title %q", title)
+	}
+	x, y := center(s.d.layout.cards[0])
+	tt.RightClickAt(x, y)
+	tt.Frame()
+	if err := tt.ChooseMenuItem(s.a.tr().KeepTogetherLabel); err == nil {
+		t.Fatal("the menu keeps windows together while they are not split")
+	}
+	s.a.settings.SplitWindows = true
+	tt.RightClickAt(x, y)
+	tt.Frame()
+	if err := tt.ChooseMenuItem(s.a.tr().KeepTogetherLabel); err != nil {
+		t.Fatalf("%v; menu %v", err, tt.Menu())
+	}
+	tt.Frame()
+	if len(*got) != 1 || (*got)[0] != (request{actKeepTogether, "mail"}) {
+		t.Fatalf("requests %v", *got)
+	}
+}

@@ -351,6 +351,10 @@ const (
 	// of its own, asks for these.
 	actFront   // to come in front of the others on the stage
 	actUnstage // for its app to leave the stage for the strip
+
+	// A card's menu asks for this, to keep the windows of its app
+	// together, or no longer.
+	actKeepTogether
 )
 
 // request carries out what a card asks for once the frame is built. Tests
@@ -375,6 +379,8 @@ func (a *App) request(act action, d *display, s *set) {
 			a.bringForward(s.front())
 		case actUnstage:
 			a.unstage(d, s)
+		case actKeepTogether:
+			a.toggleKeepTogether(s)
 		}
 	})
 }
@@ -448,6 +454,16 @@ func (a *App) reveal(d *display, app string) {
 	head := s.lineupFor(d.viewW, d.viewH).extent
 	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(a.settings.Spacing), a.panel(), head, float32(a.settings.CardsAt), s.right())
 	d.scroll = l.scrollTo(i, d.scroll, d.viewH, a.panel(), head)
+}
+
+// toggleKeepTogether keeps the windows of the app of a card together, or
+// no longer.
+func (a *App) toggleKeepTogether(s *set) {
+	exe := s.front().Exe
+	a.applySettings(a.settings.WithKeepTogether(exe, !a.settings.KeptTogether(exe)))
+	if sw := a.settingsUI; sw != nil {
+		sw.win.Update(sw.load)
+	}
 }
 
 // arrange brings a display's strip and stage lists up to date with the

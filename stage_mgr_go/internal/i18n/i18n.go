@@ -154,6 +154,12 @@ type Strings struct {
 	// FlightSpeed names how fast windows fly between the cards and the
 	// stage, which FlightSpeedDesc explains.
 	FlightSpeed, FlightSpeedDesc string
+	// SplitWindows gives each window of an app a card of its own.
+	// KeepTogether lists the apps whose windows share one all the same,
+	// and KeepTogetherLabel turns that on for an app on the cards' menus.
+	Grouping, SplitWindows, SplitWindowsDesc         string
+	KeepTogether, KeepTogetherTip, KeepTogetherEmpty string
+	KeepTogetherLabel                                string
 
 	// CompanionLabel heads the list of companions in the exceptions pane,
 	// from where the user is: the app they are using stays when one of these

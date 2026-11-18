@@ -7,6 +7,7 @@ package catalog
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
@@ -16,11 +17,13 @@ import (
 type Window struct {
 	HWND  winapi.HWND
 	Title string
-	// App identifies the application: windows of one app go on and off
-	// the stage together.
+	// App identifies what goes on and off the stage together: the
+	// application, or this window alone when the catalog splits its app.
 	App string
-	Exe string
-	PID uint32
+	// Program identifies the application, whether or not App does.
+	Program string
+	Exe     string
+	PID     uint32
 	// Rect is the window rectangle, invisible resize borders included,
 	// and Frame the visible frame DWM draws.
 	Rect, Frame winapi.Rect
@@ -28,6 +31,16 @@ type Window struct {
 	// Z is where the window is in the z-order among those listed with it,
 	// 0 in front.
 	Z int
+}
+
+// Split reports whether a window has an App of its own rather than its
+// application's.
+func (w Window) Split() bool { return w.App != w.Program }
+
+// Unit is what App is for a window of the program prog that has one of
+// its own.
+func Unit(prog string, h winapi.HWND) string {
+	return prog + "#" + strconv.FormatUint(uint64(h), 16)
 }
 
 // Aspect is the window's width over its height.
@@ -71,6 +84,9 @@ type Catalog struct {
 	apps   map[uint32]identity
 	filter map[string]bool
 	names  map[string]string
+	// Splits, when set, tells by its executable whether each window of an
+	// app goes on and off the stage on its own.
+	Splits func(exe string) bool
 }
 
 // New returns a catalog. STAGEMANAGER_APP_FILTER, a comma-separated list of
@@ -196,7 +212,10 @@ func (c *Catalog) inspect(h, fg winapi.HWND, floating bool) (Window, bool) {
 	if c.filter != nil && !c.filter[strings.ToLower(strings.TrimSuffix(filepath.Base(id.exe), filepath.Ext(id.exe)))] {
 		return Window{}, false
 	}
-	w.App, w.Exe, w.PID = id.key, id.exe, id.pid
+	w.App, w.Program, w.Exe, w.PID = id.key, id.key, id.exe, id.pid
+	if c.Splits != nil && c.Splits(id.exe) {
+		w.App = Unit(id.key, h)
+	}
 	return w, true
 }
 

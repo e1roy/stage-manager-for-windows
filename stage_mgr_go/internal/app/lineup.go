@@ -269,7 +269,7 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 				Background(ui.RGBA(255, 255, 255, 0.14).Mix(accent, on)).Children(func() {
 				ui.Text(c, place).FontSize(10).Bold().TextColor(white).MaxLines(1)
 			})
-			if icon := a.media.icons[w.App]; icon != nil {
+			if icon := a.media.cachedIcon(w); icon != nil {
 				ui.Image(c, icon).Size(14, 14).Shrink(0)
 			}
 			text := lineupMuted.Mix(white, max(on, hot))
@@ -292,7 +292,7 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 			if st := a.media.still(w.HWND); st != nil {
 				f := fitIn(pic, w.Aspect())
 				ui.Image(c, st.card).Absolute().Left(f.X).Top(f.Y).Size(f.W, f.H).Fit(ui.FillBox).Radius(3)
-			} else if icon := a.media.icons[w.App]; icon != nil {
+			} else if icon := a.media.cachedIcon(w); icon != nil {
 				sz := min(pic.H*0.6, 28)
 				ui.Image(c, icon).Absolute().Left(pic.X+(pic.W-sz)/2).Top(pic.Y+(pic.H-sz)/2).Size(sz, sz).Opacity(0.8)
 			}

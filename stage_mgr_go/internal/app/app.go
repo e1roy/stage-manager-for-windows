@@ -29,15 +29,26 @@ func after(d time.Duration, fn func()) *time.Timer {
 	return time.AfterFunc(d, func() { mygo.RunOnMain(fn) })
 }
 
-// group is the windows one app has on one display, front-most first.
+// group is the windows one app has on one display, front-most first, or
+// one window alone when its app's windows are split.
 type group struct {
 	app     string
-	name    string
+	name    string // the app's name
 	windows []catalog.Window
 	z       int // where its front window is among the display's apps, 0 in front
 }
 
 func (g *group) front() catalog.Window { return g.windows[0] }
+
+// label is what a card calls the group: its app, or for a window that has
+// a card of its own, that window, as the cards of an app's windows would
+// otherwise all read the same.
+func (g *group) label() string {
+	if w := g.front(); w.Split() && w.Program != "" {
+		return w.Title
+	}
+	return g.name
+}
 
 // set is a card of the strip: the apps that go on and off the stage
 // together, one or more.
@@ -91,7 +102,7 @@ func (s *set) names() []string {
 func (s *set) title() string {
 	out := make([]string, len(s.apps))
 	for i, g := range s.apps {
-		out[i] = g.name
+		out[i] = g.label()
 	}
 	return strings.Join(out, " + ")
 }
@@ -149,6 +160,14 @@ type App struct {
 	cat      *catalog.Catalog
 	park     *parking.Service
 	media    *media
+
+	// grouping is the settings the catalog tells the windows of an app
+	// apart by. It catches up with settings only as the stages are renamed
+	// to match, between switches: see regroup.
+	grouping settings.Settings
+	// restage lists the displays whose stage regroup changed, for their
+	// windows to come and go as it now says, one switch at a time.
+	restage []*display
 
 	displays []*display // primary first
 	windows  []catalog.Window
@@ -248,6 +267,8 @@ func Start(o Options) *App {
 	}
 	a.settings = a.store.Load()
 	a.media.apply(a.settings)
+	a.grouping = a.settings.Clone()
+	a.cat.Splits = func(exe string) bool { return a.grouping.Splits(exe) }
 	// Windows a crashed run left off the desktop come back first.
 	logToFile(o.DataDir)
 	a.park.Logf = debugf
@@ -594,6 +615,12 @@ func (a *App) refresh() {
 	if !a.ready || a.busy || a.quitting || a.peek != 0 {
 		return
 	}
+	if a.regroupDue() {
+		a.regroup()
+	}
+	if len(a.queued) == 0 && a.restageNext() {
+		return
+	}
 	a.reparkEscaped()
 	a.windows = a.cat.Windows()
 	if a.followMoved() {
@@ -706,6 +733,75 @@ func (a *App) refill() {
 		a.switchStage(d, prev, 0, i < 0, false)
 		return
 	}
+}
+
+// regroupDue reports whether the settings tell the windows of apps apart
+// otherwise than the stages name them, and they can be renamed now: not
+// while a switch asked for meanwhile still names the apps as they were.
+func (a *App) regroupDue() bool {
+	return len(a.queued) == 0 && !sameGrouping(a.grouping, a.settings)
+}
+
+// sameGrouping reports whether two settings tell the windows of every app
+// apart alike.
+func sameGrouping(x, y settings.Settings) bool {
+	return x.SplitWindows == y.SplitWindows && (!x.SplitWindows || slices.Equal(x.KeepTogether, y.KeepTogether))
+}
+
+// regroup tells the windows of apps apart as the settings now say, a card
+// for each window or one for them all, and renames the apps of the stages
+// and strips to match, keeping their places. A window that was on a stage
+// with others of its app and has a card of its own now leaves it at once,
+// as if switched off; one whose app is on a stage it now shares a card
+// with comes onto it.
+func (a *App) regroup() {
+	debugf("regroup: split=%v keep together %q", a.settings.SplitWindows, a.settings.KeepTogether)
+	a.grouping = a.settings.Clone()
+	a.windows = a.cat.Windows()
+	now := time.Now()
+	for _, d := range a.displays {
+		if !a.managed(d) {
+			continue
+		}
+		var ws []catalog.Window
+		for _, w := range a.windows {
+			if a.displayOf(w) == d {
+				ws = append(ws, w)
+			}
+		}
+		// An app was its program, a window of it, or what it is now; it
+		// becomes what its windows are now, front first.
+		d.model.Rekey(func(app string) []string {
+			var out []string
+			for _, w := range ws {
+				if (w.App == app || w.Program == app || catalog.Unit(w.Program, w.HWND) == app) && !slices.Contains(out, w.App) {
+					out = append(out, w.App)
+				}
+			}
+			if len(out) == 0 {
+				return []string{app}
+			}
+			return out
+		}, now)
+		if !slices.Contains(a.restage, d) {
+			a.restage = append(a.restage, d)
+		}
+	}
+}
+
+// restageNext starts the switch that brings the windows of the next
+// display regroup changed in line with its stage, if any is left. It
+// reports whether it started one.
+func (a *App) restageNext() bool {
+	for len(a.restage) > 0 {
+		d := a.restage[0]
+		a.restage = a.restage[1:]
+		if slices.Contains(a.displays, d) && a.managed(d) {
+			a.switchStage(d, d.model.Stage(), 0, false, false)
+			return true
+		}
+	}
+	return false
 }
 
 // refreshSoon coalesces the refreshes a burst of events asks for.

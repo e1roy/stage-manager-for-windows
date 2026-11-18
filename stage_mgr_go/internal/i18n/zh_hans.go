@@ -98,6 +98,14 @@ var zhHans = Strings{
 	FlightSpeed:      "展开与收起速度",
 	FlightSpeedDesc:  "窗口从侧边栏飞到舞台、以及从舞台收回侧边栏的快慢。",
 
+	Grouping:          "窗口分组",
+	SplitWindows:      "同一应用的窗口分开放",
+	SplitWindowsDesc:  "每个窗口单独一张卡片、单独一个舞台，点一下只切回这一个窗口。关闭时，同一应用的窗口合成一张卡片，一起进出舞台。",
+	KeepTogether:      "仍然合并窗口的应用",
+	KeepTogetherTip:   "开启「同一应用的窗口分开放」后，这些应用的窗口仍合成一张卡片，比如资源管理器。",
+	KeepTogetherEmpty: "没有例外应用，每个应用的窗口都分开放。",
+	KeepTogetherLabel: "合并此应用的窗口",
+
 	CompanionLabel: "打开时不收起当前应用",
 	CompanionTip:   "列表里的应用打开窗口时，会和你正在用的应用一起留在桌面上，不会把它收进侧边栏；关掉后桌面回到原样。适合 TortoiseSVN 提交框这类用一下就关的工具。",
 	Programs:       "程序",

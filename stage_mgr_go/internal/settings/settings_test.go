@@ -346,3 +346,41 @@ func TestAllStages(t *testing.T) {
 		t.Fatalf("normalized %v", n.StagedOpacity)
 	}
 }
+
+func TestSplitWindows(t *testing.T) {
+	s := Default()
+	if s.SplitWindows || s.Splits(`C:\Apps\Code.exe`) {
+		t.Fatal("windows are split by default")
+	}
+	s.SplitWindows = true
+	for exe, want := range map[string]bool{
+		`C:\Apps\Code.exe`: true,
+		// File Explorer keeps its windows together unless told otherwise.
+		`C:\Windows\explorer.exe`: false,
+		// Windows whose program is unknown are split too.
+		"": true,
+	} {
+		if s.Splits(exe) != want {
+			t.Errorf("splits %q = %v", exe, !want)
+		}
+	}
+	s = s.WithKeepTogether(`C:\Apps\Code.exe`, true).WithKeepTogether(`C:\Windows\Explorer.EXE`, false)
+	if want := []string{"code"}; !slices.Equal(s.KeepTogether, want) {
+		t.Fatalf("kept together %q, want %q", s.KeepTogether, want)
+	}
+	if s.Splits(`D:\Code.exe`) || !s.Splits(`C:\Windows\explorer.exe`) {
+		t.Fatal("the list is not followed")
+	}
+}
+
+func TestNoKeepTogetherStaysEmpty(t *testing.T) {
+	st := NewStore(t.TempDir())
+	s := Default()
+	s.KeepTogether = nil
+	if err := st.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Load(); len(got.KeepTogether) != 0 {
+		t.Fatalf("cleared list loaded as %q", got.KeepTogether)
+	}
+}

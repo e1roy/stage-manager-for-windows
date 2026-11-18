@@ -300,10 +300,22 @@ func (m *media) forget(alive map[winapi.HWND]bool) {
 	}
 }
 
+// iconKey is what the icon of a window's app is kept by: its program, as
+// the windows of an app split into cards of their own share one.
+func iconKey(w catalog.Window) string {
+	if w.Program != "" {
+		return w.Program
+	}
+	return w.App
+}
+
+// cachedIcon returns the icon of a window's app if it is loaded.
+func (m *media) cachedIcon(w catalog.Window) *ui.Bitmap { return m.icons[iconKey(w)] }
+
 // icon returns the icon of an app, loading it on first use. Main thread:
 // the shell draws icons there, in a few milliseconds each.
 func (m *media) icon(w catalog.Window) *ui.Bitmap {
-	if b, ok := m.icons[w.App]; ok {
+	if b, ok := m.icons[iconKey(w)]; ok {
 		return b
 	}
 	var img *image.NRGBA
@@ -327,6 +339,6 @@ func (m *media) icon(w catalog.Window) *ui.Bitmap {
 	if img != nil {
 		b = ui.NewBitmap(trimIcon(img))
 	}
-	m.icons[w.App] = b
+	m.icons[iconKey(w)] = b
 	return b
 }
