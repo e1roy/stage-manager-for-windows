@@ -179,6 +179,10 @@ type App struct {
 	}
 	unhook   func()
 	stopPoll chan struct{}
+	// A native minimize is asynchronous: hold its stage identity until the
+	// window has returned from iconic state and can be parked.
+	minimizing       map[winapi.HWND]*minimizeTarget
+	unhookWinDesktop func()
 	// unhookWinTab gives Win+Tab back to Task View, while the overview
 	// has it (events.go).
 	unhookWinTab func()
@@ -235,16 +239,17 @@ type Options struct {
 // Start sets Stage Manager up. Call it once the app is ready, on the main thread.
 func Start(o Options) *App {
 	a := &App{
-		store:     settings.NewStore(o.DataDir),
-		cat:       catalog.New(),
-		park:      parking.New(o.DataDir),
-		media:     newMedia(),
-		seen:      map[winapi.HWND]time.Time{},
-		lost:      map[winapi.HWND]time.Time{},
-		dropHomes: map[winapi.HWND]winapi.Rect{},
-		queued:    map[*display]*switchRequest{},
-		trayIcon:  o.TrayIcon,
-		sysLang:   i18n.FromLANGID(winapi.UILanguage()),
+		store:      settings.NewStore(o.DataDir),
+		cat:        catalog.New(),
+		park:       parking.New(o.DataDir),
+		media:      newMedia(),
+		seen:       map[winapi.HWND]time.Time{},
+		lost:       map[winapi.HWND]time.Time{},
+		dropHomes:  map[winapi.HWND]winapi.Rect{},
+		queued:     map[*display]*switchRequest{},
+		minimizing: map[winapi.HWND]*minimizeTarget{},
+		trayIcon:   o.TrayIcon,
+		sysLang:    i18n.FromLANGID(winapi.UILanguage()),
 	}
 	a.settings = a.store.Load()
 	a.media.apply(a.settings)
@@ -591,7 +596,7 @@ func (a *App) refresh() {
 	}
 	// While a peek shows, the parked windows are home on purpose and must
 	// not be taken for strays.
-	if !a.ready || a.busy || a.quitting || a.peek != 0 {
+	if !a.ready || a.busy || a.quitting || a.peek != 0 || len(a.minimizing) != 0 {
 		return
 	}
 	a.reparkEscaped()
@@ -879,6 +884,7 @@ func (a *App) applySettings(s settings.Settings) {
 		a.showCorner()
 	}
 	a.syncDisplays()
+	a.syncWinDesktop()
 	// Hiding again starts the stages with what shows on the displays.
 	if !old.HideInactive && s.HideInactive {
 		a.ready = false
@@ -895,6 +901,19 @@ func (a *App) shutdown() {
 		return
 	}
 	a.quitting = true
+	for h, target := range a.minimizing {
+		if target.timer != nil {
+			target.timer.Stop()
+		}
+		if target.watchdog != nil {
+			target.watchdog.Stop()
+		}
+		delete(a.minimizing, h)
+	}
+	if a.unhookWinDesktop != nil {
+		a.unhookWinDesktop()
+		a.unhookWinDesktop = nil
+	}
 	if a.unhook != nil {
 		a.unhook()
 	}
