@@ -126,6 +126,8 @@ var ja = Strings{
 	Issues:        "問題を報告",
 
 	NewVersion:       "新しいバージョン %s があります",
+	NewVersionMenu:   "新しいバージョン %s があります。ダウンロード…",
+	Copyright:        "© 2026 Renkai ·",
 	Download:         "ダウンロード",
 	UpdateUnknown:    "アップデートを確認できませんでした。",
 	SeeReleases:      "最新版を見る",

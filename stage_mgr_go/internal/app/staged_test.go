@@ -38,7 +38,7 @@ func keys(d *display) (out []string, staged []bool) {
 func TestAllStagesListsTheStage(t *testing.T) {
 	a := &App{settings: settings.Default(), media: newMedia()}
 	a.settings.AllStages = true
-	d := &display{cards: map[string]*cardState{}, landing: map[string]bool{}}
+	d := newDisplay(winapi.Monitor{})
 	groups := groupsOfApps("a", "b", "c", "d")
 	now := time.Now()
 	d.model.Init("a", now)
@@ -86,10 +86,10 @@ func TestSplitStagedCard(t *testing.T) {
 	// The stage is a and b, b in front; c and x wait.
 	groups := groupsOfApps("b", "a", "c", "x")
 	staged := func() (*App, *display) {
-		a := &App{settings: settings.Default(), media: newMedia(), queued: map[*display]*switchRequest{}}
+		d := newDisplay(winapi.Monitor{})
+		a := &App{settings: settings.Default(), media: newMedia(), displays: []*display{d}, queued: map[*display]*switchRequest{}}
 		a.flights = newFlights(a)
 		a.settings.AllStages = true
-		d := &display{cards: map[string]*cardState{}, landing: map[string]bool{}}
 		d.model.Init("a", now)
 		a.arrange(d, groups, now)
 		d.model.Switch([]string{"a", "b"}, now)
@@ -98,7 +98,7 @@ func TestSplitStagedCard(t *testing.T) {
 			t.Fatalf("cards %v, staged %v", got, staged)
 		}
 		// A switch runs elsewhere, so that the split waits for it.
-		a.busy = true
+		a.hold = holdSwitch
 		return a, d
 	}
 	split := func(a *App, d *display, want []string) *switchRequest {

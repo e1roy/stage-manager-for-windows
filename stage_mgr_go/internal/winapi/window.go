@@ -5,6 +5,7 @@ package winapi
 import (
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -48,8 +49,6 @@ const (
 	WsExLayered     = 0x00080000
 	WsExNoActivate  = 0x08000000
 
-	WsCaption = 0x00C00000
-
 	dwmwaNCRenderingEnabled       = 1
 	dwmwaExtendedFrameBounds      = 9
 	dwmwaCloaked                  = 14
@@ -60,8 +59,6 @@ const (
 	SwpNoZOrder       = 0x0004
 	SwpNoRedraw       = 0x0008
 	SwpNoActivate     = 0x0010
-	SwpShowWindow     = 0x0040
-	SwpHideWindow     = 0x0080
 	SwpNoOwnerZOrder  = 0x0200
 	SwpAsyncWindowPos = 0x4000
 	SwpFrameChanged   = 0x0020
@@ -131,6 +128,20 @@ func IsZoomed(h HWND) bool        { return boolCall(procIsZoomed, uintptr(h)) }
 // Windows tells when it shows a ghost window in its place.
 func IsHung(h HWND) bool { return boolCall(procIsHungAppWindow, uintptr(h)) }
 
+// smtoAbortIfHung makes SendMessageTimeout give up at once on a window
+// Windows already counts as hung.
+const smtoAbortIfHung = 0x0002
+
+// Responsive reports whether a window's thread takes a message within
+// timeout. IsHung only turns true once an app has not taken any for five
+// seconds; this tells sooner, before a call that waits for the app.
+func Responsive(h HWND, timeout time.Duration) bool {
+	const wmNull = 0x0000
+	var res uintptr
+	ok, _, _ := procSendMessageTimeoutW.Call(uintptr(h), wmNull, 0, 0, smtoAbortIfHung, uintptr(timeout.Milliseconds()), uintptr(unsafe.Pointer(&res)))
+	return ok != 0
+}
+
 // WindowRect returns the window's rectangle, invisible resize borders included.
 func WindowRect(h HWND) Rect {
 	var r Rect
@@ -182,11 +193,6 @@ func SetTransitionsDisabled(h HWND, disabled bool) {
 	procDwmSetWindowAttribute.Call(uintptr(h), dwmwaTransitionsForceDisabled, uintptr(unsafe.Pointer(&v)), 4)
 }
 
-// SetDwmAttribute sets a 32-bit DWM window attribute.
-func SetDwmAttribute(h HWND, attr uint32, v int32) {
-	procDwmSetWindowAttribute.Call(uintptr(h), uintptr(attr), uintptr(unsafe.Pointer(&v)), 4)
-}
-
 // DwmFlush waits for the next composition pass.
 func DwmFlush() { procDwmFlush.Call() }
 
@@ -228,18 +234,6 @@ func ExStyle(h HWND) uint32 {
 	return uint32(r)
 }
 
-func Style(h HWND) uint32 {
-	r, _, _ := procGetWindowLongPtrW.Call(uintptr(h), uintptr(int32ToUintptr(gwlStyle)))
-	return uint32(r)
-}
-
-// SetExStyle adds and removes extended styles and makes the frame take them.
-func SetExStyle(h HWND, add, remove uint32) {
-	ex := (ExStyle(h) | add) &^ remove
-	procSetWindowLongPtrW.Call(uintptr(h), uintptr(int32ToUintptr(gwlExStyle)), uintptr(ex))
-	procSetWindowPos.Call(uintptr(h), 0, 0, 0, 0, 0, SwpNoMove|SwpNoSize|SwpNoZOrder|SwpNoActivate|SwpFrameChanged)
-}
-
 func int32ToUintptr(v int32) uintptr { return uintptr(int64(v)) }
 
 func Foreground() HWND {
@@ -261,6 +255,38 @@ func ShellWindow() HWND {
 func SetWindowPos(h, insertAfter HWND, x, y, w, ht int32, flags uint32) bool {
 	return boolCall(procSetWindowPos, uintptr(h), uintptr(insertAfter),
 		uintptr(int64(x)), uintptr(int64(y)), uintptr(int64(w)), uintptr(int64(ht)), uintptr(flags))
+}
+
+// moveAsk is how long Move waits for an app to answer before it sends the
+// move off instead: far above what a working app takes, short enough that
+// the main thread does not stall on one that has stopped.
+const moveAsk = 100 * time.Millisecond
+
+// Move takes a window of another app to x, y, keeping its size and place in
+// the z-order, without activating it. It waits for the app to take the
+// move, so that the caller finds the window there right after, unless the
+// app does not answer within moveAsk: then the move is sent off without
+// waiting, as a move into a hung app's window would hold the caller until
+// the app answers again.
+//
+// The probe bounds what a stopped app can hold the caller for, not what a
+// working one can: an app that answers the probe and then turns busy makes
+// the move itself wait, unbounded, in its message loop. Windows offers no
+// move with a timeout; the callers that read the window right after need
+// the move taken, so they wait, and the main-thread watchdog notes a
+// stall longer than five seconds.
+func Move(h HWND, x, y int32) bool {
+	flags := uint32(SwpNoSize | SwpNoZOrder | SwpNoActivate)
+	if !Responsive(h, moveAsk) {
+		flags |= SwpAsyncWindowPos
+	}
+	return SetWindowPos(h, 0, x, y, 0, 0, flags)
+}
+
+// MoveAsync is Move without waiting for the app at all, for a caller that
+// does not look at the window right after.
+func MoveAsync(h HWND, x, y int32) bool {
+	return SetWindowPos(h, 0, x, y, 0, 0, SwpNoSize|SwpNoZOrder|SwpNoActivate|SwpAsyncWindowPos)
 }
 
 func ShowNoActivate(h HWND) { procShowWindowAsync.Call(uintptr(h), swShowNoActivate) }
@@ -291,7 +317,8 @@ type windowPlacement struct {
 	MinPosition    Point
 	MaxPosition    Point
 	NormalPosition Rect
-	Device         Rect
+	// The SDK's rcDevice exists only under _MAC: with it the length is 60,
+	// which SetWindowPlacement rejects (GetWindowPlacement does not check).
 }
 
 // RestoredRect returns where a minimized window goes back to, in screen

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/png"
+	"slices"
 	"sync"
 	"time"
 
@@ -70,11 +71,13 @@ type still struct {
 // media holds the pictures the strips show: stills of windows and icons of
 // apps. It lives on the main thread; captures run on goroutines.
 type media struct {
-	stills   map[winapi.HWND]*still
-	pending  map[winapi.HWND]bool
-	tried    map[winapi.HWND]time.Time
-	icons    map[string]*ui.Bitmap // by app
-	sem      chan struct{}
+	stills  map[winapi.HWND]*still
+	pending map[winapi.HWND]bool
+	tried   map[winapi.HWND]time.Time
+	icons   map[string]*ui.Bitmap // by app
+	sem     chan struct{}
+	// shoot takes a still; winapi.Capture, or a stand-in in tests.
+	shoot    func(h winapi.HWND, maxHeight int) *image.RGBA
 	flyBytes int // what all the flight pictures take, against budget
 	budget   int
 	// full takes every still at the size the window shows, so that windows
@@ -92,7 +95,8 @@ func newMedia() *media {
 		tried:   map[winapi.HWND]time.Time{},
 		icons:   map[string]*ui.Bitmap{},
 		// A few at a time: each asks an app to draw itself.
-		sem: make(chan struct{}, 3),
+		sem:   make(chan struct{}, 3),
+		shoot: winapi.Capture,
 	}
 	m.apply(settings.Default())
 	return m
@@ -119,9 +123,6 @@ func (m *media) still(h winapi.HWND) *still { return m.stills[h] }
 func (m *media) preview(ws []catalog.Window) {
 	var hs []winapi.HWND
 	for _, w := range ws {
-		if m.pending[w.HWND] {
-			continue
-		}
 		if st := m.stills[w.HWND]; st != nil && st.fly != nil && st.fly != st.card {
 			continue
 		}
@@ -145,7 +146,13 @@ type shot struct {
 // strip. A full capture is the size the window shows at, for a flight into
 // the stage; the others are a card's size, which a window flying out shrinks
 // into and a flight back in grows from.
+//
+// A window already being captured is not asked again: a second capture
+// would only wait behind the first. Nor is one whose app hangs: the
+// capture would wait on it, holding one of the few slots, and every switch
+// away from it would take another until none was left for the others.
 func (m *media) capture(hs []winapi.HWND, full bool, timeout time.Duration, done func()) {
+	hs = slices.DeleteFunc(slices.Clone(hs), func(h winapi.HWND) bool { return m.pending[h] || winapi.IsHung(h) })
 	if len(hs) == 0 {
 		if done != nil {
 			done()
@@ -154,7 +161,7 @@ func (m *media) capture(hs []winapi.HWND, full bool, timeout time.Duration, done
 	}
 	// Read here: the goroutines must not touch the media.
 	full = full || m.full
-	light := m.light
+	light, shoot := m.light, m.shoot
 	// Some apps flash when asked to draw themselves: a capture nobody
 	// expected is worth seeing in the log.
 	debugf("capture %x full=%v", hs, full)
@@ -172,7 +179,7 @@ func (m *media) capture(hs []winapi.HWND, full bool, timeout time.Duration, done
 			if full {
 				height = stillHeight(h, light)
 			}
-			img := winapi.Capture(h, height)
+			img := shoot(h, height)
 			<-m.sem
 			card := img
 			if img != nil && img.Rect.Dy() > cardStillHeight {
@@ -296,6 +303,13 @@ func (m *media) forget(alive map[winapi.HWND]bool) {
 	for h := range m.tried {
 		if !alive[h] {
 			delete(m.tried, h)
+		}
+	}
+	// A capture still on its way for a window gone is no longer waited
+	// for; what it brings is dropped with the next forget.
+	for h := range m.pending {
+		if !alive[h] {
+			delete(m.pending, h)
 		}
 	}
 }

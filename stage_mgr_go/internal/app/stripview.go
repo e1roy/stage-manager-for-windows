@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
-	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 	"github.com/egoist/mygo/ui"
 )
@@ -77,9 +76,8 @@ func (d *display) landingOf(s *set) bool {
 }
 
 var (
-	white      = ui.RGB(255, 255, 255)
-	pillColor  = ui.RGBA(18, 18, 22, 0.72)
-	shadowSoft = ui.RGBA(0, 0, 0, 0.34)
+	white     = ui.RGB(255, 255, 255)
+	pillColor = ui.RGBA(18, 18, 22, 0.72)
 	// Cards slide to their places and come in from the display's edge,
 	// here the left one. They leave at once: a card that goes is either flying to the stage, where its
 	// flight takes over, or an app that closed.
@@ -171,20 +169,19 @@ func (s *strip) view(c *ui.Context) {
 		defer func() { s.frames.built(time.Since(t0)) }()
 	}
 	right := s.right()
-	gap, p, at := float32(a.settings.Spacing), a.panel(), float32(a.settings.CardsAt)
 	// The cards keep below the list of the stage's windows.
 	staged := s.stageWindows()
 	line := layoutLineup(len(staged), w, h, right)
-	l := layoutStrip(len(d.sets), w, h, d.scroll, gap, p, line.extent, at, right)
+	l := s.cardLayout(len(d.sets), w, h, d.scroll, line.extent)
 	if d.scroll > l.maxScroll(h) {
 		d.scroll = l.maxScroll(h)
-		l = layoutStrip(len(d.sets), w, h, d.scroll, gap, p, line.extent, at, right)
+		l = s.cardLayout(len(d.sets), w, h, d.scroll, line.extent)
 	}
 	d.layout = l
 	slots, n, order := s.room()
 	shown := l
 	if n != len(d.sets) {
-		shown = layoutStrip(n, w, h, d.scroll, gap, p, line.extent, at, right)
+		shown = s.cardLayout(n, w, h, d.scroll, line.extent)
 	}
 
 	root := ui.Box(c).Absolute().Left(0).Top(0).Size(w, h)
@@ -335,9 +332,7 @@ func (s *strip) footer(c *ui.Context, w, h float32) ui.Rect {
 func (s *strip) jointFooter(c *ui.Context, el ui.Element, band, r ui.Rect, op, hot, lit float32, accent, edge ui.Color) {
 	bg := panelFill(float32(s.a.settings.PanelOpacity), hot).Mix(accent, lit)
 	below := s.cornerHeight()
-	g := min(18, (r.H+below)*0.42, r.W*0.6)
-	gh := g * 0.78
-	y := jointGlyph(r.H, below, gh)
+	g, gh, y := jointGlyphBox(r.H, below, r.W)
 	x0, y0 := r.X-band.X, r.Y-band.Y
 	el.Children(func() {
 		// The glass is the whole button's: the panel shows its top.
@@ -375,6 +370,24 @@ func (a *App) panel() panel {
 	return panel{share: float32(a.settings.PanelWidth), h: float32(a.settings.PanelHeight)}
 }
 
+// cardLayout lays out n cards in a strip's view of w by h, scrolled by
+// scroll, below a list of the stage's windows head tall. It is the one
+// place that reads what the layout depends on, so that the flights land
+// where view draws the cards, and reveal scrolls to where they are: a
+// setting added to the layout is added here, for all of them.
+func (s *strip) cardLayout(n int, w, h, scroll, head float32) stripLayout {
+	a := s.a
+	return layoutStrip(n, w, h, scroll, float32(a.settings.Spacing), a.panel(), head, float32(a.settings.CardsAt), s.right())
+}
+
+// restingLayout lays out a strip's cards as view last drew them, from the
+// size and scroll it left: for the flights and reveal, between frames.
+func (s *strip) restingLayout() (stripLayout, float32) {
+	d := s.d
+	head := s.lineupFor(d.viewW, d.viewH).extent
+	return s.cardLayout(len(d.sets), d.viewW, d.viewH, d.scroll, head), head
+}
+
 // panelPeek is how long the strips show the overview's panel after the
 // settings size it, though the pointer is not there.
 const panelPeek = 1500 * time.Millisecond
@@ -389,7 +402,7 @@ func (a *App) showPanel() {
 
 // overviewGlyph draws the mark of the overview: four windows side by side.
 func overviewGlyph(c *ui.Context, size float32, color ui.Color) {
-	h, g := size*0.78, size*0.14
+	h, g := size*glyphAspect, size*0.14
 	cw, ch := (size-g)/2, (h-g)/2
 	ui.Box(c).Size(size, h).Children(func() {
 		for i := 0; i < 4; i++ {
@@ -421,13 +434,11 @@ func (s *strip) card(c *ui.Context, g *set, box ui.Rect) ui.Rect {
 	if !st.arrive.Empty() {
 		// It comes in where its windows were let go, at their size.
 		// Enter motions move and scale about the card's middle.
-		r := st.arrive
+		r := s.rectToLocal(st.arrive)
 		st.arrive = winapi.Rect{}
-		x := float32(float64(r.Left-s.rect.Left)/s.scale) + float32(float64(r.W())/s.scale)/2
-		y := float32(float64(r.Top-s.rect.Top)/s.scale) + float32(float64(r.H())/s.scale)/2
 		motion.Enter = &ui.Motion{
-			X: x - (box.X + box.W/2), Y: y - (box.Y + box.H/2),
-			Opacity: 1, Scale: float32(float64(r.W())/s.scale) / box.W,
+			X: r.X + r.W/2 - (box.X + box.W/2), Y: r.Y + r.H/2 - (box.Y + box.H/2),
+			Opacity: 1, Scale: r.W / box.W,
 		}
 	} else if landing {
 		motion.Enter = nil
@@ -800,8 +811,8 @@ func (s *strip) motion() string {
 		return "card dragged in"
 	case s.d.inOverview:
 		return "overview"
-	case s.a.busy:
-		return "switch"
+	case s.a.busy():
+		return s.a.hold.String()
 	}
 	return "cards"
 }
@@ -831,6 +842,12 @@ func (s *strip) dragPoses(g *set, box ui.Rect, ox, oy, lift, tilt float32) map[w
 	return poses
 }
 
+// frosted gives el the look of a window that has no still yet, as its
+// card and the overview both show it: a frosted pane its app's icon sits on.
+func frosted(el ui.Element) ui.Element {
+	return el.Background(ui.RGBA(250, 250, 252, 0.2)).Border(1, ui.RGBA(255, 255, 255, 0.3))
+}
+
 // grayOver keys the gray copy of a window's still, drawn over it.
 type grayOver struct{ h winapi.HWND }
 
@@ -840,19 +857,20 @@ type grayOver struct{ h winapi.HWND }
 // copy of it is drawn over it, that much opaque.
 func (s *strip) windowStill(c *ui.Context, g *set, i int, r ui.Rect, gray float32) {
 	w := g.windows[i]
-	radius := max(r.H*0.045, 3)
+	// The shadow and corners are those of the flight landing in it
+	// (cardShade, stillRadius), so that nothing jumps as it hands over.
+	radius, sh := stillRadius(r.H), cardShade(r.H)
 	if st := s.a.media.still(w.HWND); st != nil {
-		ui.Image(c.Key(w.HWND), st.card).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).
-			Fit(ui.FillBox).Radius(radius).Shadow(0, r.H*0.05, r.H*0.16, 0, shadowSoft)
+		sh.cast(ui.Image(c.Key(w.HWND), st.card).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).
+			Fit(ui.FillBox).Radius(radius))
 		if gray > 0.005 {
 			ui.Image(c.Key(grayOver{w.HWND}), st.card).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).
 				Fit(ui.FillBox).Radius(radius).Grayscale().Opacity(gray)
 		}
 		return
 	}
-	pane := ui.Column(c.Key(w.HWND)).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).Radius(radius).
-		Background(ui.RGBA(250, 250, 252, 0.2)).Border(1, ui.RGBA(255, 255, 255, 0.3)).
-		Shadow(0, r.H*0.05, r.H*0.16, 0, shadowSoft).Center().Gap(4).Padding(6)
+	pane := sh.cast(frosted(ui.Column(c.Key(w.HWND)).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H).Radius(radius))).
+		Center().Gap(4).Padding(6)
 	pane.Children(func() {
 		if icon := s.a.media.cachedIcon(w); icon != nil && i < len(g.apps) {
 			sz := min(r.H*0.38, 48)
@@ -863,6 +881,3 @@ func (s *strip) windowStill(c *ui.Context, g *set, i int, r ui.Rect, gray float3
 		}
 	})
 }
-
-// isFloating reports whether strips float over the desktop.
-func (a *App) isFloating() bool { return a.settings.Mode == settings.Floating }

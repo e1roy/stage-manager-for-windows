@@ -124,6 +124,8 @@ var en = Strings{
 	Issues:        "Report an issue",
 
 	NewVersion:       "Version %s is available",
+	NewVersionMenu:   "Version %s is available…",
+	Copyright:        "© 2026 Renkai ·",
 	Download:         "Download",
 	UpdateUnknown:    "Couldn't check for updates.",
 	SeeReleases:      "See the latest release",

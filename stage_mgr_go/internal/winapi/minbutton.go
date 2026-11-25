@@ -3,8 +3,6 @@
 package winapi
 
 import (
-	"runtime"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
@@ -105,7 +103,6 @@ func onMinButton(p Point, want func(HWND) bool) HWND {
 	if p.Y >= wr.Top+band || p.X < wr.Left+wr.W()/2 {
 		return 0
 	}
-	const smtoAbortIfHung = 0x0002
 	lp := uintptr(uint16(p.X)) | uintptr(uint16(p.Y))<<16
 	var hit uintptr
 	if ok, _, _ := procSendMessageTimeoutW.Call(uintptr(under), wmNcHitTest, 0, lp, smtoAbortIfHung, minAsk, uintptr(unsafe.Pointer(&hit))); ok == 0 || hit != htMinButton {
@@ -165,52 +162,14 @@ var minButtonCallback = syscall.NewCallback(func(code, wParam uintptr, m *msllHo
 // must return at once, without locking. Call unhook outside them: it
 // waits for the hook to be removed.
 func HookMinButton(want func(HWND) bool, fn func(HWND)) (unhook func(), err error) {
-	type started struct {
-		tid uint32
-		err error
-	}
-	ready := make(chan started)
-	stopped := make(chan struct{})
-	go func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		defer close(stopped)
-		var m threadMsg
-		procPeekMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0, pmNoRemove)
-		mod, _, _ := procGetModuleHandleW.Call(0)
+	return runHook(whMouseLL, minButtonCallback, func() {
 		minButton.taken.Store(0)
 		minButton.want.Store(&want)
 		minButton.fn.Store(&fn)
-		h, _, e := procSetWindowsHookExW.Call(whMouseLL, minButtonCallback, mod, 0)
-		if h == 0 {
-			minButton.want.Store(nil)
-			minButton.fn.Store(nil)
-			ready <- started{err: e}
-			return
-		}
-		ready <- started{tid: CurrentThreadID()}
-		for {
-			if r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0); int32(r) <= 0 {
-				break
-			}
-		}
+	}, func() {
 		minButton.want.Store(nil)
 		minButton.fn.Store(nil)
-		procUnhookWindowsHookEx.Call(h)
 		minButton.taken.Store(0)
 		minButton.buttons.Store(nil)
-	}()
-	s := <-ready
-	if s.err != nil {
-		return nil, s.err
-	}
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			minButton.want.Store(nil)
-			minButton.fn.Store(nil)
-			procPostThreadMessageW.Call(uintptr(s.tid), wmQuit, 0, 0)
-			<-stopped
-		})
-	}, nil
+	})
 }

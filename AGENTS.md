@@ -99,13 +99,13 @@ stage_mgr_go/
       settingsview.go 设置窗口：左侧导航（`nav`，窗口窄于 `compactBelow` 时只留图标）列出通用/侧边栏/舞台/所有窗口/例外/关于 六页，页名固定在内容上方；每行只有标题和控件，说明文字和各选项的解释放进标题后 ⓘ 的悬停提示（`form.title`），分组的说明同样（`form.group`）
       tray.go 托盘；debug.go 调试日志、看门狗、帧统计与主线程慢任务计时
       update.go       检查更新：启动 10s 后、之后每 6h 在 goroutine 里读 `.version`，有新版本时给托盘图标画红点、托盘菜单加第一项；设置窗口左侧导航的“关于”和页面按 `a.newer()` 画红点，页面同时显示本地版本和最新版本（`a.published`），旁边有立即再查一次的按钮（检查中置灰）
-      *_test.go       无头测试：layout、lineup、stripview、staged、set、corner、flights、iconfit、peek、update、snapshot
+      *_test.go       无头测试：layout、lineup、stripview、staged、set、corner、flights、phases、iconfit、peek、update、snapshot
 ```
 
 ## 核心流程：一次舞台切换
 
 1. 触发：点卡片 → `stripview` 调 `a.request(actPick…)`；Alt+Tab/任务栏 → `events.onWinEvent` → `onForeground` → `settleForeground`；点壁纸 → `switchStage(d, nil, …)`。
-2. `switch.go: switchStage` 算出 departing / arriving 窗口。若已有切换在跑（`a.busy`），新请求放进 `a.queued` 并 `flights.interrupt`，空中的窗口原地掉头，不等待。
+2. `switch.go: switchStage` 算出 departing / arriving 窗口。若舞台已被占着（`a.busy()`：`a.hold` 是 `holdSwitch` 或 `holdOverview`），新请求放进 `a.queued` 并 `flights.interrupt`，空中的窗口原地掉头，不等待。
 3. `media.capture` 在 goroutine 里给离场窗口拍静帧（带超时，卡死的应用不会拖住切换），完成后回主线程。
 4. 更新模型 `d.model.Switch` → `arrange` 重建 `d.sets` / `d.onStage` → `flights.run` 开始飞行。
 5. `handover` 的回调在飞行中交接真实窗口：`takeOff`（停放离场窗口、激活到场窗口）→ `land`（放回到场窗口）→ `stop`/`done`（收尾，`runQueued` 执行排队的切换）。
@@ -118,6 +118,7 @@ stage_mgr_go/
 - **不要在主线程做可能阻塞的事**：`PrintWindow` 会等目标应用自己绘制，只能在 goroutine 里做并带超时。看门狗在主线程 5 秒无响应时会直接按日志放回所有窗口。
 - **坐标**：与系统打交道一律是物理像素（进程是 Per-Monitor V2，`winapi.Rect`）；MyGo 在窗口内按 DIP 绘制（`ui.Rect`）。两者之间的换算集中在 `strip.toScreen`、`display.mon.Scale()` 一类地方，别在别处随手乘 DPI。
 - **停放而不是最小化**：隐藏窗口一律走 `parking.Service`（移到同一显示器旁的桌面外，保持 DPI），每次变动写日志。绕过它直接 `SetWindowPos` 移走窗口，崩溃后窗口就回不来了。开启 `HideInactive` 时最小化台前窗口分两种（设置 `MinimizeToStrip`，默认关）：关着时交给 Windows，窗口进任务栏，`settleMinimize` 在舞台上没有别的窗口时换回上一个舞台（`Previous`），否则舞台不变、焦点若落到停放的窗口上就拉回舞台；打开时经 `events.go` 的异步还原再走正常切换，把所在舞台组合收进侧边栏并换回上一个舞台（台前窗口的最小化/还原动画因此一直关着，见 `events.go: syncCalm`，否则会先缩进任务栏再放大回来）。点标题栏的最小化按钮不走这条路：`HookMinButton`（只在 `MinimizeToStrip` 打开时装）在点击到达窗口前吞掉它，直接 `switchStage`，窗口不会先消失再出现；点任务栏上台前窗口的按钮也一样截下（`aimTaskbar`）；Win+Down、不回答 HTMINBUTTON 的自绘标题栏、任务栏按钮还没列出来时的点击仍走异步还原；其他最小化窗口仍交给任务栏。Win+D/Win+M 通过独立低级钩子 `HookWinDesktop` 清空受管理舞台，不切换还原；关闭隐藏非台前窗口时释放钩子。
+- **显式状态机**：有先后顺序的生命周期用一个阶段枚举加迁移表表示，不要用几个布尔量拼：`switch.go` 的 `hold`（舞台归谁：无 / 切换 / 概览，`take`/`letGo`）、`flights.go` 的 `tripPhase`（`tripNext`）、`overview.go` 的 `overviewPhase`（`overviewNext`）、`events.go` 的 `minimizeStep`。`trip` 和 `overview` 的迁移一律走 `to(...)`，它拒绝表里没有的迁移，晚到的定时器和事件因此不会把阶段往回拨；`hold` 只能由持有者 `letGo`。新增阶段先改表，再在 `phases_test.go` 里补路线。
 - **分层**：`winapi` 不持有应用状态；`stage` 不认识 HWND（规则改动先在 `stage` 里写测试）；纯几何放 `layout.go`。新逻辑放进对应层，别把 Win32 调用塞进 `stage`/`settings`。
 - **依赖**：除 MyGo 外不引入第三方依赖，不用 cgo。Windows 专用文件加 `//go:build windows`。
 - **设置**：新增设置项要同时改 `Settings`、`Default()`、`Normalize()`（如有范围）、`Equal/Clone`（如是引用类型）、`settingsview.go` 和 `applySettings`。
@@ -131,7 +132,7 @@ stage_mgr_go/
 
 ## 测试
 
-- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`lineup`、`tint`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`staged`（台前卡片、滚动到离场卡片、`arrange` 的分组、拆开台前的组）、`set`、`corner`、`flights`、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
+- 有单测的：`stage`、`settings`、`i18n`、`update`、`winapi/monitor`，以及 `app` 下的 `layout`、`lineup`、`tint`、`stripview`（无头渲染，通过 `App.act` 截获卡片动作）、`staged`（台前卡片、滚动到离场卡片、`arrange` 的分组、拆开台前的组）、`set`、`corner`、`flights`、`phases`（显式状态机的迁移表）、`iconfit`、`peek`、`update`（红点图标）、`snapshot`（要 `STAGEMANAGER_SNAPSHOT_DIR`）。
 - `catalog`、`parking`、飞行动画、窗口交接**没有自动化测试**，改动后需要手动验证：
   - 固定模式和浮动模式各切换几次，包括快速连点打断正在进行的切换；
   - 多显示器（不同 DPI）下切换、把窗口拖到另一台显示器、把窗口拖进侧边栏；

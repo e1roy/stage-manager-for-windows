@@ -21,8 +21,9 @@ const (
 	// going online.
 	firstCheck = 10 * time.Second
 	// checkEvery looks again while the app runs, as it may run for weeks:
-	// often enough to learn of a release the same day, rarely enough to
-	// stay far under GitHub's 60 requests an hour without a token.
+	// often enough to learn of a release the same day. The file it reads
+	// is raw, without the per-address request limit the API has, so the
+	// cost of a check is one small download.
 	checkEvery = 6 * time.Hour
 	// checkTimeout gives up on a slow network; the next check tries again.
 	checkTimeout = 15 * time.Second

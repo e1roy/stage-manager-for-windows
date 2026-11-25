@@ -29,7 +29,7 @@ func TestSnapshots(t *testing.T) {
 	}
 	a := &App{settings: settings.Default(), media: newMedia(), ready: true}
 	a.act = func(action, *display, *set) {}
-	d := &display{cards: map[string]*cardState{}, landing: map[string]bool{}}
+	d := newDisplay(winapi.Monitor{})
 	d.mon = winapi.Monitor{Device: `\\.\DISPLAY1`, Monitor: winapi.Rect{Right: 2560, Bottom: 1440}, Work: winapi.Rect{Right: 2560, Bottom: 1392}, DPI: 96, Primary: true}
 	apps := []struct {
 		name    string
@@ -229,7 +229,7 @@ func TestSnapshots(t *testing.T) {
 	d.onStage, a.fg.prev = nil, 0
 	s.line = lineup{}
 	// The overview of that display, spread out, the pointer on a window.
-	o := &overview{a: a, d: d, rect: d.mon.Work, scale: 1, phase: ovOpen, held: true, flying: true, spreadFrom: 1, spreadTo: 1}
+	o := &overview{a: a, d: d, rect: d.mon.Work, scale: 1, phase: ovOpen, spreadFrom: 1, spreadTo: 1}
 	var ws []catalog.Window
 	var items []overviewItem
 	for _, g := range groups {

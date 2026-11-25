@@ -32,7 +32,7 @@ func SystemProxy(server, bypass string) Proxy {
 // parseServer reads ProxyServer: one address for every protocol, as
 // "127.0.0.1:10809", or one per protocol, as
 // "http=127.0.0.1:10809;https=127.0.0.1:10809;socks=127.0.0.1:10808". For
-// the HTTPS of GitHub's API it takes the https one, then the one for all,
+// the HTTPS of the file read it takes the https one, then the one for all,
 // then the http one, then socks, which Go speaks as SOCKS5.
 func parseServer(s string) *url.URL {
 	var all string

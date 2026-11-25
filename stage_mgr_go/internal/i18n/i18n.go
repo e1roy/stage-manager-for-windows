@@ -15,29 +15,46 @@ const (
 	Japanese           Lang = "ja"
 )
 
+// languages is every language there are words for, each in one place:
+// its tag, its words and what it calls itself. Everything else (the list
+// the settings show, the lookup, the name) is derived from it, so a
+// language added by hand in one of those alone cannot be half there.
+var languages = []struct {
+	tag  Lang
+	str  *Strings
+	name string
+}{
+	{SimplifiedChinese, &zhHans, "简体中文"},
+	{TraditionalChinese, &zhHant, "繁體中文"},
+	{English, &en, "English"},
+	{Japanese, &ja, "日本語"},
+}
+
 // Langs are the languages there are words for, in the order the settings
 // list them.
-var Langs = []Lang{SimplifiedChinese, TraditionalChinese, English, Japanese}
+var Langs = func() []Lang {
+	var ls []Lang
+	for _, lg := range languages {
+		ls = append(ls, lg.tag)
+	}
+	return ls
+}()
 
-var tables = map[Lang]*Strings{
-	SimplifiedChinese:  &zhHans,
-	TraditionalChinese: &zhHant,
-	English:            &en,
-	Japanese:           &ja,
-}
+var tables = func() map[Lang]*Strings {
+	ts := make(map[Lang]*Strings, len(languages))
+	for _, lg := range languages {
+		ts[lg.tag] = lg.str
+	}
+	return ts
+}()
 
 // Name is what a language calls itself, as language menus show it so that
 // whoever reads it finds their own.
 func (l Lang) Name() string {
-	switch l {
-	case SimplifiedChinese:
-		return "简体中文"
-	case TraditionalChinese:
-		return "繁體中文"
-	case English:
-		return "English"
-	case Japanese:
-		return "日本語"
+	for _, lg := range languages {
+		if lg.tag == l {
+			return lg.name
+		}
 	}
 	return string(l)
 }
@@ -190,7 +207,12 @@ type Strings struct {
 	// menu; Download opens its page, beside LatestVersion on the about pane. CheckUpdates
 	// names looking for one, which CheckUpdatesDesc explains.
 	NewVersion string // %s: the newer version
-	Download   string
+	// NewVersionMenu is NewVersion as the tray's menu item says it, which
+	// ends where its ellipsis can follow.
+	NewVersionMenu string
+	Download       string
+	// Copyright is the line the about pane ends with.
+	Copyright string
 	// UpdateUnknown says the last check could not reach GitHub, and
 	// SeeReleases links to its releases to look by hand.
 	UpdateUnknown, SeeReleases     string

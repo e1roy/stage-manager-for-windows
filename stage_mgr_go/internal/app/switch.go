@@ -9,6 +9,48 @@ import (
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
+// hold is what has the stages to itself. A switch and the overviews each
+// move windows on and off the desktop over many frames, and neither may
+// begin while the other runs: a switch asked for meanwhile waits in
+// App.queued, an overview asked for waits a moment (openOverviews). Only
+// the one holding lets go.
+type hold uint8
+
+const (
+	holdNone     hold = iota
+	holdSwitch        // a switch runs; App.running is its request
+	holdOverview      // overviews show, on one display or more
+)
+
+func (h hold) String() string {
+	switch h {
+	case holdSwitch:
+		return "switch"
+	case holdOverview:
+		return "overview"
+	}
+	return "none"
+}
+
+// busy reports whether a switch or the overviews have the stages.
+func (a *App) busy() bool { return a.hold != holdNone }
+
+// take gives the stages to h, and running to the switch r it starts, if
+// any.
+func (a *App) take(h hold, r *switchRequest) {
+	a.hold, a.running = h, r
+}
+
+// letGo frees the stages once what held them, h, is over. One that never
+// held them lets go of nothing.
+func (a *App) letGo(h hold) {
+	if a.hold != h {
+		debugf("hold: %v lets go, but %v holds", h, a.hold)
+		return
+	}
+	a.hold, a.running = holdNone, nil
+}
+
 // switchStage makes next the apps on a display's stage. The windows
 // leaving shrink into their cards while the arriving ones grow out of
 // theirs; then the real windows take over. A switch that follows the user
@@ -24,12 +66,22 @@ func (a *App) switchStage(d *display, next []string, focus winapi.HWND, activate
 // take over from that one.
 func (a *App) start(r *switchRequest) {
 	d, next, focus, activate, followed := r.d, r.next, r.focus, r.activate, r.followed
-	if !a.managed(d) {
+	// Not one gone since the request was queued (live, as the capture
+	// callback asks): a switch on a display no longer of ours, as one
+	// unplugged or given up in the settings, would act on its stale
+	// stage and take the focus of a window nobody manages.
+	if !a.live(d) {
 		return
 	}
-	if a.busy {
+	if a.busy() {
 		// A click does not wait for the switch running to end: it takes
 		// over, and the windows in the air turn where they are, as on macOS.
+		// The windows that switch was to send home where a drag began
+		// may still leave with this one.
+		r.inherit(a.queued[d])
+		if a.running != nil && a.running.d == d {
+			r.inherit(a.running)
+		}
 		a.queued[d] = r
 		a.flights.interrupt(d)
 		return
@@ -90,11 +142,10 @@ func (a *App) start(r *switchRequest) {
 		a.refresh()
 		return
 	}
-	a.busy = true
 	debugf("switch %s to %v: departing %v arriving %v focus %x activate=%v followed=%v",
 		d.mon.Device, next, hwnds(departing), hwnds(arriving), focus, activate, followed)
 	r.focus = focus
-	a.running = r
+	a.take(holdSwitch, r)
 	// Stills taken as the pointer came to the strip are fresh enough, and
 	// the windows in the air have theirs; the rest make do with what they
 	// have rather than hold the flights still, unless they have no still.
@@ -103,7 +154,7 @@ func (a *App) start(r *switchRequest) {
 		if _, aloft := air[w.HWND]; aloft {
 			continue
 		}
-		if st := a.media.still(w.HWND); st == nil || len(air) == 0 && (time.Since(st.at) > 2*time.Second || a.media.pending[w.HWND]) {
+		if st := a.media.still(w.HWND); st == nil || len(air) == 0 && time.Since(st.at) > 2*time.Second {
 			hs = append(hs, w.HWND)
 		}
 	}
@@ -113,6 +164,15 @@ func (a *App) start(r *switchRequest) {
 	t0 := time.Now()
 	a.media.capture(hs, false, 150*time.Millisecond, func() {
 		debugf("switch: captured %d in %v", len(hs), time.Since(t0))
+		if !a.live(d) {
+			// The display went, or Stage Manager is quitting, while the
+			// stills were taken: its windows went home with it, and this
+			// switch would park them again.
+			debugf("switch: %s gone while capturing", d.mon.Device)
+			a.letGo(holdSwitch)
+			a.ended(d)
+			return
+		}
 		sw := newStopwatch()
 		defer sw.report("switch: setting the flights off")
 		// The arriving windows grow out of the cards as they show now,
@@ -132,7 +192,7 @@ func (a *App) start(r *switchRequest) {
 		if d.strip != nil && len(departing) > 0 {
 			// Hold a floating strip open so the windows visibly land, and
 			// a moment longer.
-			d.strip.holdOpen(a.flightSpan() + 700*time.Millisecond)
+			d.strip.holdOpen(a.flightSpan() + landLinger)
 		}
 		a.redraw()
 		sw.lap("arrange")
@@ -154,7 +214,7 @@ func (a *App) start(r *switchRequest) {
 		if hole != 0 {
 			front = hole
 		}
-		h := handover{a: a, d: d, departing: departing, arriving: arriving, focus: focus, activate: activate, front: front}
+		h := handover{a: a, d: d, departing: departing, arriving: arriving, focus: focus, activate: activate, front: front, homes: r.homes}
 		a.flights.run(d, departing, arriving, from, followed, below, hole, h.takeOff, h.land, h.stop, h.done)
 		sw.lap("flights")
 	})
@@ -177,6 +237,8 @@ type handover struct {
 	activate            bool
 	early               bool
 	front               winapi.HWND // the window the others stay under
+	// homes is the request's (switchRequest.homes); those taken off go.
+	homes map[winapi.HWND]winapi.Rect
 }
 
 // takeOff runs once the flights cover the windows: the leaving windows go,
@@ -184,12 +246,17 @@ type handover struct {
 // rather than after it lands, so its title bar does not change color on
 // arrival.
 func (h *handover) takeOff() {
+	// Not on a display gone or no longer managed since the flights left,
+	// nor once quitting: those windows went home already.
+	if !h.a.live(h.d) {
+		return
+	}
 	for _, w := range h.departing {
 		h.a.park.Park(w.HWND)
 		// A window dragged into the strip comes back where the drag began.
-		if r, ok := h.a.dropHomes[w.HWND]; ok {
+		if r, ok := h.homes[w.HWND]; ok {
 			h.a.park.Rehome(w.HWND, r)
-			delete(h.a.dropHomes, w.HWND)
+			delete(h.homes, w.HWND)
 		}
 	}
 	if h.activate && h.focus != 0 && !winapi.IsIconic(h.focus) {
@@ -203,48 +270,49 @@ func (h *handover) takeOff() {
 // cards the departing ones flew into under theirs.
 func (h *handover) land() {
 	clear(h.d.landing)
-	h.a.redraw()
-	var parked []winapi.HWND
-	for _, w := range h.arriving {
-		// Coming back from outside the desktop, a window is faded in by
-		// DWM; the flight already showed it arrive.
-		winapi.SetTransitionsDisabled(w.HWND, true)
-		switch {
-		case h.a.park.IsParked(w.HWND):
-			parked = append(parked, w.HWND)
-		case winapi.IsIconic(w.HWND) && !(h.activate && !h.early && w.HWND == h.focus):
-			winapi.ShowNoActivate(w.HWND)
+	// Not on a display gone or no longer managed while the flights were
+	// out: its windows went home with it (App.release), and this would
+	// take the animations and the focus of windows Stage Manager no
+	// longer has a say over.
+	if h.a.live(h.d) {
+		h.a.redraw()
+		var parked []winapi.HWND
+		for _, w := range h.arriving {
+			// Coming back from outside the desktop, a window is faded in by
+			// DWM; the flight already showed it arrive.
+			winapi.SetTransitionsDisabled(w.HWND, true)
+			switch {
+			case h.a.park.IsParked(w.HWND):
+				parked = append(parked, w.HWND)
+			case winapi.IsIconic(w.HWND) && !(h.activate && !h.early && w.HWND == h.focus):
+				winapi.ShowNoActivate(w.HWND)
+			}
 		}
-	}
-	// Together, so that they come home in the order they flew in, under
-	// the window they stay under: they come home on top, and it goes back
-	// above them in the same raise, not in one of its own that would race
-	// with theirs.
-	h.a.park.UnparkUnder(h.front, parked...)
-	if h.activate && !h.early && h.focus != 0 {
-		ok := winapi.Activate(h.focus)
-		debugf("activate late %x ok=%v fg=%x", h.focus, ok, winapi.Foreground())
-	}
-	arrived := h.arriving
-	after(700*time.Millisecond, func() {
-		for _, w := range arrived {
-			h.a.liven(w)
+		// Together, so that they come home in the order they flew in, under
+		// the window they stay under: they come home on top, and it goes back
+		// above them in the same raise, not in one of its own that would race
+		// with theirs.
+		h.a.park.UnparkUnder(h.front, parked...)
+		if h.activate && !h.early && h.focus != 0 {
+			ok := winapi.Activate(h.focus)
+			debugf("activate late %x ok=%v fg=%x", h.focus, ok, winapi.Foreground())
 		}
-	})
+		h.a.livenLater(h.arriving)
+	}
 }
 
 // stop hands the switch over to the one asked for meanwhile, mid-flight:
 // the windows stay parked, for it to fly on.
 func (h *handover) stop() {
 	clear(h.d.landing)
-	h.a.busy, h.a.running = false, nil
+	h.a.letGo(holdSwitch)
 	h.a.runQueued(h.d)
 }
 
 // done ends the switch once the flights are gone.
 func (h *handover) done() {
 	clear(h.d.landing)
-	h.a.busy, h.a.running = false, nil
+	h.a.letGo(holdSwitch)
 	h.a.ended(h.d)
 }
 
@@ -271,6 +339,28 @@ type switchRequest struct {
 	// split is the app whose set breaks into sets of one app each as the
 	// stage changes (App.split), or "".
 	split string
+	// homes is where windows dragged into the strip go back to, where the
+	// drag began, should this switch send them off the stage. It is the
+	// request's, as split is: kept on the App, one left by a switch taken
+	// over by another that kept the window on the stage would send it to
+	// that old place the next time it left.
+	homes map[winapi.HWND]winapi.Rect
+}
+
+// inherit takes the homes of from, a request this one takes over from,
+// for the windows of those it has none for.
+func (r *switchRequest) inherit(from *switchRequest) {
+	if from == nil || len(from.homes) == 0 {
+		return
+	}
+	if r.homes == nil {
+		r.homes = map[winapi.HWND]winapi.Rect{}
+	}
+	for h, home := range from.homes {
+		if _, ok := r.homes[h]; !ok {
+			r.homes[h] = home
+		}
+	}
 }
 
 // commit makes the model of the request's display what the switch asks for.
@@ -318,7 +408,7 @@ func (a *App) freshenStage(d *display) {
 	var hs []winapi.HWND
 	for _, g := range d.onStage {
 		for _, w := range g.windows {
-			if a.hidden(w) || a.media.pending[w.HWND] {
+			if a.hidden(w) {
 				continue
 			}
 			if st := a.media.still(w.HWND); st == nil || time.Since(st.at) > time.Second {
@@ -353,6 +443,8 @@ const (
 	// A card's menu asks for this, to keep the windows of its app
 	// together, or no longer.
 	actKeepTogether
+	// actCount marks the end, for the test that walks them all.
+	actCount
 )
 
 // request carries out what a card asks for once the frame is built. Tests
@@ -379,6 +471,11 @@ func (a *App) request(act action, d *display, s *set) {
 			a.unstage(d, s)
 		case actKeepTogether:
 			a.toggleKeepTogether(s)
+		default:
+			// One with an entry of its own (requestOverview,
+			// requestMove, requestReorder): no card asks for it here, and
+			// doing nothing rather than landing in the log hides nothing.
+			debugf("card request %d has its own entry point", act)
 		}
 	})
 }
@@ -449,8 +546,7 @@ func (a *App) reveal(d *display, app string) {
 	if i < 0 {
 		return
 	}
-	head := s.lineupFor(d.viewW, d.viewH).extent
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(a.settings.Spacing), a.panel(), head, float32(a.settings.CardsAt), s.right())
+	l, head := s.restingLayout()
 	d.scroll = l.scrollTo(i, d.scroll, d.viewH, a.panel(), head)
 }
 

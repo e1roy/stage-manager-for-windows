@@ -5,7 +5,6 @@ package app
 
 import (
 	"log"
-	"maps"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -175,9 +174,12 @@ type App struct {
 	seen     map[winapi.HWND]time.Time // when a window was first listed
 	lost     map[winapi.HWND]time.Time // when a window was first seen off every display, unparked
 
-	ready    bool           // the first stage is set
-	busy     bool           // a switch is running
-	running  *switchRequest // the switch running, while busy
+	ready bool // the first stage is set
+	// hold is what has the stages to itself (switch.go): a switch, the
+	// overviews, or nothing; running is the switch's request while it is a
+	// switch, and nil otherwise.
+	hold     hold
+	running  *switchRequest
 	quitting bool
 	// queued is, per display, a switch asked for while one runs, to take
 	// over from it.
@@ -219,8 +221,6 @@ type App struct {
 	drag *drag
 	// cardDrag is the card dragged out of a strip, if any (carddrag.go).
 	cardDrag *cardDrag
-	// dropHomes is where the windows dragged into a strip go back to.
-	dropHomes map[winapi.HWND]winapi.Rect
 	// peek is the shell's window for a peek at a taskbar thumbnail, while
 	// it shows one, and taskbar where the pointer was last over a taskbar.
 	peek    winapi.HWND
@@ -276,7 +276,6 @@ func Start(o Options) *App {
 		media:      newMedia(),
 		seen:       map[winapi.HWND]time.Time{},
 		lost:       map[winapi.HWND]time.Time{},
-		dropHomes:  map[winapi.HWND]winapi.Rect{},
 		queued:     map[*display]*switchRequest{},
 		minimizing: map[winapi.HWND]*minimizeTarget{},
 		calm:       map[winapi.HWND]bool{},
@@ -321,6 +320,15 @@ func (a *App) managed(d *display) bool {
 	return a.settings.DisplayEnabled(d.mon.Device)
 }
 
+// live reports whether work begun for display d, back on the main thread
+// after a capture, a timer or a flight, may still act on it: Stage Manager
+// is not quitting, d is still one of the displays rather than one unplugged
+// meanwhile, and it is managed. Each of those sends d's windows home, so
+// work that went on would park them again with nobody to bring them back.
+func (a *App) live(d *display) bool {
+	return !a.quitting && slices.Contains(a.displays, d) && a.managed(d)
+}
+
 // right reports whether a display's strip keeps to its right edge rather
 // than the left one, where macOS keeps it.
 func (a *App) right(d *display) bool {
@@ -359,6 +367,26 @@ func (a *App) displayOf(w catalog.Window) *display {
 	return a.displayByHandle(winapi.MonitorFromRect(a.home(w)))
 }
 
+// listed is the window of handle h as the catalog last listed it, and
+// whether it listed one: one that closed, or was never listed, did not.
+// Its owner's root is what a dialog is known by (catalog.RootOwner).
+func (a *App) listed(h winapi.HWND) (catalog.Window, bool) {
+	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == h })
+	if i < 0 {
+		return catalog.Window{}, false
+	}
+	return a.windows[i], true
+}
+
+// stagedOn is the display whose stage w's app is on, or nil. The one way
+// to ask, so that "on the stage" means the same everywhere.
+func (a *App) stagedOn(w catalog.Window) *display {
+	if d := a.displayOf(w); d != nil && a.managed(d) && d.model.OnStage(w.App) {
+		return d
+	}
+	return nil
+}
+
 // hidden reports whether a window is off the desktop: parked. Minimized
 // windows are not listed at all, so they never reach here.
 func (a *App) hidden(w catalog.Window) bool { return a.park.IsParked(w.HWND) }
@@ -386,6 +414,12 @@ func showing(a *App, g *group) bool {
 	return slices.ContainsFunc(g.windows, func(w catalog.Window) bool { return !a.hidden(w) })
 }
 
+// newDisplay is a display for monitor m, its maps made: the one way to make
+// one, for syncDisplays and the tests alike.
+func newDisplay(m winapi.Monitor) *display {
+	return &display{mon: m, cards: map[string]*cardState{}, landing: map[string]bool{}}
+}
+
 // syncDisplays matches the displays and their strips to the monitors.
 func (a *App) syncDisplays() {
 	mons := winapi.Monitors()
@@ -393,7 +427,7 @@ func (a *App) syncDisplays() {
 	for _, m := range mons {
 		d := a.displayByDevice(m.Device)
 		if d == nil {
-			d = &display{cards: map[string]*cardState{}, landing: map[string]bool{}}
+			d = newDisplay(m)
 		}
 		d.mon = m
 		next = append(next, d)
@@ -415,6 +449,19 @@ func (a *App) syncDisplays() {
 				}
 				o.win.Destroy()
 				d.ov = nil
+			}
+		}
+		// And so does its flight layer, strip or not.
+		if !slices.Contains(next, d) {
+			a.flights.drop(d.mon.Device)
+			// A switch still flying on it ends here: its trip was dropped
+			// with the layer, and nothing of it is left to let go of the
+			// stages, which every switch after would wait on forever.
+			// Its windows went home with the display (release), and the
+			// requests queued for other displays run next (ended).
+			if a.hold == holdSwitch && a.running != nil && a.running.d == d {
+				a.letGo(holdSwitch)
+				a.ended(d)
 			}
 		}
 	}
@@ -448,7 +495,8 @@ func (a *App) syncDisplays() {
 	for _, d := range a.displays {
 		d.mon = winapi.MonitorInfo(d.mon.Handle)
 	}
-	a.syncWinTab()
+	// Which hooks are wanted depends on which displays are managed.
+	a.syncHooks()
 }
 
 // frontApp returns the front-most app showing on a display, or "".
@@ -535,12 +583,13 @@ func (a *App) rescueLost(now time.Time) {
 
 // bringOnScreen moves window h, whose visible frame is frame, as little as
 // it takes onto the nearest display. It fits the frame, not the invisible
-// borders around it.
+// borders around it. A window lost off the desktop may well be one whose
+// app hangs, so the move is sent off without waiting for it: the next
+// refresh sees where it went.
 func bringOnScreen(h winapi.HWND, frame winapi.Rect) bool {
 	to, r := winapi.FitOnScreen(frame), winapi.WindowRect(h)
 	debugf("rescue %x %q from %v to %v", h, winapi.Title(h), frame, to)
-	return winapi.SetWindowPos(h, 0, r.Left+to.Left-frame.Left, r.Top+to.Top-frame.Top, 0, 0,
-		winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
+	return winapi.MoveAsync(h, r.Left+to.Left-frame.Left, r.Top+to.Top-frame.Top)
 }
 
 func (a *App) displaysChanged() {
@@ -630,7 +679,7 @@ func (a *App) refresh() {
 	}
 	// While a peek shows, the parked windows are home on purpose and must
 	// not be taken for strays.
-	if !a.ready || a.busy || a.quitting || a.peek != 0 || len(a.minimizing) != 0 {
+	if !a.ready || a.busy() || a.quitting || a.peek != 0 || len(a.minimizing) != 0 {
 		return
 	}
 	if a.regroupDue() {
@@ -695,7 +744,7 @@ func (a *App) refresh() {
 				// (freshenStage).
 				st := a.media.still(w.HWND)
 				stale := st == nil || (!a.hidden(w) && !s.staged && time.Since(st.at) > 5*time.Second)
-				if stale && !a.media.pending[w.HWND] && time.Since(a.media.tried[w.HWND]) > 3*time.Second {
+				if stale && time.Since(a.media.tried[w.HWND]) > 3*time.Second {
 					want = append(want, w.HWND)
 				}
 			}
@@ -823,7 +872,7 @@ func (a *App) restageNext() bool {
 	for len(a.restage) > 0 {
 		d := a.restage[0]
 		a.restage = a.restage[1:]
-		if slices.Contains(a.displays, d) && a.managed(d) {
+		if a.live(d) {
 			a.switchStage(d, d.model.Stage(), 0, false, false)
 			return true
 		}
@@ -966,19 +1015,13 @@ func (a *App) applySettings(s settings.Settings) {
 			a.settingsUI.win.SetTitle(a.tr().SettingsTitle)
 		}
 	}
-	// syncDisplays below moves a strip to its new side; its cards turn the
-	// other way as it draws again. The panel's size moves the cards too,
-	// as where they sit and the list of the stage's windows do, and the accent is drawn on
-	// the panels, the corner button and that list. The mark of the stage
-	// last left is drawn on its card.
-	if old.Language != s.Language || old.Tilt != s.Tilt || old.Spacing != s.Spacing || old.CardsAt != s.CardsAt || !maps.Equal(old.Sides, s.Sides) ||
-		old.PanelWidth != s.PanelWidth || old.PanelHeight != s.PanelHeight || old.Accent != s.Accent ||
-		old.PanelOpacity != s.PanelOpacity ||
-		old.StageList != s.StageList || old.MarkPrevious != s.MarkPrevious ||
-		old.AllStages != s.AllStages || old.StagedOpacity != s.StagedOpacity || old.StagedGray != s.StagedGray {
-		a.redraw()
-	}
-	if (old.Accent != s.Accent || old.PanelOpacity != s.PanelOpacity) && a.hint != nil && a.hint.visible {
+	// Most settings show in the strips, the panels or the corner button.
+	// They are drawn again whatever changed: a list of the settings that
+	// show would be one more place to remember with every new one, and it
+	// once left out the icons' size. Settings change seldom; a frame more
+	// costs nothing.
+	a.redraw()
+	if a.hint != nil && a.hint.visible {
 		a.hint.win.Invalidate()
 	}
 	// The panel's glass blurs what it last caught behind it again.
@@ -989,21 +1032,13 @@ func (a *App) applySettings(s settings.Settings) {
 			}
 		}
 	}
-	if old.Mode != s.Mode || old.Width != s.Width {
-		for _, d := range a.displays {
-			if d.strip != nil {
-				d.strip.relayout()
-			}
-		}
-	}
 	// The corner button is hidden till the pointer comes near it, so it
 	// shows while the settings size it.
 	if old.CornerWidth != s.CornerWidth {
 		a.showCorner()
 	}
+	// It places every strip again too, for its mode and width.
 	a.syncDisplays()
-	a.syncWinDesktop()
-	a.syncMinButton()
 	// The stage's windows go without their minimize animation only while
 	// minimizing sends the stage to the strip.
 	a.syncCalm()
@@ -1015,6 +1050,11 @@ func (a *App) applySettings(s settings.Settings) {
 	a.refresh()
 }
 
+// quitSettle is how long quitting waits for the windows sent home to get
+// there: apps that are working move theirs within a few frames, and the
+// session's end gives a process only a few seconds in all.
+const quitSettle = 600 * time.Millisecond
+
 // shutdown puts every window back and gives the work area back. It runs
 // as the app quits and as the session ends, and only once; MyGo closes
 // the strips' windows itself.
@@ -1023,32 +1063,27 @@ func (a *App) shutdown() {
 		return
 	}
 	a.quitting = true
-	for h, target := range a.minimizing {
-		if target.timer != nil {
-			target.timer.Stop()
-		}
-		if target.watchdog != nil {
-			target.watchdog.Stop()
-		}
+	for h, t := range a.minimizing {
+		t.stop()
 		delete(a.minimizing, h)
 	}
-	// The windows go back to Windows with their animations.
+	// The windows go back to Windows with their animations, and the
+	// shortcuts and clicks the hooks took go back to it too.
 	a.syncCalm()
-	if a.unhookWinDesktop != nil {
-		a.unhookWinDesktop()
-		a.unhookWinDesktop = nil
-	}
-	a.syncMinButton()
+	a.syncHooks()
 	if a.unhook != nil {
 		a.unhook()
 	}
 	if a.stopPoll != nil {
 		close(a.stopPoll)
 	}
-	a.syncWinTab()
+	// Callbacks already queued on the main thread, such as a flight's
+	// take-off, may still run before the loop stops: they must not park a
+	// window once all went home.
+	a.park.Close()
 	a.park.RestoreAll()
 	// Nothing will follow the windows home after this: wait for them.
-	a.park.Settle(600 * time.Millisecond)
+	a.park.Settle(quitSettle)
 	for _, d := range a.displays {
 		if d.strip != nil {
 			d.strip.bar.Remove()

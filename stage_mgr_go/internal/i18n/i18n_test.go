@@ -14,7 +14,25 @@ var verbs = regexp.MustCompile(`%[-+# 0-9.]*[a-z%]`)
 // verbs of the English one in the same order.
 func TestComplete(t *testing.T) {
 	ref := reflect.ValueOf(en)
+	if len(tables) != len(Langs) {
+		t.Errorf("%d tables for %d languages", len(tables), len(Langs))
+	}
 	for _, l := range Langs {
+		// For falls back to English: compare the table itself, so that a
+		// language listed without words of its own is caught, not read as
+		// complete.
+		table, ok := tables[l]
+		if !ok {
+			t.Errorf("%s has no table", l)
+			continue
+		}
+		if table == &en && l != English {
+			t.Errorf("%s is English by fallback", l)
+			continue
+		}
+		if name := l.Name(); name == string(l) {
+			t.Errorf("%s calls itself by its tag", l)
+		}
 		v := reflect.ValueOf(*For(l))
 		for i := range v.NumField() {
 			name, s := v.Type().Field(i).Name, v.Field(i).String()

@@ -72,11 +72,10 @@ func (a *App) dragOver() {
 		}
 		return
 	}
-	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == g.h })
-	if i < 0 {
+	w, ok := a.listed(g.h)
+	if !ok {
 		return
 	}
-	w := a.windows[i]
 	stage := a.heading(d)
 	if slices.Contains(stage, w.App) {
 		return
@@ -108,11 +107,10 @@ func (a *App) windowMoved(h winapi.HWND) {
 		return
 	}
 	a.windows = a.cat.Windows()
-	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == h })
-	if i < 0 {
+	w, ok := a.listed(h)
+	if !ok {
 		return
 	}
-	w := a.windows[i]
 	if d := a.stripUnder(winapi.Cursor()); moved && d != nil {
 		switch {
 		case d != g.home && a.settings.HideInactive:
@@ -146,6 +144,8 @@ func (a *App) windowMoved(h winapi.HWND) {
 // once rather than once its stage settles, unless a window of the app
 // stays there: should the stage be left empty, the one before comes back.
 func (a *App) leave(d *display, w catalog.Window) {
+	// The window may sit on another display already, its stage where it
+	// left: ask that display, not where the window is (stagedOn).
 	if d == nil || !d.model.OnStage(w.App) || slices.ContainsFunc(a.windows, func(o catalog.Window) bool {
 		return o.App == w.App && o.HWND != w.HWND && a.displayOf(o) == d
 	}) {
@@ -167,13 +167,12 @@ func (a *App) followMoved() bool {
 		return false
 	}
 	fg := catalog.RootOwner(winapi.Foreground())
-	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == fg })
-	if i < 0 || a.park.IsParked(fg) {
+	w, ok := a.listed(fg)
+	if !ok || a.park.IsParked(fg) {
 		return false
 	}
-	w := a.windows[i]
 	d := a.displayOf(w)
-	if d == nil || !a.managed(d) || d.model.OnStage(w.App) || d.model.Settling(time.Now()) {
+	if a.stagedOn(w) != nil || d == nil || !a.managed(d) || d.model.Settling(time.Now()) {
 		return false
 	}
 	debugf("%q moved to %s", w.Title, d.mon.Device)
@@ -196,14 +195,14 @@ func (a *App) stripUnder(p winapi.Point) *display {
 func (a *App) sendToStrip(d *display, w catalog.Window, from winapi.Rect) {
 	debugf("%q dragged into the strip", w.Title)
 	next := slices.DeleteFunc(a.heading(d), func(app string) bool { return app == w.App })
+	r := &switchRequest{d: d, next: next, activate: true}
 	if a.settings.HideInactive {
-		a.dropHomes[w.HWND] = from
+		r.homes = map[winapi.HWND]winapi.Rect{w.HWND: from}
 	} else {
 		// Nothing is parked: the window goes back at once.
-		winapi.SetWindowPos(w.HWND, 0, from.Left, from.Top, 0, 0,
-			winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
+		winapi.Move(w.HWND, from.Left, from.Top)
 	}
-	a.switchStage(d, next, 0, true, false)
+	a.start(r)
 }
 
 // sendAcross puts the app of a window dragged into the strip of another
@@ -213,8 +212,7 @@ func (a *App) sendToStrip(d *display, w catalog.Window, from winapi.Rect) {
 func (a *App) sendAcross(d *display, w catalog.Window, stage []string) {
 	debugf("%q dragged into the strip of %s", w.Title, d.mon.Device)
 	f := winapi.FitInto(w.Frame, d.mon.Handle)
-	winapi.SetWindowPos(w.HWND, 0, w.Rect.Left+f.Left-w.Frame.Left, w.Rect.Top+f.Top-w.Frame.Top, 0, 0,
-		winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
+	winapi.Move(w.HWND, w.Rect.Left+f.Left-w.Frame.Left, w.Rect.Top+f.Top-w.Frame.Top)
 	next := slices.DeleteFunc(slices.Clone(stage), func(app string) bool { return app == w.App })
 	a.switchStage(d, next, 0, false, false)
 }

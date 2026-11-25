@@ -124,6 +124,8 @@ var zhHans = Strings{
 	Issues:        "反馈问题",
 
 	NewVersion:       "发现新版本 %s",
+	NewVersionMenu:   "发现新版本 %s，点击前往下载…",
+	Copyright:        "© 2026 Renkai ·",
 	Download:         "前往下载",
 	UpdateUnknown:    "无法检测新版本，",
 	SeeReleases:      "前往查询最新版",

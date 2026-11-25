@@ -257,8 +257,14 @@ func markRect(stack []ui.Rect) (ui.Rect, float32) {
 	}
 	pad := max(stack[0].H*0.07, 6)
 	r := ui.Rect{X: x0 - pad, Y: y0 - pad, W: x1 - x0 + 2*pad, H: y1 - y0 + 2*pad}
-	return r, max(stack[0].H*0.045, 3) + pad
+	return r, stillRadius(stack[0].H) + pad
 }
+
+// stillRadius rounds the corners of a window's still h DIPs tall, in a
+// card and in flight alike: a flight lands in its card's still, and any
+// difference shows as the corners jumping. Windows 11 rounds a window's
+// corners by 8 pixels; a small still is rounded less, as a small card.
+func stillRadius(h float32) float32 { return max(min(h*0.045, 8), 3) }
 
 // badgeRect places the badge that marks the card of the stage: a small
 // circle over the inner bottom corner of the frame markRect puts round the
@@ -357,6 +363,36 @@ func jointButton(width, height float32, p panel) ui.Rect {
 func jointBand(width, height float32, p panel) ui.Rect {
 	r := jointButton(width, height, p)
 	return ui.Rect{X: 0, Y: r.Y - footerInset, W: min(r.W+footerInset, width), H: r.H + footerInset}
+}
+
+// inside reports whether the point x, y is in r grown by slop on every
+// side; an empty r holds no point.
+func inside(r ui.Rect, x, y, slop float32) bool {
+	return r.W > 0 && x >= r.X-slop && x < r.X+r.W+slop && y >= r.Y-slop && y < r.Y+r.H+slop
+}
+
+// glyphAspect is how tall the overview's mark is for its width: four
+// windows of a wide display's shape.
+const glyphAspect = 0.78
+
+// jointGlyphBox sizes the overview's mark on a joined button width DIPs
+// wide, top DIPs of the strip's panel over below DIPs of the corner button,
+// and places it from the panel's top (jointGlyph). Each half draws its part
+// of the one mark, so both work it out here: apart, the halves would show
+// two marks that do not meet. A corner button alone is one with no panel
+// over it, top 0.
+func jointGlyphBox(top, below, width float32) (g, gh, y float32) {
+	g = min(18, (top+below)*0.42, width*0.6)
+	gh = g * glyphAspect
+	return g, gh, jointGlyph(top, below, gh)
+}
+
+// settledNear reports whether a nearness of the pointer, next, is too
+// close to cur to be worth drawing a frame for: small steps on the way wait
+// for the next, the ends do not, so that a panel or button shows in full
+// and goes away entirely.
+func settledNear(next, cur float32) bool {
+	return next == cur || next != 0 && next != 1 && math.Abs(float64(next-cur)) < 0.03
 }
 
 // jointGlyph is the top of the overview's mark, gh tall, in a joined

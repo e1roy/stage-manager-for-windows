@@ -84,10 +84,27 @@ func TestLatestPastDeadProxy(t *testing.T) {
 	dead := &url.URL{Scheme: "http", Host: l.Addr().String()}
 	l.Close()
 	r, err := Latest(context.Background(), srv.URL, func(*http.Request) (*url.URL, error) { return dead, nil })
+	// A proxy the registry still names but that is gone is passed by, not
+	// a failure of the check: the direct ask is the check.
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("a dead proxy failed the check that went direct: %v", err)
 	}
 	if r.Version != "0.3.1" {
 		t.Fatalf("got %+v", r)
+	}
+}
+
+// A check with nowhere to go is a failure, not a success told with an
+// empty release: the tray would show no new version, ever.
+func TestLatestFailsWithNoWayThere(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := &url.URL{Scheme: "http", Host: l.Addr().String()}
+	l.Close()
+	_, err = Latest(context.Background(), "http://"+l.Addr().String()+"/.version", func(*http.Request) (*url.URL, error) { return dead, nil })
+	if err == nil {
+		t.Fatal("both the proxy and the direct ask failing was reported a success")
 	}
 }

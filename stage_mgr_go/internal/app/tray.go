@@ -28,7 +28,7 @@ func (a *App) trayMenu() *mygo.Menu {
 	// apps on Windows and macOS offer an update at the top of their menu.
 	if r, ok := a.newer(); ok {
 		items = append(items,
-			&mygo.MenuItem{Label: fmt.Sprintf(tr.NewVersion, r.Version) + "…", Icon: a.dotMenuIcon(), Click: func(*mygo.MenuItem, *mygo.Window) { a.openRelease() }},
+			&mygo.MenuItem{Label: fmt.Sprintf(tr.NewVersionMenu, r.Version), Icon: a.dotMenuIcon(), Click: func(*mygo.MenuItem, *mygo.Window) { a.openRelease() }},
 			mygo.Separator(),
 		)
 	}

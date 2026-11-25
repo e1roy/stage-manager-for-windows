@@ -26,9 +26,18 @@ const (
 	// casts none while the real window under it casts its own.
 	takeOffDelay = 40 * time.Millisecond
 	landingDelay = 70 * time.Millisecond
+	// landLinger is how long a strip stays held out after its flights
+	// landed, to show the cards they became before it goes, and how long
+	// a window that landed waits for its animations (livenDelay is this
+	// as well, said of the windows rather than the strip).
+	landLinger = 700 * time.Millisecond
 	// How far into a flight the icons of the cards it lands in fade in, so
 	// that they are in place by the time the windows are.
 	iconRevealPoint = 0.3
+	// iconFly is the size, in screen pixels, a window's icon flies at when
+	// no picture of it came: as large as the picture would have been at
+	// its smallest, the icon of the card it grows out of.
+	iconFly = 96
 	// How long a switch waits for its flights to be drawn before it hands
 	// the real windows over anyway.
 	flightTimeout = 1500 * time.Millisecond
@@ -179,18 +188,58 @@ func (f *flight) opacity(p, e float64) float32 {
 	return f.fromOp + (f.toOp-f.fromOp)*float32(e)
 }
 
+// tripPhase is where a trip is on its course:
+//
+//	pending → holding → flying → arrived → landed → done
+//	                       └────────┴──→ stopped
+//
+// A trip that never draws times out (flights.run): it takes off and lands
+// from wherever it is, pending included. Every phase is entered once, in
+// that order; stopped and done end it.
+type tripPhase uint8
+
+const (
+	tripPending tripPhase = iota // set off, not yet drawn
+	tripHolding                  // drawn at its start, over the real windows, for trip.hold
+	tripFlying                   // the real windows left (takeOff), and the flights move
+	tripArrived                  // drawn where they land; land is on its way
+	tripLanded                   // the real windows and cards under them cast their own shadows
+	tripDone                     // the flights are gone
+	tripStopped                  // another switch took over mid-way, from stoppedAt of the way
+)
+
+// tripNext lists the phases each phase may give way to.
+var tripNext = [...][]tripPhase{
+	tripPending: {tripHolding, tripFlying},
+	tripHolding: {tripFlying},
+	tripFlying:  {tripArrived, tripLanded, tripStopped},
+	tripArrived: {tripLanded, tripStopped},
+	tripLanded:  {tripDone},
+}
+
+func (p tripPhase) String() string {
+	return [...]string{"pending", "holding", "flying", "arrived", "landed", "done", "stopped"}[p]
+}
+
+// leadsTo reports whether a trip in phase p may move on to q.
+func (p tripPhase) leadsTo(q tripPhase) bool {
+	return int(p) < len(tripNext) && slices.Contains(tripNext[p], q)
+}
+
+// flown reports whether the real windows have left for the flights.
+func (p tripPhase) flown() bool { return p >= tripFlying }
+
+// down reports whether the real windows are home again.
+func (p tripPhase) down() bool { return p == tripLanded || p == tripDone }
+
 // trip is the course of one switch's flights: they show at their start,
 // take off once they cover the real windows, and land.
 type trip struct {
-	hold    time.Duration // how long they show at their start
-	held    bool          // the flights were drawn at their start
-	flying  bool          // they took off
-	start   time.Time     // the frame they left in; zero until it is drawn
-	arrived bool          // they were drawn where they land
-	landed  bool          // the real windows and cards under them cast their own shadows
-	// Another switch took over mid-way: the flights hold at stoppedAt of
-	// the way until it flies them on.
-	stopped   bool
+	phase tripPhase
+	hold  time.Duration // how long they show at their start
+	start time.Time     // the frame they left in; zero until it is drawn
+	// stoppedAt is how far along the flights hold once stopped, until the
+	// switch that took over flies them on.
 	stoppedAt float64
 	span      time.Duration // App.flightSpan, or fadeTime with nothing but fades
 	// stats measures the frames drawn while flying, for the debug log.
@@ -199,12 +248,21 @@ type trip struct {
 	takeOff, land, stop func()
 }
 
+// to moves t on to phase q, if its course leads there from where it is.
+func (t *trip) to(q tripPhase) bool {
+	if !t.phase.leadsTo(q) {
+		return false
+	}
+	t.phase = q
+	return true
+}
+
 // progress is how far into its flight time a trip is at now.
 func (t *trip) progress(now time.Time) float64 {
 	switch {
-	case t.stopped:
+	case t.phase == tripStopped:
 		return t.stoppedAt
-	case !t.flying || t.start.IsZero():
+	case !t.phase.flown() || t.start.IsZero():
 		return 0
 	}
 	return min(float64(now.Sub(t.start))/float64(t.span), 1)
@@ -415,7 +473,7 @@ func (f *flights) cardPoses(d *display, ws []catalog.Window, live bool) map[wina
 		want[w.HWND] = true
 	}
 	right := s.right()
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), f.a.panel(), s.lineupFor(d.viewW, d.viewH).extent, float32(f.a.settings.CardsAt), right)
+	l, _ := s.restingLayout()
 	rest, _ := cardTilts(f.a.settings.Tilt)
 	for i, set := range d.sets {
 		tilt, lift := rest, float32(1)
@@ -441,7 +499,7 @@ func (f *flights) landingIcons(d *display) []badge {
 		return nil
 	}
 	right := s.right()
-	l := layoutStrip(len(d.sets), d.viewW, d.viewH, d.scroll, float32(f.a.settings.Spacing), f.a.panel(), s.lineupFor(d.viewW, d.viewH).extent, float32(f.a.settings.CardsAt), right)
+	l, _ := s.restingLayout()
 	var out []badge
 	for i, set := range d.sets {
 		if !d.landingOf(set) {
@@ -518,12 +576,28 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 	fg := winapi.Foreground()
 	for _, w := range slices.Backward(arriving) {
 		st := f.a.media.still(w.HWND)
-		if st == nil {
-			continue
-		}
 		home := poseOf(f.a.home(w))
 		start, ok := from[w.HWND]
-		fl := flight{still: st.fly, hwnd: w.HWND, from: start, to: home, shade: cardShadeAt(start), lands: true, casts: castsShadow(w.HWND), fromOp: 1, toOp: 1}
+		var pic *ui.Bitmap
+		if st != nil {
+			pic = st.fly
+		} else if icon := f.a.media.icon(w); icon != nil {
+			// Its picture never came (a capture was asked for already, as
+			// one a pointer resting on its card starts, and is not back
+			// yet): its icon flies in the picture's place, rather than the
+			// window appear from nowhere once the flight is done.
+			pic = icon
+			small := float64(iconFly)
+			if start, ok := from[w.HWND]; ok {
+				small = min(small, start.w, start.h)
+			}
+			start = pose{x: home.x + (home.w-small)/2, y: home.y + (home.h-small)/2, w: small, h: small}
+			ok = true
+		}
+		if pic == nil {
+			continue
+		}
+		fl := flight{still: pic, hwnd: w.HWND, from: start, to: home, shade: cardShadeAt(start), lands: true, casts: castsShadow(w.HWND), fromOp: 1, toOp: 1}
 		if a, aloft := air[w.HWND]; aloft {
 			// Turned back on its way into its card.
 			fl.from, fl.shade, fl.fromOp = a.at, a.shade, a.op
@@ -574,12 +648,10 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		// at once rather than stop in the air.
 		t.hold = 0
 	}
-	finished := false
 	finish := func() {
-		if finished {
+		if !t.to(tripDone) {
 			return
 		}
-		finished = true
 		if l.trip == t {
 			l.release()
 			l.trip, l.list, l.badges = nil, nil, nil
@@ -589,7 +661,14 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		done()
 	}
 	t.takeOff = func() {
-		if t.flying || finished {
+		if !t.phase.leadsTo(tripFlying) {
+			return
+		}
+		// A trip the layer no longer holds (drop, take-over) never takes
+		// off: its displays' own shadows are unregistered and its
+		// windows home, and a take-over hands its flights to the one
+		// asked for meanwhile.
+		if l.trip != t {
 			return
 		}
 		takeOff()
@@ -600,7 +679,7 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 				fl.own.show(l.rect, fl.from, 1)
 			}
 		}
-		t.flying = true
+		t.to(tripFlying)
 		l.win.Invalidate()
 		// A switch asked for meanwhile takes over now that every window
 		// is on the layer.
@@ -611,12 +690,12 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 	t.stop = func() {
 		// Before take-off the real windows are still where they were, and
 		// once landed they are home again: the switch after picks up as
-		// this one takes off or is done.
-		if !t.flying || t.landed || finished {
+		// this one takes off or is done (tripNext).
+		at := t.progress(time.Now())
+		if !t.to(tripStopped) {
 			return
 		}
-		finished = true
-		t.stoppedAt, t.stopped = t.progress(time.Now()), true
+		t.stoppedAt = at
 		l.badges = nil
 		l.win.Invalidate()
 		stop()
@@ -628,12 +707,11 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 		}
 	}
 	t.land = func() {
-		if t.landed || finished {
-			return
-		}
 		// The real windows and cards cast their own shadows from the frame
 		// they arrive in, so the flights drop theirs in that same frame.
-		t.landed = true
+		if !t.to(tripLanded) {
+			return
+		}
 		for _, fl := range list {
 			if fl.own != nil {
 				fl.own.hide()
@@ -650,12 +728,37 @@ func (f *flights) run(d *display, departing, arriving []catalog.Window, from map
 	l.win.Invalidate()
 	// Should the layer not draw, the windows still change places.
 	after(takeOffDelay+t.span+flightTimeout, func() {
-		if !finished {
-			debugf("flights: timed out, held=%v flying=%v arrived=%v", t.held, t.flying, t.arrived)
+		// A trip the layer no longer holds (drop, take-over) is over: its
+		// windows went home with its display and its handover stood down.
+		if l.trip != t {
+			return
+		}
+		if t.phase != tripDone && t.phase != tripStopped {
+			debugf("flights: timed out %v", t.phase)
 			t.takeOff()
 			t.land()
 		}
 	})
+}
+
+// drop destroys the layer of a display that is gone. Its windows would
+// otherwise stay for the rest of the run, two whole-display windows more
+// with every replug that names the display anew. A trip still on it ends
+// at once: its windows are brought back in the display's going (App.
+// release) and its handover acts on no display that is gone (App.live),
+// so nothing it was to do is left to do, and the callbacks its timers
+// still hold find no trip of the layer and change nothing.
+func (f *flights) drop(device string) {
+	l := f.layers[device]
+	if l == nil {
+		return
+	}
+	delete(f.layers, device)
+	l.release()
+	l.trip, l.list, l.badges, l.drag = nil, nil, nil, nil
+	l.shown = false
+	l.win.Destroy()
+	l.under.Destroy()
 }
 
 // interrupt stops the switch in flight on a display, for the one asked for
@@ -671,7 +774,7 @@ func (f *flights) interrupt(d *display) {
 func (f *flights) airborne(d *display) map[winapi.HWND]aloft {
 	out := map[winapi.HWND]aloft{}
 	l := f.layers[d.mon.Device]
-	if l == nil || l.trip == nil || !l.trip.stopped {
+	if l == nil || l.trip == nil || l.trip.phase != tripStopped {
 		return out
 	}
 	p := l.trip.stoppedAt
@@ -699,13 +802,23 @@ func (f *flights) collapse(d *display, p pose) pose {
 // and come out of the strip, which a fixed strip keeps out of the work area.
 func (f *flights) show(d *display) *layer {
 	l := f.layer(d)
-	if l.shown {
-		return l
+	// The display's own record answers in the common case, when the layer
+	// is out as it was placed: asking Windows (MonitorInfo) is a call the
+	// card-dragging frame makes on every pointer move, for every display
+	// the card is over.
+	area := d.mon.Monitor
+	if l.shown && l.rect != area {
+		area = winapi.MonitorInfo(d.mon.Handle).Monitor
 	}
-	area := winapi.MonitorInfo(d.mon.Handle).Monitor
 	// One pixel short of the display, so that Windows never takes the
 	// layer for an app in full screen.
 	area.Bottom--
+	// A layer still out from before the display changed its resolution or
+	// scale (layerLinger, standBy) is placed again, or the flights would
+	// draw at the old size.
+	if l.shown && l.rect == area && l.scale == d.mon.Scale() {
+		return l
+	}
 	l.rect, l.scale, l.shown, l.low = area, d.mon.Scale(), true, false
 	l.win.ShowInactive()
 	l.under.ShowInactive()
@@ -840,7 +953,7 @@ func (l *layer) view(c *ui.Context) {
 	}
 	if debugOn {
 		t0 := time.Now()
-		if t := l.trip; t != nil && t.flying {
+		if t := l.trip; t != nil && t.phase.flown() {
 			defer func() { t.stats.built(time.Since(t0)) }()
 		}
 		if len(l.drag) > 0 {
@@ -859,15 +972,15 @@ func (l *layer) view(c *ui.Context) {
 	t := l.trip
 	now := c.Now()
 	p := 0.0
-	switch {
-	case !t.held:
+	switch t.phase {
+	case tripPending:
 		// The flights show where they start; once they surely cover
 		// the real windows, those may go.
-		t.held = true
+		t.to(tripHolding)
 		after(t.hold, t.takeOff)
-	case t.stopped:
+	case tripStopped:
 		p = t.stoppedAt
-	case t.flying:
+	case tripFlying, tripArrived, tripLanded:
 		// The clock starts with the first frame that moves, so a late
 		// frame cannot eat into the flight and make it jump.
 		if t.start.IsZero() {
@@ -879,8 +992,7 @@ func (l *layer) view(c *ui.Context) {
 		}
 		if p < 1 {
 			l.pace.frame(l.win)
-		} else if !t.arrived {
-			t.arrived = true
+		} else if t.to(tripArrived) {
 			if debugOn {
 				l.reportTrip(t)
 			}
@@ -900,7 +1012,7 @@ func (l *layer) view(c *ui.Context) {
 		at := f.at(e)
 		op := f.opacity(p, e)
 		var sh shade
-		casting := !t.landed && (t.flying || !f.holdsShadow)
+		casting := !t.phase.down() && (t.phase.flown() || !f.holdsShadow)
 		if casting {
 			sh = lerpShade(f.shade, f.toward(fg), float32(e))
 		}
@@ -999,7 +1111,7 @@ func (l *layer) draw(c *ui.Context, key int, still *ui.Bitmap, at pose, op float
 	x := float32((at.x-float64(l.rect.Left))/l.scale) - ox
 	y := float32((at.y-float64(l.rect.Top))/l.scale) - oy
 	w, h := float32(at.w/l.scale), float32(at.h/l.scale)
-	radius := max(min(h*0.045, 8), 3)
+	radius := stillRadius(h)
 	img := sh.cast(ui.Image(c.Key(key), still).Absolute().Left(x).Top(y).Size(w, h).Fit(ui.FillBox).Radius(radius))
 	// Cards turn about their outer edge: a negative tilt is a card of a
 	// strip on the right, turned about its right edge.

@@ -25,25 +25,13 @@ type settingsWindow struct {
 	mode    int
 	quality int
 	// tab is the pane shown, an index into settingsIcons.
-	tab   int
-	width float64
-	icon  float64
+	tab int
+	// tilt is the tilt as its slider sets it, which slides between the
+	// whole steps of the setting. The other sliders set their settings
+	// in s, which apply rounds as the settings keep them.
 	tilt  float64
-	// spacing is the gap between cards, as the slider sets it, and
-	// cardsAt how far down the strip they sit.
-	spacing, cardsAt float64
-	// panelW and panelH size the overview's panel, as the sliders set them,
-	// and cornerW the button over a display's bottom-left corner.
-	panelW, panelH float64
-	panelOp, blur  float64
-	cornerW        float64
-	// stagedOp and stagedGray are how opaque and how gray the card of the
-	// stage is in a strip that lists it, as the sliders set them.
-	stagedOp, stagedGray float64
-	// flight is how fast windows fly, as the slider sets it.
-	flight float64
-	login  bool
-	icon0  *ui.Bitmap
+	login bool
+	icon0 *ui.Bitmap
 	// fileIcons are the icons of the companions listed by path, by path.
 	fileIcons map[string]*ui.Bitmap
 	// notice is shown as a toast in the next frame.
@@ -107,13 +95,15 @@ func (sw *settingsWindow) load() {
 		sw.mode = 1
 	}
 	sw.quality = slices.Index(qualities, sw.s.Quality)
-	sw.width, sw.icon, sw.tilt, sw.spacing = sw.s.Width, sw.s.IconScale, float64(sw.s.Tilt), sw.s.Spacing
-	sw.cardsAt = sw.s.CardsAt
-	sw.panelW, sw.panelH = sw.s.PanelWidth, sw.s.PanelHeight
-	sw.panelOp, sw.blur = sw.s.PanelOpacity, sw.s.PanelBlur
-	sw.stagedOp, sw.stagedGray = sw.s.StagedOpacity, sw.s.StagedGray
-	sw.cornerW = sw.s.CornerWidth
-	sw.flight = sw.s.FlightSpeed
+	sw.tilt = float64(sw.s.Tilt)
+}
+
+// percent labels a share as a percentage.
+func percent(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
+
+// dips labels a length in DIPs, as the words of the language put it.
+func dips(tr *i18n.Strings) func(float64) string {
+	return func(v float64) string { return fmt.Sprintf(tr.WidthValue, v) }
 }
 
 // running returns the apps on the stages and in the strips, one per
@@ -147,8 +137,7 @@ const minSettingsHeight = 420
 // qualities are the choices of the quality control, in its order.
 var qualities = []settings.Quality{settings.Low, settings.Medium, settings.High}
 
-// repo is where the project lives, for the links of the about pane.
-const repo = "https://github.com/e1roy/stage-manager-for-windows"
+const repo = update.Repo
 
 func (sw *settingsWindow) apply() {
 	sw.a.applySettings(sw.s)
@@ -607,7 +596,7 @@ func (sw *settingsWindow) generalPane(c *ui.Context, f form, tr *i18n.Strings) {
 
 func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 	t, def := f.t, settings.Default()
-	px := func(v float64) string { return fmt.Sprintf(tr.WidthValue, v) }
+	px := dips(tr)
 	f.section(c, "", func() {
 		f.row(c, tr.Mode, tr.ModeDesc, func() {
 			if ui.Segmented(c, &sw.mode, tr.Fixed, tr.Floating).Changed() {
@@ -619,9 +608,9 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 			}
 		}, option{tr.Fixed, tr.FixedDesc, sw.mode == 0}, option{tr.Floating, tr.FloatingDesc, sw.mode == 1})
 		f.row(c, tr.Width, "", func() {
-			if f.slider(c, tr, &sw.width, settings.MinWidth, settings.MaxWidth, 0, def.Width, px) {
-				sw.width = float64(int(sw.width/10+0.5) * 10)
-				sw.s.Width = sw.width
+			if f.slider(c, tr, &sw.s.Width, settings.MinWidth, settings.MaxWidth, 0, def.Width, px) {
+				// Rounded now, as it is applied only once it rests.
+				sw.s = sw.s.Normalize()
 				// Reserving the band on every step makes the shell
 				// shuffle the desktop around; apply once it rests.
 				if sw.widthTimer != nil {
@@ -633,17 +622,12 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 	})
 	f.section(c, tr.Cards, func() {
 		f.row(c, tr.Spacing, "", func() {
-			if f.slider(c, tr, &sw.spacing, 0, settings.MaxSpacing, 0, def.Spacing, px) {
-				sw.spacing = math.Round(sw.spacing)
-				sw.s.Spacing = sw.spacing
+			if f.slider(c, tr, &sw.s.Spacing, 0, settings.MaxSpacing, 0, def.Spacing, px) {
 				sw.apply()
 			}
 		})
-		pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
 		f.row(c, tr.CardsAt, tr.CardsAtTip, func() {
-			if f.slider(c, tr, &sw.cardsAt, settings.MinCardsAt, settings.MaxCardsAt, 0, def.CardsAt, pct) {
-				sw.cardsAt = math.Round(sw.cardsAt*100) / 100
-				sw.s.CardsAt = sw.cardsAt
+			if f.slider(c, tr, &sw.s.CardsAt, settings.MinCardsAt, settings.MaxCardsAt, 0, def.CardsAt, percent) {
 				sw.apply()
 			}
 		},
@@ -653,8 +637,7 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 			option{label: tr.CardsAtList, text: tr.CardsAtListDesc},
 			option{label: tr.CardsAtCrowd, text: tr.CardsAtCrowdDesc})
 		f.row(c, tr.IconSize, "", func() {
-			if f.slider(c, tr, &sw.icon, settings.MinIconScale, settings.MaxIconScale, 0, def.IconScale, pct) {
-				sw.s.IconScale = sw.icon
+			if f.slider(c, tr, &sw.s.IconScale, settings.MinIconScale, settings.MaxIconScale, 0, def.IconScale, percent) {
 				sw.apply()
 			}
 		})
@@ -704,23 +687,18 @@ func (sw *settingsWindow) stripPane(c *ui.Context, f form, tr *i18n.Strings) {
 			}
 		})
 		// The stage's own card, listed in its slot, as a ghost.
-		pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
 		f.row(c, tr.AllStages, "", func() {
 			if ui.Switch(c, &sw.s.AllStages).Changed() {
 				sw.apply()
 			}
 		})
 		f.child(c, sw.s.AllStages, tr.Opacity, "", func(f form) {
-			if f.slider(c, tr, &sw.stagedOp, settings.MinStagedOpacity, settings.MaxStagedOpacity, 0, def.StagedOpacity, pct) {
-				sw.stagedOp = math.Round(sw.stagedOp*100) / 100
-				sw.s.StagedOpacity = sw.stagedOp
+			if f.slider(c, tr, &sw.s.StagedOpacity, settings.MinStagedOpacity, settings.MaxStagedOpacity, 0, def.StagedOpacity, percent) {
 				sw.apply()
 			}
 		})
 		f.child(c, sw.s.AllStages, tr.Grayscale, "", func(f form) {
-			if f.slider(c, tr, &sw.stagedGray, 0, 1, 0, def.StagedGray, pct) {
-				sw.stagedGray = math.Round(sw.stagedGray*100) / 100
-				sw.s.StagedGray = sw.stagedGray
+			if f.slider(c, tr, &sw.s.StagedGray, 0, 1, 0, def.StagedGray, percent) {
 				sw.apply()
 			}
 		})
@@ -749,20 +727,14 @@ func (sw *settingsWindow) overviewPane(c *ui.Context, f form, tr *i18n.Strings) 
 func (sw *settingsWindow) panelSection(c *ui.Context, f form, tr *i18n.Strings) {
 	def := settings.Default()
 	f.group(c, tr.OverviewPanel, &tip{lead: tr.OverviewPanelDesc}, func() {
-		pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
-		px := func(v float64) string { return fmt.Sprintf(tr.WidthValue, v) }
 		f.row(c, tr.Width, "", func() {
-			if f.slider(c, tr, &sw.panelW, settings.MinPanelWidth, settings.MaxPanelWidth, 0, def.PanelWidth, pct) {
-				sw.panelW = math.Round(sw.panelW*100) / 100
-				sw.s.PanelWidth = sw.panelW
+			if f.slider(c, tr, &sw.s.PanelWidth, settings.MinPanelWidth, settings.MaxPanelWidth, 0, def.PanelWidth, percent) {
 				sw.a.showPanel()
 				sw.apply()
 			}
 		})
 		f.row(c, tr.Height, "", func() {
-			if f.slider(c, tr, &sw.panelH, settings.MinPanelHeight, settings.MaxPanelHeight, 0, def.PanelHeight, px) {
-				sw.panelH = math.Round(sw.panelH)
-				sw.s.PanelHeight = sw.panelH
+			if f.slider(c, tr, &sw.s.PanelHeight, settings.MinPanelHeight, settings.MaxPanelHeight, 0, def.PanelHeight, dips(tr)) {
 				sw.a.showPanel()
 				sw.apply()
 			}
@@ -770,9 +742,7 @@ func (sw *settingsWindow) panelSection(c *ui.Context, f form, tr *i18n.Strings) 
 		// How much of what is behind the panel shows through it, and how
 		// blurred, as the corner button joined to it shows it too.
 		f.row(c, tr.Opacity, "", func() {
-			if f.slider(c, tr, &sw.panelOp, settings.MinPanelOpacity, settings.MaxPanelOpacity, 0, def.PanelOpacity, pct) {
-				sw.panelOp = math.Round(sw.panelOp*100) / 100
-				sw.s.PanelOpacity = sw.panelOp
+			if f.slider(c, tr, &sw.s.PanelOpacity, settings.MinPanelOpacity, settings.MaxPanelOpacity, 0, def.PanelOpacity, percent) {
 				sw.a.showPanel()
 				sw.apply()
 			}
@@ -784,9 +754,7 @@ func (sw *settingsWindow) panelSection(c *ui.Context, f form, tr *i18n.Strings) 
 			return fmt.Sprintf(tr.WidthValue, v)
 		}
 		f.row(c, tr.Blur, "", func() {
-			if f.slider(c, tr, &sw.blur, 0, settings.MaxPanelBlur, 0, def.PanelBlur, blur) {
-				sw.blur = math.Round(sw.blur)
-				sw.s.PanelBlur = sw.blur
+			if f.slider(c, tr, &sw.s.PanelBlur, 0, settings.MaxPanelBlur, 0, def.PanelBlur, blur) {
 				sw.a.showPanel()
 				sw.apply()
 			}
@@ -800,12 +768,9 @@ func (sw *settingsWindow) panelSection(c *ui.Context, f form, tr *i18n.Strings) 
 // pointer comes near.
 func (sw *settingsWindow) cornerSection(c *ui.Context, f form, tr *i18n.Strings) {
 	def := settings.Default()
-	px := func(v float64) string { return fmt.Sprintf(tr.WidthValue, v) }
 	f.group(c, tr.OverviewCorner, &tip{lead: tr.OverviewCornerDesc}, func() {
 		f.row(c, tr.Width, "", func() {
-			if f.slider(c, tr, &sw.cornerW, settings.MinCornerWidth, settings.MaxCornerWidth, 0, def.CornerWidth, px) {
-				sw.cornerW = math.Round(sw.cornerW)
-				sw.s.CornerWidth = sw.cornerW
+			if f.slider(c, tr, &sw.s.CornerWidth, settings.MinCornerWidth, settings.MaxCornerWidth, 0, def.CornerWidth, dips(tr)) {
 				sw.apply()
 			}
 		})
@@ -921,9 +886,7 @@ func (sw *settingsWindow) stagePane(c *ui.Context, f form, tr *i18n.Strings) {
 	f.section(c, tr.Animation, func() {
 		f.row(c, tr.FlightSpeed, tr.FlightSpeedDesc, func() {
 			times := func(v float64) string { return fmt.Sprintf("%.1f×", v) }
-			if f.slider(c, tr, &sw.flight, settings.MinFlightSpeed, settings.MaxFlightSpeed, 0, def.FlightSpeed, times) {
-				sw.flight = math.Round(sw.flight*10) / 10
-				sw.s.FlightSpeed = sw.flight
+			if f.slider(c, tr, &sw.s.FlightSpeed, settings.MinFlightSpeed, settings.MaxFlightSpeed, 0, def.FlightSpeed, times) {
 				sw.apply()
 			}
 		})
@@ -1114,7 +1077,7 @@ func (sw *settingsWindow) aboutPane(c *ui.Context, f form, tr *i18n.Strings) {
 		})
 		ui.Text(c, tr.Privacy).FontSize(12).TextColor(t.TextMuted).Margin(16, 0, 0, 0)
 		ui.Row(c).Gap(6).Children(func() {
-			ui.Text(c, "© 2026 Renkai ·").FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, tr.Copyright).FontSize(12).TextColor(t.TextMuted)
 			ui.Link(c, tr.License, repo+"/blob/main/LICENSE").FontSize(12)
 		})
 	})

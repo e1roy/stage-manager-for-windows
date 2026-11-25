@@ -343,8 +343,7 @@ func (h *cornerHint) follow(d *display, near float32, now time.Time) {
 			return
 		}
 	}
-	// As the strip's panel: small steps wait for the next, the ends do not.
-	if near == h.near || near != 0 && near != 1 && math.Abs(float64(near-h.near)) < 0.03 {
+	if settledNear(near, h.near) {
 		return
 	}
 	h.near = near
@@ -488,13 +487,10 @@ func (h *cornerHint) jointView(c *ui.Context, el ui.Element, s *strip, w, ht, fl
 	p := a.panel()
 	bw := s.jointWidth()
 	// The mark as the panel draws it, sized and placed for the two.
-	g := min(18, (p.h+ht)*0.42, bw*0.6)
-	gh := g * 0.78
-	y := jointGlyph(p.h, ht, gh) - p.h
+	g, _, y := jointGlyphBox(p.h, ht, bw)
+	y -= p.h
 	if alone {
-		g = min(18, ht*0.42, bw*0.6)
-		gh = g * 0.78
-		y = (ht - gh) / 2
+		g, _, y = jointGlyphBox(0, ht, bw)
 	}
 	radii := [4]float32{0, 0, jointRadius, jointRadius}
 	if alone {

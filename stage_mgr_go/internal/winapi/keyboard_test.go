@@ -290,13 +290,35 @@ func TestWinDesktopDoesNotChangeWinTabState(t *testing.T) {
 	}
 }
 
-func TestHookWinDesktopUnhookIsIdempotent(t *testing.T) {
-	unhook, err := HookWinDesktop(func() {})
-	if err != nil {
-		t.Fatal(err)
+// TestHooksUnhookOnce: each low-level hook removed twice stops at once,
+// leaves no callback behind, and can be installed again. All three start
+// and stop through runHook; one that did on its own once posted its quit
+// to whatever thread had its id by the second call.
+func TestHooksUnhookOnce(t *testing.T) {
+	hooks := []struct {
+		name    string
+		install func() (func(), error)
+		armed   func() bool
+	}{
+		{"Win+Tab", func() (func(), error) { return HookWinTab(func() {}) }, func() bool { return winTab.fn.Load() != nil }},
+		{"Win+D", func() (func(), error) { return HookWinDesktop(func() {}) }, func() bool { return winDesktop.fn.Load() != nil }},
+		{"minimize button", func() (func(), error) {
+			return HookMinButton(func(HWND) bool { return false }, func(HWND) {})
+		}, func() bool { return minButton.fn.Load() != nil || minButton.want.Load() != nil }},
 	}
-	within(t, func() { unhook(); unhook() })
-	if winDesktop.fn.Load() != nil {
-		t.Fatal("callback still registered")
+	for _, h := range hooks {
+		for range 2 {
+			unhook, err := h.install()
+			if err != nil {
+				t.Fatalf("%s: %v", h.name, err)
+			}
+			if !h.armed() {
+				t.Fatalf("%s: installed without its callback", h.name)
+			}
+			within(t, func() { unhook(); unhook() })
+			if h.armed() {
+				t.Fatalf("%s: callback still registered", h.name)
+			}
+		}
 	}
 }

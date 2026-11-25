@@ -62,15 +62,14 @@ func TaskbarButtons(tray HWND) ([]TaskbarButton, error) {
 		elemFindAll                = 6
 		elemCurrentName            = 23
 		elemCurrentAutomationID    = 29
-		elemCurrentClassName       = 30
 		elemCurrentBoundingRect    = 43
 		arrayLength                = 3
 		arrayGetElement            = 4
 
-		treeScopeDescendants    = 4
+		treeScopeDescendants     = 4
 		uiaControlTypePropertyID = 30003
-		uiaButtonControlTypeID  = 50000
-		vtI4                    = 3
+		uiaButtonControlTypeID   = 50000
+		vtI4                     = 3
 	)
 	var root *comObject
 	if uia.call(uiaElementFromHandle, uintptr(tray), uintptr(unsafe.Pointer(&root))) < 0 || root == nil {

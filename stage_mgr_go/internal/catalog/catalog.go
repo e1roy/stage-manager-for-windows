@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/e1roy/stage_manager_for_windows/internal/settings"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
@@ -97,7 +98,7 @@ func New() *Catalog {
 	if f := os.Getenv("STAGEMANAGER_APP_FILTER"); f != "" {
 		c.filter = map[string]bool{}
 		for _, name := range strings.Split(f, ",") {
-			if name = strings.TrimSpace(strings.ToLower(strings.TrimSuffix(name, ".exe"))); name != "" {
+			if name = settings.ExeName(name); name != "" {
 				c.filter[name] = true
 			}
 		}
@@ -209,7 +210,7 @@ func (c *Catalog) inspect(h, fg winapi.HWND, floating bool) (Window, bool) {
 		return Window{}, false
 	}
 	id := c.resolve(h, class, pid)
-	if c.filter != nil && !c.filter[strings.ToLower(strings.TrimSuffix(filepath.Base(id.exe), filepath.Ext(id.exe)))] {
+	if c.filter != nil && !c.filter[settings.ExeName(id.exe)] {
 		return Window{}, false
 	}
 	w.App, w.Program, w.Exe, w.PID = id.key, id.key, id.exe, id.pid

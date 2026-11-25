@@ -303,7 +303,7 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 			if s.right() {
 				x = r.W - lineupInset - lineupIcon
 			}
-			ui.Image(c.Key("icon"), icon).Absolute().Left(x).Top(r.H - lineupInset - lineupIcon).Size(lineupIcon, lineupIcon)
+			ui.Image(c.Key("icon"), icon).Absolute().Left(x).Top(r.H-lineupInset-lineupIcon).Size(lineupIcon, lineupIcon)
 		}
 	})
 	return op, lifted
@@ -425,7 +425,7 @@ func (s *strip) placeThumbs(want map[winapi.HWND]thumbAt, dx float32) {
 // while the strip is away: something else would be where the pictures
 // are.
 func (s *strip) sampleTints() {
-	if s.line.sampling || !s.visible || !s.shown || s.a.busy || s.d.inOverview {
+	if s.line.sampling || !s.visible || !s.shown || s.a.busy() || s.d.inOverview {
 		return
 	}
 	now := time.Now()
@@ -543,9 +543,8 @@ func (s *strip) dropThumbs() {
 // stage's windows.
 func (s *strip) overLineup(p winapi.Point) bool {
 	r := s.lineupHit
-	x := float32(float64(p.X-s.rect.Left) / s.scale)
-	y := float32(float64(p.Y-s.rect.Top) / s.scale)
-	return r.W > 0 && x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H
+	x, y := s.toLocal(p)
+	return inside(r, x, y, 0)
 }
 
 // bringForward brings a window of the stage in front of the others there.

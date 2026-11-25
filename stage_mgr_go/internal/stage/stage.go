@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// SettleTime is how long a stage keeps an app whose windows are not
+// settleTime is how long a stage keeps an app whose windows are not
 // visible yet, as when it is being restored or its windows are moving.
-const SettleTime = time.Second
+const settleTime = time.Second
 
 // Display is the stage of one display. An app is on the stage, in one
 // set of the strip, or nowhere.
@@ -68,12 +68,9 @@ func (d *Display) Stage() []string { return slices.Clone(d.stage) }
 // Empty reports whether nothing is on the stage.
 func (d *Display) Empty() bool { return len(d.stage) == 0 }
 
-// ChangedAt is when the stage last changed.
-func (d *Display) ChangedAt() time.Time { return d.changedAt }
-
 // Settling reports whether the stage changed too recently for missing
 // windows to mean anything.
-func (d *Display) Settling(now time.Time) bool { return now.Sub(d.changedAt) < SettleTime }
+func (d *Display) Settling(now time.Time) bool { return now.Sub(d.changedAt) < settleTime }
 
 // SetOf returns the apps that go on the stage with app: the stage if it
 // is there, its set if it is in the strip, else app alone.

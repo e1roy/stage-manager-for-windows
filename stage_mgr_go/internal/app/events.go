@@ -29,8 +29,19 @@ func (a *App) hookEvents() {
 		[2]uint32{winapi.EventObjectLocationChange, winapi.EventObjectNameChange},
 		[2]uint32{winapi.EventObjectCloaked, winapi.EventObjectUncloaked},
 	)
+}
+
+// syncHooks installs or releases the keyboard and mouse hooks that take
+// shortcuts and clicks from Windows (Win+D/Win+M, the minimize button,
+// Win+Tab), each as the settings, the displays and quitting ask. Whether a
+// hook is wanted depends on all three, so it runs after any of them
+// changes: from syncDisplays, which applySettings and every change of the
+// displays go through, and from shutdown. It is the only caller of the
+// sync* functions of the hooks (TestHooksSyncTogether).
+func (a *App) syncHooks() {
 	a.syncWinDesktop()
 	a.syncMinButton()
+	a.syncWinTab()
 }
 
 // Give the native shortcuts back whenever stages are not being hidden or
@@ -94,19 +105,99 @@ func minimizeNext(d *display, app string) []string {
 	return []string{}
 }
 
+// minimizeMode is what minimizing a window on a stage does, as the
+// settings have it. Every rule that depends on it asks minimizeMode, so
+// that a mode added, or a setting it hangs on, is one change here.
+type minimizeMode uint8
+
+const (
+	// minimizeOff: stages are not hidden, or Stage Manager is quitting;
+	// a minimize is Windows' alone.
+	minimizeOff minimizeMode = iota
+	// minimizeNative: the window goes to the taskbar, and the stage
+	// changes only if it was the last one on it (settleMinimize).
+	minimizeNative
+	// minimizeToStrip: the window's stage goes to the strip and the one
+	// before comes back (settings.MinimizeToStrip), its minimize button
+	// taken (syncMinButton) and its animations off (calmWanted).
+	minimizeToStrip
+)
+
+func (a *App) minimizeMode() minimizeMode {
+	switch {
+	case a.quitting || !a.settings.HideInactive:
+		return minimizeOff
+	case a.settings.MinimizeToStrip:
+		return minimizeToStrip
+	}
+	return minimizeNative
+}
+
 type minimizeTarget struct {
 	d   *display
 	app string
 	// root is the window as the catalog lists it.
 	root winapi.HWND
-	// native is a minimize left to Windows (MinimizeToStrip off): the
-	// window goes to the taskbar, and the stage changes only if it was the
-	// last one on it.
-	native    bool
-	timer     *time.Timer
-	watchdog  *time.Timer
-	sawIconic bool
+	// mode is what the minimize does, as it was when it began: minimizeNative
+	// or minimizeToStrip.
+	mode     minimizeMode
+	step     minimizeStep
+	timer    *time.Timer
+	watchdog *time.Timer
 }
+
+// stop stops the timers that follow t.
+func (t *minimizeTarget) stop() {
+	if t.timer != nil {
+		t.timer.Stop()
+		t.timer = nil
+	}
+	if t.watchdog != nil {
+		t.watchdog.Stop()
+	}
+}
+
+// endMinimize ends the minimize t of window h: its timers stop, and the
+// foreground and refreshes it held back go on. A timer that fired as it
+// was stopped is already queued; it finds t gone and does nothing (follow).
+func (a *App) endMinimize(h winapi.HWND, t *minimizeTarget) {
+	t.stop()
+	if a.minimizing[h] == t {
+		delete(a.minimizing, h)
+	}
+	a.refreshSoon()
+}
+
+// follow runs fn for the minimize t of window h after d, unless t has
+// ended or another minimize of h took its place meanwhile.
+func (a *App) follow(h winapi.HWND, t *minimizeTarget, d time.Duration, fn func(winapi.HWND, *minimizeTarget)) *time.Timer {
+	return after(d, func() {
+		if a.minimizing[h] == t {
+			fn(h, t)
+		}
+	})
+}
+
+// minimizeStep is where a minimize the app follows is:
+//
+//	iconic → restoring    (MinimizeToStrip: the stage then goes to the strip)
+//	iconic → settling     (native: the window stays on the taskbar)
+//
+// The window leaves App.minimizing as it ends, or as the watchdog gives up
+// on it.
+type minimizeStep uint8
+
+const (
+	// minimizeIconic waits for Windows to make the window iconic: the
+	// start of a minimize is reported before.
+	minimizeIconic minimizeStep = iota
+	// minimizeRestoring has asked the iconic window back, without
+	// activating it, and waits for it to show to park it.
+	minimizeRestoring
+	// minimizeSettling lets the foreground settle for minimizeSettle, the
+	// window left on the taskbar (settleMinimize).
+	minimizeSettling
+)
 
 // minimizeSettle is how long after a window left to minimize is iconic the
 // foreground still is not followed: Windows hands it on as the window
@@ -118,43 +209,38 @@ const minimizeSettle = 100 * time.Millisecond
 // made the window iconic, then waits for our nonactivating restore.
 func (t *minimizeTarget) observe(iconic bool) (restore, done bool) {
 	if iconic {
-		t.sawIconic = true
+		t.step = minimizeRestoring
 		return true, false
 	}
-	return false, t.sawIconic
+	return false, t.step == minimizeRestoring
 }
 
 // onMinimizeStart saves the window's identity before the catalog removes it.
 func (a *App) onMinimizeStart(h winapi.HWND) {
-	if !a.ready || !a.settings.HideInactive || a.park.IsParked(h) || a.minimizing[h] != nil {
+	mode := a.minimizeMode()
+	if !a.ready || mode == minimizeOff || a.park.IsParked(h) || a.minimizing[h] != nil {
 		return
 	}
 	root := catalog.RootOwner(h)
-	for _, w := range a.windows {
-		if w.HWND != root {
-			continue
-		}
-		if d := a.displayOf(w); d != nil && a.managed(d) && d.model.OnStage(w.App) {
-			t := &minimizeTarget{d: d, app: w.App, root: root, native: !a.settings.MinimizeToStrip}
+	if w, ok := a.listed(root); ok {
+		if d := a.stagedOn(w); d != nil {
+			t := &minimizeTarget{d: d, app: w.App, root: root, mode: mode}
 			a.minimizing[h] = t
 			// A crashed/closed window may never report MinimizeEnd. Never
 			// leave foreground and refresh processing suppressed indefinitely.
-			t.watchdog = after(2*time.Second, func() {
-				if a.minimizing[h] == t {
-					if t.timer != nil {
-						t.timer.Stop()
-					}
-					delete(a.minimizing, h)
-					a.refreshSoon()
-				}
-			})
+			t.watchdog = a.follow(h, t, minimizeGiveUp, a.endMinimize)
 			// Look at once: the sooner it is back, the shorter the moment
 			// the stage shows without it.
-			t.timer = after(0, func() { a.finishMinimize(h) })
+			t.timer = a.follow(h, t, 0, a.finishMinimize)
 		}
 		return
 	}
 }
+
+// minimizeGiveUp is how long a minimize is followed at most. Windows makes
+// a window iconic within a frame or two and the app takes the restore as
+// fast; one that has done neither by then has closed or hangs.
+const minimizeGiveUp = 2 * time.Second
 
 // minimizePoll is how often a minimizing window is looked at until it is
 // back: about a frame, as the stage shows without it all that time.
@@ -168,7 +254,7 @@ const minimizePoll = 16 * time.Millisecond
 // animation has to be off before the minimize begins: by the time the
 // minimize is reported, DWM is already playing it.
 func (a *App) calmWanted(w catalog.Window) bool {
-	if a.quitting || !a.settings.HideInactive || !a.settings.MinimizeToStrip {
+	if a.minimizeMode() != minimizeToStrip {
 		return false
 	}
 	d := a.displayOf(w)
@@ -212,7 +298,7 @@ func (a *App) shareCalm() {
 // minimized from the taskbar or with Win+Down still goes through
 // onMinimizeStart.
 func (a *App) syncMinButton() {
-	want := a.wantsWinDesktop() && a.settings.MinimizeToStrip
+	want := a.wantsWinDesktop() && a.minimizeMode() == minimizeToStrip
 	if want == (a.unhookMinButton != nil) {
 		return
 	}
@@ -241,17 +327,13 @@ func (a *App) syncMinButton() {
 // until the flight takes it. A window no longer on a stage is minimized,
 // as the user asked.
 func (a *App) minimizeClicked(h winapi.HWND) {
-	if a.ready && !a.quitting && a.settings.HideInactive && a.settings.MinimizeToStrip && len(a.minimizing) == 0 {
-		for _, w := range a.windows {
-			if w.HWND != h {
-				continue
-			}
-			if d := a.displayOf(w); d != nil && a.managed(d) && d.model.OnStage(w.App) {
+	if a.ready && a.minimizeMode() == minimizeToStrip && len(a.minimizing) == 0 {
+		if w, ok := a.listed(h); ok {
+			if d := a.stagedOn(w); d != nil {
 				debugf("minimize button %x: stage to the strip", h)
 				a.minimizeTo(d, minimizeNext(d, w.App))
 				return
 			}
-			break
 		}
 	}
 	debugf("minimize button %x: minimize", h)
@@ -261,6 +343,22 @@ func (a *App) minimizeClicked(h winapi.HWND) {
 // liven gives a window that came home with its animations off them back,
 // unless it is to go without them on the stage (calmWanted): then it is
 // left off, not turned on until the next refresh turns it off again.
+// livenDelay is how long a window that came home with its animations off
+// (calm) waits before they come back: until any DWM transition from its
+// flight landing has surely finished, so that it does not fade in as well.
+// The same wait as the strip's staying out (landLinger), whose value it is.
+const livenDelay = landLinger
+
+// livenLater gives the windows back their animations once one of them
+// lands (livenDelay).
+func (a *App) livenLater(ws []catalog.Window) {
+	after(livenDelay, func() {
+		for _, w := range ws {
+			a.liven(w)
+		}
+	})
+}
+
 func (a *App) liven(w catalog.Window) {
 	switch {
 	case !winapi.IsWindow(w.HWND):
@@ -272,26 +370,25 @@ func (a *App) liven(w catalog.Window) {
 	}
 }
 
-func (a *App) finishMinimize(h winapi.HWND) {
-	t := a.minimizing[h]
-	if t == nil {
-		return
-	}
+// finishMinimize follows the minimize t of window h until Windows has made
+// it iconic, and then, as its mode has it, brings it back to fly to the
+// strip or lets it settle on the taskbar.
+func (a *App) finishMinimize(h winapi.HWND, t *minimizeTarget) {
 	t.timer = nil
-	if a.quitting || !a.managed(t.d) || !slices.Contains(a.displays, t.d) || !winapi.IsWindow(h) || winapi.IsHung(h) {
-		t.watchdog.Stop()
-		delete(a.minimizing, h)
-		a.refreshSoon()
+	if !a.live(t.d) || !winapi.IsWindow(h) || winapi.IsHung(h) {
+		a.endMinimize(h, t)
 		return
 	}
 	iconic := winapi.IsIconic(h)
-	if t.native {
+	if t.mode == minimizeNative {
 		if !iconic {
-			t.timer = after(minimizePoll, func() { a.finishMinimize(h) })
+			t.timer = a.follow(h, t, minimizePoll, a.finishMinimize)
 			return
 		}
+		// Iconic, it is followed no more than settleMinimize takes.
 		t.watchdog.Stop()
-		t.timer = after(minimizeSettle, func() { a.settleMinimize(h) })
+		t.step = minimizeSettling
+		t.timer = a.follow(h, t, minimizeSettle, a.settleMinimize)
 		return
 	}
 	restore, done := t.observe(iconic)
@@ -300,12 +397,10 @@ func (a *App) finishMinimize(h winapi.HWND) {
 		winapi.ShowNoActivate(h)
 	}
 	if !done || !winapi.IsWindowVisible(h) {
-		t.timer = after(minimizePoll, func() { a.finishMinimize(h) })
+		t.timer = a.follow(h, t, minimizePoll, a.finishMinimize)
 		return
 	}
-	t.watchdog.Stop()
-	delete(a.minimizing, h)
-	a.refreshSoon()
+	a.endMinimize(h, t)
 	if next := minimizeNext(t.d, t.app); next != nil {
 		a.minimizeTo(t.d, next)
 	}
@@ -328,15 +423,13 @@ func (a *App) minimizeTo(d *display, next []string) {
 // comes back, as when the stage's windows close (refill); otherwise the
 // stage stays, with the user in it rather than in a parked window that
 // Windows may have handed the foreground to.
-func (a *App) settleMinimize(h winapi.HWND) {
-	t := a.minimizing[h]
-	if t == nil {
+func (a *App) settleMinimize(h winapi.HWND, t *minimizeTarget) {
+	if t.step != minimizeSettling {
 		return
 	}
 	t.timer = nil
-	delete(a.minimizing, h)
-	a.refreshSoon()
-	if a.quitting || !a.managed(t.d) || !slices.Contains(a.displays, t.d) {
+	a.endMinimize(h, t)
+	if !a.live(t.d) {
 		return
 	}
 	a.windows = a.cat.Windows()
@@ -449,7 +542,8 @@ func (a *App) onWinEvent(event uint32, h winapi.HWND) {
 }
 
 func (a *App) isListed(h winapi.HWND) bool {
-	return slices.ContainsFunc(a.windows, func(w catalog.Window) bool { return w.HWND == h })
+	_, ok := a.listed(h)
+	return ok
 }
 
 func (a *App) updateCovered() {
@@ -517,7 +611,7 @@ func sameProcess(a, b winapi.HWND) bool {
 // desktopClick returns the display whose wallpaper was just clicked, if
 // that should clear its stage.
 func (a *App) desktopClick() *display {
-	if !a.settings.ClickDesktopClears || !a.settings.HideInactive || a.busy || !winapi.LeftButtonDown() {
+	if !a.settings.ClickDesktopClears || !a.settings.HideInactive || a.busy() || !winapi.LeftButtonDown() {
 		return nil
 	}
 	cur := winapi.Cursor()
@@ -543,14 +637,14 @@ func (a *App) settleForeground() {
 		debugf("foreground %x is %x now", h, fg)
 		h, a.fg.h = fg, fg
 	}
-	if h == 0 || a.busy {
-		debugf("foreground %x waits: busy=%v", h, a.busy)
+	if h == 0 || a.busy() {
+		debugf("foreground %x waits for the %v", h, a.hold)
 		return
 	}
 	root := catalog.RootOwner(h)
 	a.windows = a.cat.Windows()
-	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == root })
-	if i < 0 {
+	w, ok := a.listed(root)
+	if !ok {
 		// New windows often get their title, or show, a moment after
 		// they are activated.
 		if a.fg.tries++; a.fg.tries < 6 && winapi.IsWindow(h) {
@@ -561,14 +655,13 @@ func (a *App) settleForeground() {
 		return
 	}
 	a.fg.h = 0
-	w := a.windows[i]
 	d := a.displayOf(w)
-	debugf("foreground settled on %q (%s) busy=%v", w.Title, func() string {
+	debugf("foreground settled on %q (%s) hold=%v", w.Title, func() string {
 		if d == nil {
 			return "no display"
 		}
 		return d.mon.Device
-	}(), a.busy)
+	}(), a.hold)
 	if d == nil || !a.managed(d) {
 		return
 	}
@@ -594,12 +687,11 @@ func (a *App) settleForeground() {
 // noteClosed remembers a window that closed or hid while on a stage, for
 // keepStage.
 func (a *App) noteClosed(h winapi.HWND) {
-	i := slices.IndexFunc(a.windows, func(w catalog.Window) bool { return w.HWND == h })
-	if i < 0 || a.park.IsParked(h) {
+	w, ok := a.listed(h)
+	if !ok || a.park.IsParked(h) {
 		return
 	}
-	w := a.windows[i]
-	if d := a.displayOf(w); d != nil && d.model.OnStage(w.App) {
+	if d := a.stagedOn(w); d != nil {
 		a.closed.h, a.closed.d, a.closed.at = h, d, time.Now()
 	}
 }
@@ -613,7 +705,7 @@ func (a *App) noteClosed(h winapi.HWND) {
 // gets the foreground instead.
 func (a *App) keepStage() bool {
 	c := a.closed
-	if c.d == nil || time.Since(c.at) > closeGrace || !slices.Contains(a.displays, c.d) || !a.managed(c.d) {
+	if c.d == nil || time.Since(c.at) > closeGrace || !a.live(c.d) {
 		return false
 	}
 	// The windows are listed front first.

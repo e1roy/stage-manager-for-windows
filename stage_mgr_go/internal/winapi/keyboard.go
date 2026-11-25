@@ -3,8 +3,6 @@
 package winapi
 
 import (
-	"runtime"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
@@ -162,42 +160,13 @@ func maskWinKey() {
 // would hold up typing everywhere, and Windows drops a hook that keeps
 // keys waiting longer than LowLevelHooksTimeout.
 func HookWinTab(fn func()) (unhook func(), err error) {
-	type started struct {
-		tid uint32
-		err error
-	}
-	done := make(chan started)
-	go func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		var m threadMsg
-		// The thread gets its message queue here, for the quit to reach.
-		procPeekMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0, pmNoRemove)
-		mod, _, _ := procGetModuleHandleW.Call(0)
-		h, _, e := procSetWindowsHookExW.Call(whKeyboardLL, winTabCallback, mod, 0)
-		if h == 0 {
-			done <- started{err: e}
-			return
-		}
+	return runHook(whKeyboardLL, winTabCallback, func() {
 		winTab.held.Store(false)
 		winTab.fn.Store(&fn)
-		done <- started{tid: CurrentThreadID()}
-		for {
-			if r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0); int32(r) <= 0 {
-				break
-			}
-		}
-		procUnhookWindowsHookEx.Call(h)
-	}()
-	s := <-done
-	if s.err != nil {
-		return nil, s.err
-	}
-	return func() {
+	}, func() {
 		winTab.fn.Store(nil)
 		winTab.held.Store(false)
-		procPostThreadMessageW.Call(uintptr(s.tid), wmQuit, 0, 0)
-	}, nil
+	})
 }
 
 // This hook is separate from Win+Tab. A seen bit tracks a physical press,
@@ -267,46 +236,11 @@ var winDesktopCallback = syscall.NewCallback(func(code, wParam uintptr, k *kbdll
 // press. fn runs on the hook thread and must return promptly. Call unhook
 // outside fn: it waits for the hook to be removed.
 func HookWinDesktop(fn func()) (unhook func(), err error) {
-	type started struct {
-		tid uint32
-		err error
-	}
-	ready := make(chan started)
-	stopped := make(chan struct{})
-	go func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		defer close(stopped)
-		var m threadMsg
-		procPeekMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0, pmNoRemove)
-		mod, _, _ := procGetModuleHandleW.Call(0)
-		h, _, e := procSetWindowsHookExW.Call(whKeyboardLL, winDesktopCallback, mod, 0)
-		if h == 0 {
-			ready <- started{err: e}
-			return
-		}
+	return runHook(whKeyboardLL, winDesktopCallback, func() {
 		winDesktop.held.Store(0)
 		winDesktop.fn.Store(&fn)
-		ready <- started{tid: CurrentThreadID()}
-		for {
-			if r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0); int32(r) <= 0 {
-				break
-			}
-		}
+	}, func() {
 		winDesktop.fn.Store(nil)
-		procUnhookWindowsHookEx.Call(h)
 		winDesktop.held.Store(0)
-	}()
-	s := <-ready
-	if s.err != nil {
-		return nil, s.err
-	}
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			winDesktop.fn.Store(nil)
-			procPostThreadMessageW.Call(uintptr(s.tid), wmQuit, 0, 0)
-			<-stopped
-		})
-	}, nil
+	})
 }

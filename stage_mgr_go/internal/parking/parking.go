@@ -8,6 +8,12 @@ package parking
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"iter"
+	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,7 +25,13 @@ import (
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
+// journalName is the file in the data directory that lists the parked
+// windows and their homes, for Recover and Rescue.
+const journalName = "parked-windows.json"
+
 const (
+	// gap keeps a parked window this far past the desktop's edge, so that
+	// the shadow DWM draws around it does not show at the display's edge.
 	gap = 160
 	// No redraw: Windows does not paint windows off the desktop, so one
 	// coming back would erase and repaint everything, and apps that paint
@@ -34,7 +46,10 @@ const (
 	// neither rounded corners nor a shadow, until it is resized. Asked here,
 	// the app works it out for where the window is going.
 	homeFlags = moveFlags | winapi.SwpFrameChanged
-	settle    = time.Second
+	// settle is how long a window just parked or lifted is left alone by
+	// CollectEscaped: the move is sent off without waiting, and the app
+	// may take a while to get to it.
+	settle = time.Second
 	// A window sent home that is not there after chaseAfter is sent again,
 	// up to chaseTries times, and then fitted onto the nearest display.
 	chaseAfter = 300 * time.Millisecond
@@ -54,6 +69,9 @@ type Service struct {
 	journal string
 	lifted  map[winapi.HWND]bool // parked windows home for a moment, see Lift
 	homing  map[winapi.HWND]homing
+	// closed is set once Stage Manager is quitting (Close): nothing may be
+	// parked after the windows went home, or it would stay off the desktop.
+	closed bool
 	// Logf, when set, is told where windows go, for debug runs.
 	Logf func(format string, args ...any)
 }
@@ -73,8 +91,14 @@ type homing struct {
 
 // New keeps the journal in dir.
 func New(dir string) *Service {
-	return &Service{parked: map[winapi.HWND]parked{}, lifted: map[winapi.HWND]bool{}, homing: map[winapi.HWND]homing{}, journal: filepath.Join(dir, "parked-windows.json")}
+	return &Service{parked: map[winapi.HWND]parked{}, lifted: map[winapi.HWND]bool{}, homing: map[winapi.HWND]homing{}, journal: filepath.Join(dir, journalName)}
 }
+
+// Close makes the Service refuse to park or rehome any window from now on.
+// Call it before RestoreAll as Stage Manager quits: a switch whose callback
+// was already queued on the main thread could otherwise park a window
+// after everything went home, with nobody left to bring it back.
+func (s *Service) Close() { s.closed = true }
 
 // IsParked reports whether a window is parked.
 func (s *Service) IsParked(h winapi.HWND) bool { _, ok := s.parked[h]; return ok }
@@ -85,11 +109,12 @@ func (s *Service) Home(h winapi.HWND) (winapi.Rect, bool) {
 	return p.Home, ok
 }
 
-// Count is how many windows are parked.
-func (s *Service) Count() int { return len(s.parked) }
-
 // Park moves a window, and the dialogs it owns, off the desktop.
 func (s *Service) Park(h winapi.HWND) bool {
+	if s.closed {
+		s.logf("park %x %q refused: quitting", h, winapi.Title(h))
+		return false
+	}
 	if s.IsParked(h) {
 		return false
 	}
@@ -148,23 +173,54 @@ func (s *Service) unpark(h winapi.HWND) bool {
 	if !ok {
 		return false
 	}
-	home := onDesktop(root.Home)
-	shiftX, shiftY := home.Left-root.Home.Left, home.Top-root.Home.Top
-	for w, p := range s.parked {
-		if w == h || p.Owner == h {
-			delete(s.parked, w)
-			s.sendHome(w, reachable(p.Home.Offset(shiftX, shiftY)))
-		}
+	homes := s.homes(h)
+	for w, p := range homes {
+		delete(s.parked, w)
+		s.sendHome(w, p)
 	}
 	// A dialog opened while its owner was parked was placed next to the
 	// parked window: bring it along by the same distance.
-	dx, dy := home.Left-root.Spot.X, home.Top-root.Spot.Y
+	home := homes[h]
+	dx, dy := home.X-root.Spot.X, home.Y-root.Spot.Y
 	for _, o := range catalog.OwnedWindows(h) {
 		if r := winapi.WindowRect(o); winapi.MostlyOffscreen(r) {
 			s.sendHome(o, reachable(r.Offset(dx, dy)))
 		}
 	}
 	return true
+}
+
+// group yields a parked window and the parked dialogs that went with it.
+func (s *Service) group(h winapi.HWND) iter.Seq2[winapi.HWND, parked] {
+	return func(yield func(winapi.HWND, parked) bool) {
+		for w, p := range s.parked {
+			if (w == h || p.Owner == h) && !yield(w, p) {
+				return
+			}
+		}
+	}
+}
+
+// homes is where a parked window and its parked dialogs go back to: the
+// window to its home, or the nearest place the displays show it whole, and
+// its dialogs as far from it as they were, each kept reachable. Every way
+// home (Unpark, Lift, RestoreAll) goes by it.
+func (s *Service) homes(h winapi.HWND) map[winapi.HWND]winapi.Point {
+	root, ok := s.parked[h]
+	if !ok {
+		return nil
+	}
+	home := onDesktop(root.Home)
+	dx, dy := home.Left-root.Home.Left, home.Top-root.Home.Top
+	out := map[winapi.HWND]winapi.Point{}
+	for w, p := range s.group(h) {
+		if w == h {
+			out[w] = winapi.Point{X: home.Left, Y: home.Top}
+		} else {
+			out[w] = reachable(p.Home.Offset(dx, dy))
+		}
+	}
+	return out
 }
 
 // reachable is where a window that comes along with another goes: where
@@ -181,7 +237,9 @@ func reachable(r winapi.Rect) winapi.Point {
 // gets there (Chase).
 func (s *Service) sendHome(h winapi.HWND, p winapi.Point) {
 	s.logf("home %x %q from %v to %v", h, winapi.Title(h), at(h), p)
-	place(h, p)
+	if !place(h, p) {
+		s.logf("home %x %q: the move was refused, Chase sends it again", h, winapi.Title(h))
+	}
 	s.homing[h] = homing{to: p, at: time.Now()}
 }
 
@@ -235,6 +293,8 @@ func (s *Service) Settle(d time.Duration) {
 				place(h, g.to)
 			}
 		}
+		// Short against the time apps take to move a window, so that
+		// quitting waits hardly longer than the slowest of them.
 		time.Sleep(20 * time.Millisecond)
 	}
 	for h := range s.homing {
@@ -266,18 +326,23 @@ func fit(h winapi.HWND) {
 	place(h, winapi.Point{X: r.Left, Y: r.Top})
 }
 
-// place moves a window home to p, or a minimized one to come back there.
-func place(h winapi.HWND, p winapi.Point) {
+// place moves a window home to p, or a minimized one to come back there,
+// and reports whether Windows took the move.
+func place(h winapi.HWND, p winapi.Point) bool {
 	if winapi.IsIconic(h) {
-		winapi.MoveRestored(h, p)
-		return
+		return winapi.MoveRestored(h, p)
 	}
-	land(h, p)
+	return land(h, p)
 }
 
 // raising counts the calls to raise: the last one asked for is the order
 // that counts, and one not yet begun gives way to it.
 var raising atomic.Uint64
+
+// raiseAsk is how long raise waits for an app to answer before it sends
+// its move off instead: far above what a working app takes, short enough
+// not to hold the raise up noticeably.
+const raiseAsk = 100 * time.Millisecond
 
 // raiseOrder keeps the raises one at a time. They used to run together,
 // and the one asked for while another was midway through ended it there,
@@ -299,15 +364,23 @@ func raise(hs []winapi.HWND) {
 	const flags = winapi.SwpNoMove | winapi.SwpNoSize | winapi.SwpNoActivate | winapi.SwpNoRedraw
 	gen := raising.Add(1)
 	go func() {
-		raiseOrder.Lock()
-		defer raiseOrder.Unlock()
 		// A newer raise was asked for since, whose order is the one that
 		// counts: this one would only flash its windows above before it.
+		// Asked before waiting too, so that raises piling up behind one a
+		// slow app holds give way without waiting for their turn.
+		if raising.Load() != gen {
+			return
+		}
+		raiseOrder.Lock()
+		defer raiseOrder.Unlock()
 		if raising.Load() != gen {
 			return
 		}
 		for _, h := range slices.Backward(hs) {
-			if winapi.IsHung(h) || !winapi.SetWindowPos(h, winapi.HwndTop, 0, 0, 0, 0, flags) {
+			// IsHung only tells once an app has not answered for five
+			// seconds: one that has just stopped would hold the lock that
+			// long, and every raise after it.
+			if !winapi.Responsive(h, raiseAsk) || !winapi.SetWindowPos(h, winapi.HwndTop, 0, 0, 0, 0, flags) {
 				winapi.SetWindowPos(h, winapi.HwndTop, 0, 0, 0, 0, flags|winapi.SwpAsyncWindowPos)
 			}
 		}
@@ -320,7 +393,7 @@ func raise(hs []winapi.HWND) {
 // out of sight rather than rescale as it lands.
 func (s *Service) Rehome(h winapi.HWND, home winapi.Rect) {
 	p, ok := s.parked[h]
-	if !ok {
+	if !ok || s.closed {
 		return
 	}
 	home = onDesktop(home)
@@ -330,20 +403,18 @@ func (s *Service) Rehome(h winapi.HWND, home winapi.Rect) {
 		spot := spotFor(home)
 		sx, sy = spot.X-p.Spot.X, spot.Y-p.Spot.Y
 	}
-	for w, q := range s.parked {
-		if w == h || q.Owner == h {
-			q.Home = q.Home.Offset(dx, dy)
-			if sx != 0 || sy != 0 {
-				q.Spot = winapi.Point{X: q.Spot.X + sx, Y: q.Spot.Y + sy}
-				q.At = time.Now()
-				// One home for a peek goes to its new spot as it is
-				// lowered.
-				if !s.lifted[w] {
-					move(w, q.Spot)
-				}
+	for w, q := range s.group(h) {
+		q.Home = q.Home.Offset(dx, dy)
+		if sx != 0 || sy != 0 {
+			q.Spot = winapi.Point{X: q.Spot.X + sx, Y: q.Spot.Y + sy}
+			q.At = time.Now()
+			// One home for a peek goes to its new spot as it is
+			// lowered.
+			if !s.lifted[w] {
+				move(w, q.Spot)
 			}
-			s.parked[w] = q
 		}
+		s.parked[w] = q
 	}
 	s.logf("rehome %x %q to %v", h, winapi.Title(h), home)
 	s.save()
@@ -354,19 +425,15 @@ func (s *Service) Rehome(h winapi.HWND, home winapi.Rect) {
 // Windows' peek at a window from its taskbar thumbnail shows it where it
 // is, so one off the desktop would show nothing.
 func (s *Service) Lift(h winapi.HWND) {
-	root, ok := s.parked[h]
-	if !ok {
-		return
-	}
-	home := onDesktop(root.Home)
-	dx, dy := home.Left-root.Home.Left, home.Top-root.Home.Top
-	for w, p := range s.parked {
-		if (w == h || p.Owner == h) && !s.lifted[w] {
-			land(w, winapi.Point{X: p.Home.Left + dx, Y: p.Home.Top + dy})
-			p.At = time.Now()
-			s.parked[w] = p
-			s.lifted[w] = true
+	for w, to := range s.homes(h) {
+		if s.lifted[w] {
+			continue
 		}
+		land(w, to)
+		p := s.parked[w]
+		p.At = time.Now()
+		s.parked[w] = p
+		s.lifted[w] = true
 	}
 }
 
@@ -384,10 +451,22 @@ func (s *Service) Lower() {
 
 // RestoreAll brings every parked window home. It is safe while quitting.
 func (s *Service) RestoreAll() {
+	to := map[winapi.HWND]winapi.Point{}
 	for h, p := range s.parked {
-		if winapi.IsWindow(h) {
+		if p.Owner == 0 {
+			maps.Copy(to, s.homes(h))
+		}
+	}
+	// A dialog whose owner is no longer parked goes home on its own.
+	for h, p := range s.parked {
+		if _, ok := to[h]; !ok {
 			home := onDesktop(p.Home)
-			s.sendHome(h, winapi.Point{X: home.Left, Y: home.Top})
+			to[h] = winapi.Point{X: home.Left, Y: home.Top}
+		}
+	}
+	for h, p := range to {
+		if winapi.IsWindow(h) {
+			s.sendHome(h, p)
 			winapi.Redraw(h)
 		}
 	}
@@ -408,7 +487,8 @@ func (s *Service) CollectEscaped() []winapi.HWND {
 			changed = true
 			continue
 		}
-		if time.Since(p.At) < settle {
+		// A window lifted for a peek is home on purpose, not escaped.
+		if time.Since(p.At) < settle || s.lifted[h] {
 			continue
 		}
 		r := winapi.WindowRect(h)
@@ -438,51 +518,122 @@ func (s *Service) CollectEscaped() []winapi.HWND {
 	return escaped
 }
 
+// entry is a parked window in the journal, which is a bare JSON array of
+// them. The keys are the field names every version so far has written:
+// renaming one would decode an older journal with zeros and send its
+// windows to the corner of the desktop (TestJournalFormat). The format
+// stays readable by older versions, should one be run again.
 type entry struct {
-	Handle       uint64
-	HomeX, HomeY int32
-	SpotX, SpotY int32
+	Handle uint64 `json:"Handle"`
+	HomeX  int32  `json:"HomeX"`
+	HomeY  int32  `json:"HomeY"`
+	SpotX  int32  `json:"SpotX"`
+	SpotY  int32  `json:"SpotY"`
 }
 
-// Recover brings back the windows a previous run left parked.
+// aside keeps a journal that cannot be read where the next run cannot
+// take it: renamed aside when nothing holds it, copied when something
+// does, as a scanner may for a moment at startup — a rename over a file
+// like that fails, and the copy is the one way the original's bytes,
+// all that knows its windows' homes, outlive the run that starts from
+// no journal. It reports whether the original is still in place.
+func aside(path string) bool {
+	bad := asideName(path)
+	if err := os.Rename(path, bad); err == nil {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return true
+	}
+	if err := os.WriteFile(bad, data, 0o644); err != nil {
+		log.Println("stagebar: keeping the journal aside:", err)
+	}
+	return true
+}
+
+// asideName is where Recover keeps a journal it cannot read: itself with
+// .bad, or, taken already by an earlier one, timestamped beside it, so
+// that a second broken journal does not take the first's place: it is
+// all that knows where its windows belong.
+func asideName(path string) string {
+	if _, err := os.Stat(path + ".bad"); err != nil {
+		return path + ".bad"
+	}
+	return fmt.Sprintf("%s.bad.%d", path, time.Now().Unix())
+}
+
+// Recover brings back the windows a previous run left parked, and follows
+// them until they get there as Unpark does. A journal that cannot be read
+// is kept aside rather than deleted: it is all that knows those homes.
 func (s *Service) Recover() {
-	restoreJournal(s.journal)
-	os.Remove(s.journal)
+	entries, err := readJournal(s.journal)
+	if errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		log.Printf("stagebar: the journal of parked windows cannot be read, kept as %s: %v", asideName(s.journal), err)
+		aside(s.journal)
+		return
+	}
+	for _, e := range entries {
+		if h, p, ok := journalHome(e); ok {
+			s.sendHome(h, p)
+			winapi.Redraw(h)
+		}
+	}
+	if err := os.Remove(s.journal); err != nil {
+		log.Println("stagebar: removing the journal of parked windows:", err)
+	}
 }
 
 // Rescue brings back every window the journal in dir says is parked, from
 // any goroutine and without the Service: the last resort when the thread
 // that owns the Service stops answering. It leaves the journal in place.
 func Rescue(dir string) int {
-	return restoreJournal(filepath.Join(dir, "parked-windows.json"))
-}
-
-// restoreJournal moves the windows a journal lists home, those that are
-// still where they were parked or, moved by their app since, still off the
-// desktop, and returns how many it moved. Skipping one of those would leave
-// it where nobody can reach it: the journal is all that knows its home.
-func restoreJournal(path string) int {
-	data, err := os.ReadFile(path)
+	entries, err := readJournal(filepath.Join(dir, journalName))
 	if err != nil {
-		return 0
-	}
-	var entries []entry
-	if json.Unmarshal(data, &entries) != nil {
 		return 0
 	}
 	n := 0
 	for _, e := range entries {
-		h := winapi.HWND(e.Handle)
-		r := at(h)
-		if !winapi.IsWindow(h) || (r.Left != e.SpotX || r.Top != e.SpotY) && !winapi.MostlyOffscreen(r) {
-			continue
+		if h, p, ok := journalHome(e); ok {
+			place(h, p)
+			winapi.Redraw(h)
+			n++
 		}
-		home := onDesktop(winapi.Rect{Left: e.HomeX, Top: e.HomeY, Right: e.HomeX + r.W(), Bottom: e.HomeY + r.H()})
-		place(h, winapi.Point{X: home.Left, Y: home.Top})
-		winapi.Redraw(h)
-		n++
 	}
 	return n
+}
+
+// readJournal reads the entries of the journal at path.
+func readJournal(path string) ([]entry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var entries []entry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return entries, nil
+}
+
+// journalHome says where a window the journal lists goes back to: one
+// still where it was parked or, moved by its app since, still off the
+// desktop. Skipping one of those would leave it where nobody can reach it:
+// the journal is all that knows its home.
+func journalHome(e entry) (winapi.HWND, winapi.Point, bool) {
+	h := winapi.HWND(e.Handle)
+	if !winapi.IsWindow(h) {
+		return 0, winapi.Point{}, false
+	}
+	r := at(h)
+	if (r.Left != e.SpotX || r.Top != e.SpotY) && !winapi.MostlyOffscreen(r) {
+		return 0, winapi.Point{}, false
+	}
+	home := onDesktop(winapi.Rect{Left: e.HomeX, Top: e.HomeY, Right: e.HomeX + r.W(), Bottom: e.HomeY + r.H()})
+	return h, winapi.Point{X: home.Left, Y: home.Top}, true
 }
 
 // onDesktop returns where a window can go back to: its home, or, for a
@@ -569,18 +720,59 @@ func land(h winapi.HWND, p winapi.Point) bool {
 	return winapi.SetWindowPos(h, 0, p.X, p.Y, 0, 0, homeFlags)
 }
 
+// save writes the journal. Parking still works without it, only recovery
+// is lost, so a failure is logged rather than returned.
 func (s *Service) save() {
 	if len(s.parked) == 0 {
-		os.Remove(s.journal)
+		if err := os.Remove(s.journal); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			log.Println("stagebar: removing the journal of parked windows:", err)
+		}
 		return
 	}
 	entries := make([]entry, 0, len(s.parked))
 	for h, p := range s.parked {
 		entries = append(entries, entry{uint64(h), p.Home.Left, p.Home.Top, p.Spot.X, p.Spot.Y})
 	}
-	data, _ := json.Marshal(entries)
-	// Parking still works without the journal; only recovery is lost.
-	if os.MkdirAll(filepath.Dir(s.journal), 0o755) == nil {
-		os.WriteFile(s.journal, data, 0o644)
+	if err := writeJournal(s.journal, entries); err != nil {
+		log.Println("stagebar: writing the journal of parked windows:", err)
 	}
+}
+
+// writeJournal replaces the journal at path whole: written beside it and
+// renamed over it, so that a run killed while writing leaves the journal
+// as it was rather than half of one, which recovery could not read. The
+// copy is pushed to the disk before the rename takes its place: power
+// lost in between would leave a journal that is empty, and the windows
+// it alone knew the homes of fit nowhere better than the nearest
+// display's middle.
+func writeJournal(path string, entries []entry) error {
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := writeSynced(tmp, data); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// writeSynced writes bytes to a new file and sees them to the disk.
+func writeSynced(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }

@@ -158,8 +158,6 @@ func (s *strip) applyBounds() {
 	winapi.SetWindowPos(s.hwnd, z, r.Left, r.Top, r.W(), r.H(), winapi.SwpNoActivate)
 }
 
-func (s *strip) relayout() { s.place() }
-
 // message handles the shell's app bar notices.
 func (s *strip) message(msg uint32, wParam, lParam uintptr) (uintptr, bool) {
 	const wmEndSession = 0x0016
@@ -216,7 +214,7 @@ func (s *strip) poll(cur winapi.Point, now time.Time) {
 	// but brings no switch: its windows are on the stage already, and are
 	// left undisturbed by captures.
 	onList := s.visible && !s.d.inOverview && s.rect.Contains(cur) && s.overLineup(cur)
-	if inside && !s.wasInside && s.a.cardDrag == nil && !s.a.busy {
+	if inside && !s.wasInside && s.a.cardDrag == nil && !s.a.busy() {
 		// The pointer reached the cards: a switch may follow, so the
 		// windows on the stage get fresh stills to fly with now. Not while
 		// a card is dragged over them: no switch follows that. Nor while
@@ -301,8 +299,7 @@ func (s *strip) approach(cur winapi.Point) {
 	// taskbar, where the pointer comes to it too.
 	on := d.mon.Work.Contains(cur) || s.rect.Contains(cur) || s.joined && d.mon.Monitor.Contains(cur)
 	if s.visible && s.shown && s.a.ready && !d.inOverview && d.viewW > 0 && on {
-		x := float32(float64(cur.X-s.rect.Left) / s.scale)
-		y := float32(float64(cur.Y-s.rect.Top) / s.scale)
+		x, y := s.toLocal(cur)
 		r := footerButton(d.viewW, d.viewH, s.a.panel(), s.right())
 		if s.joined {
 			r = jointButton(d.viewW, d.viewH, s.a.panel())
@@ -310,9 +307,7 @@ func (s *strip) approach(cur winapi.Point) {
 		}
 		near = panelNearness(rectDist(r, x, y))
 	}
-	// Small steps on the way are left to the next; the ends are not, so
-	// that it shows in full and goes away entirely.
-	if near == s.near || near != 0 && near != 1 && math.Abs(float64(near-s.near)) < 0.03 {
+	if settledNear(near, s.near) {
 		return
 	}
 	s.near = near
@@ -371,16 +366,14 @@ func (s *strip) hardEdge(p winapi.Point) bool {
 // over reports whether a screen point is over a card, or the band of the
 // overview's button: the strip takes the pointer there.
 func (s *strip) over(p winapi.Point) bool {
-	x := float32(float64(p.X-s.rect.Left) / s.scale)
-	y := float32(float64(p.Y-s.rect.Top) / s.scale)
+	x, y := s.toLocal(p)
 	const slop = 6
 	for _, r := range s.hits {
-		if x >= r.X-slop && x < r.X+r.W+slop && y >= r.Y-slop && y < r.Y+r.H+slop {
+		if inside(r, x, y, slop) {
 			return true
 		}
 	}
-	f := s.footerHit
-	return f.W > 0 && x >= f.X && x < f.X+f.W && y >= f.Y && y < f.Y+f.H
+	return inside(s.footerHit, x, y, 0)
 }
 
 // cardBand is the band of the screen the cards take, in pixels: a window
@@ -392,18 +385,37 @@ func (s *strip) cardBand() winapi.Rect {
 	}
 	top := cards[0].Y
 	bottom := cards[len(cards)-1].Y + cards[len(cards)-1].H
-	return winapi.Rect{
-		Left:   s.rect.Left,
-		Top:    s.rect.Top + int32(float64(top)*s.scale),
-		Right:  s.rect.Right,
-		Bottom: s.rect.Top + int32(float64(bottom)*s.scale),
-	}
+	b := s.toPixels(ui.Rect{Y: top, H: bottom - top})
+	b.Left, b.Right = s.rect.Left, s.rect.Right
+	return b
 }
 
-// toScreen converts a rectangle in DIPs of the strip window to pixels.
+// toScreen converts a rectangle in DIPs of the strip window to pixels on
+// the screen. With toLocal and toPixels it is where the strip's DIPs and
+// the screen's pixels meet (AGENTS.md, 坐标): nothing else scales by hand.
 func (s *strip) toScreen(r ui.Rect) (x, y, w, h float64) {
 	return float64(s.rect.Left) + float64(r.X)*s.scale, float64(s.rect.Top) + float64(r.Y)*s.scale,
 		float64(r.W) * s.scale, float64(r.H) * s.scale
+}
+
+// toLocal converts a point on the screen, in pixels, to DIPs of the strip
+// window: toScreen the other way.
+func (s *strip) toLocal(p winapi.Point) (x, y float32) {
+	return float32(float64(p.X-s.rect.Left) / s.scale), float32(float64(p.Y-s.rect.Top) / s.scale)
+}
+
+// rectToLocal converts a rectangle on the screen, in pixels, to DIPs of
+// the strip window.
+func (s *strip) rectToLocal(r winapi.Rect) ui.Rect {
+	x, y := s.toLocal(winapi.Point{X: r.Left, Y: r.Top})
+	return ui.Rect{X: x, Y: y, W: float32(float64(r.W()) / s.scale), H: float32(float64(r.H()) / s.scale)}
+}
+
+// toPixels is toScreen rounded to whole pixels outward, so that the pixels
+// cover all of r however its edges fall between them.
+func (s *strip) toPixels(r ui.Rect) winapi.Rect {
+	x, y, w, h := s.toScreen(r)
+	return winapi.Rect{Left: int32(math.Floor(x)), Top: int32(math.Floor(y)), Right: int32(math.Ceil(x + w)), Bottom: int32(math.Ceil(y + h))}
 }
 
 func (s *strip) close() {

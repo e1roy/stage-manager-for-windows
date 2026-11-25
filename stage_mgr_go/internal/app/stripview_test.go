@@ -23,7 +23,7 @@ func testStrip(t *testing.T) (*strip, *[]request, *ui.Tester) {
 	var got []request
 	a := &App{settings: settings.Default(), media: newMedia(), ready: true}
 	a.act = func(act action, _ *display, s *set) { got = append(got, request{act, s.key}) }
-	d := &display{cards: map[string]*cardState{}, landing: map[string]bool{}}
+	d := newDisplay(winapi.Monitor{})
 	d.mon.Work = winapi.Rect{Right: 2000, Bottom: 900}
 	for i, app := range []string{"mail", "notes"} {
 		w := catalog.Window{HWND: winapi.HWND(i + 1), Title: app, App: app, Frame: winapi.Rect{Right: 1600, Bottom: 1000}}

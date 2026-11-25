@@ -3,6 +3,7 @@
 package winapi
 
 import (
+	"log"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -17,7 +18,6 @@ const (
 	EventSystemMinimizeEnd    = 0x0017
 	EventObjectCreate         = 0x8000
 	EventObjectDestroy        = 0x8001
-	EventObjectShow           = 0x8002
 	EventObjectHide           = 0x8003
 	EventObjectLocationChange = 0x800B
 	EventObjectNameChange     = 0x800C
@@ -32,7 +32,9 @@ const (
 // WinEventFunc receives a window event of a top-level window.
 type WinEventFunc func(event uint32, h HWND)
 
-var hookMu sync.Mutex
+// hookFn is the callback WinEvents delivers to, on the main thread alone:
+// hooks are installed there and deliver there, so it needs no lock (an
+// atomic, as the keyboard hook's state, would only suggest otherwise).
 var hookFn WinEventFunc
 var hookCallback = syscall.NewCallback(func(hook, event, hwnd, idObject, idChild, thread, time uintptr) uintptr {
 	if hwnd == 0 || int32(idObject) != objIDWindow || int32(idChild) != 0 {
@@ -49,24 +51,22 @@ var hookCallback = syscall.NewCallback(func(hook, event, hwnd, idObject, idChild
 // thread, which must pump messages: call it on MyGo's main thread. Only
 // one set of hooks exists at a time; the returned function removes it.
 func HookWinEvents(fn WinEventFunc, ranges ...[2]uint32) (unhook func()) {
-	hookMu.Lock()
 	hookFn = fn
-	hookMu.Unlock()
 	var hooks []uintptr
 	for _, r := range ranges {
 		h, _, _ := procSetWinEventHook.Call(uintptr(r[0]), uintptr(r[1]), 0, hookCallback, 0, 0,
 			winEventOutOfContext|winEventSkipOwnProcess)
 		if h != 0 {
 			hooks = append(hooks, h)
+		} else {
+			log.Printf("stagebar: window events %d-%d could not be watched; changes are picked up only by the 1.5s refresh", r[0], r[1])
 		}
 	}
 	return func() {
 		for _, h := range hooks {
 			procUnhookWinEvent.Call(h)
 		}
-		hookMu.Lock()
 		hookFn = nil
-		hookMu.Unlock()
 	}
 }
 

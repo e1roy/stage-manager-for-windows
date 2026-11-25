@@ -65,15 +65,74 @@ func (a *App) accent() (c ui.Color, outlined bool) {
 	return ringColor, true
 }
 
-type overviewPhase int
+// overviewPhase is where an overview is on its course:
+//
+//	hidden → shooting → showing → holding → opening → open → closing → landing → landed → hidden
+//
+// Until it opens (shooting, showing, holding) no window has left the
+// desktop or the strip, and it ends by simply hiding (overview.abort).
+// Once open, it closes the way it came, even when cut short: from opening
+// or open it closes, and closing gives way to landing, at the end of its
+// move or on a timeout. The phases are in that order, and the code relies
+// on it (closing).
+type overviewPhase uint8
 
 const (
-	ovHidden  overviewPhase = iota
-	ovOpening               // flying out of the stage and the cards
-	ovOpen                  // spread out, waiting for the user
-	ovClosing               // flying home, or into the cards
-	ovLanding               // landed: the real windows and the cards take over
+	ovHidden   overviewPhase = iota
+	ovShooting               // the stills of its windows are being taken
+	ovShowing                // it shows every window where it is, before its first frame is drawn
+	ovHolding                // that frame is drawn: once surely on the screen, the real windows may go
+	ovOpening                // the windows it covers are parked; it flies out of the stage and the cards
+	ovOpen                   // spread out, waiting for the user
+	ovClosing                // flying home, or into the cards
+	ovLanding                // arrived: the real windows are due back (overview.land)
+	ovLanded                 // they are back, and the cards show; it hides a moment later
 )
+
+// overviewNext lists the phases each phase may give way to.
+var overviewNext = [...][]overviewPhase{
+	ovHidden:   {ovShooting},
+	ovShooting: {ovShowing, ovHidden},
+	ovShowing:  {ovHolding, ovHidden},
+	ovHolding:  {ovOpening, ovHidden},
+	ovOpening:  {ovOpen, ovClosing},
+	ovOpen:     {ovClosing},
+	ovClosing:  {ovLanding},
+	ovLanding:  {ovLanded},
+	ovLanded:   {ovHidden},
+}
+
+func (p overviewPhase) String() string {
+	return [...]string{"hidden", "shooting", "showing", "holding", "opening", "open", "closing", "landing", "landed"}[p]
+}
+
+// leadsTo reports whether an overview in phase p may move on to q.
+func (p overviewPhase) leadsTo(q overviewPhase) bool {
+	return int(p) < len(overviewNext) && slices.Contains(overviewNext[p], q)
+}
+
+// opened reports whether the windows it covers have left for it: it can
+// only close the way it came.
+func (p overviewPhase) opened() bool { return p >= ovOpening }
+
+// closing reports whether it is on its way back, or back.
+func (p overviewPhase) closing() bool { return p >= ovClosing }
+
+// moving reports whether its windows are on the move.
+func (p overviewPhase) moving() bool { return p == ovOpening || p == ovClosing }
+
+// live reports whether it takes the pointer and the keyboard.
+func (p overviewPhase) live() bool { return p == ovOpening || p == ovOpen }
+
+// to moves o on to phase q, if its course leads there from where it is.
+func (o *overview) to(q overviewPhase) bool {
+	if !o.phase.leadsTo(q) {
+		debugf("overview: no way from %v to %v", o.phase, q)
+		return false
+	}
+	o.phase = q
+	return true
+}
 
 // ovTile is a window in the overview and the course it is on, in pixels of
 // the screen.
@@ -126,9 +185,6 @@ type overview struct {
 	scale  float64
 	tiles  []ovTile // front first; drawn the other way round
 	phase  overviewPhase
-	held   bool      // its first frame, every window where it was, was drawn
-	flying bool      // the windows it covers are parked, and it moves
-	landed bool      // the windows were handed back
 	start  time.Time // when the move began: its first frame, zero until drawn
 	// spread is how far it is out, from 0 as it opens to 1 spread out: how
 	// dark the desktop is and how much the icons show.
@@ -209,13 +265,13 @@ func (a *App) anyOverview() bool {
 	})
 }
 
-// overviewDone clears busy once the last overview is gone, and takes up what
+// overviewDone frees the stages once the last overview is gone, and takes up what
 // waited for it on display d.
 func (a *App) overviewDone(d *display) {
 	if a.anyOverview() {
 		return
 	}
-	a.busy = false
+	a.letGo(holdOverview)
 	a.ended(d)
 }
 
@@ -250,7 +306,7 @@ func (a *App) openOverviews(ds []*display, asked time.Time) {
 	}
 	var want []*display
 	for _, d := range ds {
-		if !a.managed(d) || !slices.Contains(a.displays, d) || d.strip == nil {
+		if !a.live(d) || d.strip == nil {
 			continue
 		}
 		if d.ov != nil && d.ov.phase != ovHidden {
@@ -261,7 +317,7 @@ func (a *App) openOverviews(ds []*display, asked time.Time) {
 	if len(want) == 0 {
 		return
 	}
-	if a.busy {
+	if a.busy() {
 		// A switch is on its way: the overview waits for it a moment.
 		if time.Since(asked) < overviewWait {
 			after(100*time.Millisecond, func() { a.openOverviews(want, asked) })
@@ -298,17 +354,19 @@ func (a *App) openOverviewOn(d *display) {
 		return
 	}
 	o := a.overviewOf(d)
-	a.busy = true
+	if !o.to(ovShooting) {
+		return
+	}
+	a.take(holdOverview, nil)
 	o.gen++
-	o.d, o.groups, o.phase, o.tiles = d, groups, ovOpening, nil
-	o.held, o.flying, o.landed = false, false, false
+	o.d, o.groups, o.tiles = d, groups, nil
 	// The windows on the desktop fly out from where they are: they get
 	// fresh stills, at the size they show.
 	var shoot []winapi.HWND
 	for _, w := range ws {
 		a.media.icon(w)
 		st := a.media.still(w.HWND)
-		if !a.hidden(w) && !a.media.pending[w.HWND] && (st == nil || time.Since(st.at) > time.Second) {
+		if !a.hidden(w) && (st == nil || time.Since(st.at) > time.Second) {
 			shoot = append(shoot, w.HWND)
 		}
 	}
@@ -324,8 +382,9 @@ func (a *App) openOverviewOn(d *display) {
 // off from.
 func (o *overview) begin(ws []catalog.Window) {
 	a, d := o.a, o.d
-	if a.quitting || !slices.Contains(a.displays, d) || d.strip == nil {
-		o.phase, o.d = ovHidden, nil
+	if !a.live(d) || d.strip == nil {
+		o.to(ovHidden)
+		o.d = nil
 		a.overviewDone(d)
 		return
 	}
@@ -406,7 +465,8 @@ func (o *overview) begin(ws []catalog.Window) {
 		t.from, t.fromOp, t.fromSh = t.origin, t.originOp, t.originSh
 		t.to, t.toOp, t.toSh = t.slot, 1, overviewShade
 	}
-	o.phase, o.start = ovOpening, time.Time{}
+	o.to(ovShowing)
+	o.start = time.Time{}
 	o.spreadFrom, o.spreadTo, o.badges = 0, 1, nil
 	debugf("overview %s: %d windows over %v", d.mon.Device, len(o.tiles), area)
 	place := func() {
@@ -425,7 +485,7 @@ func (o *overview) begin(ws []catalog.Window) {
 	after(overviewTimeout, func() {
 		// It never drew: rather than leave an invisible window over the
 		// desktop, it gives up.
-		if o.gen == gen && !o.held {
+		if o.gen == gen && o.phase == ovShowing {
 			debugf("overview: timed out showing")
 			o.abort()
 		}
@@ -436,10 +496,9 @@ func (o *overview) begin(ws []catalog.Window) {
 // they are, blanks the strip's cards, which it shows too, and sets off.
 func (o *overview) takeOff() {
 	a, d := o.a, o.d
-	if o.flying || d == nil || a.quitting {
+	if a.quitting || !o.to(ovOpening) {
 		return
 	}
-	o.flying = true
 	for _, t := range o.tiles {
 		if t.parks {
 			a.park.Park(t.w.HWND)
@@ -453,9 +512,9 @@ func (o *overview) takeOff() {
 // eased is how far, eased, the overview is through its move at now.
 func (o *overview) eased(now time.Time) float64 {
 	switch {
-	case o.phase == ovOpen || o.phase == ovLanding:
+	case o.phase == ovOpen || o.phase == ovLanding || o.phase == ovLanded:
 		return 1
-	case !o.flying || o.start.IsZero():
+	case !o.phase.opened() || o.start.IsZero():
 		return 0
 	}
 	return flightEase(min(float64(now.Sub(o.start))/float64(overviewTime), 1))
@@ -471,10 +530,10 @@ func (o *overview) spread(e float64) float32 {
 // none, everything goes back as it was.
 func (o *overview) close(pick *ovTile) {
 	a, d := o.a, o.d
-	if d == nil || o.phase == ovHidden || o.phase >= ovClosing {
+	if d == nil || o.phase == ovHidden || o.phase.closing() {
 		return
 	}
-	if !o.flying {
+	if !o.phase.opened() {
 		// Nothing took off yet.
 		o.abort()
 		return
@@ -523,7 +582,10 @@ func (o *overview) close(pick *ovTile) {
 	}
 	if len(into) > 0 && d.strip != nil {
 		// A floating strip comes out for the windows to land in.
-		d.strip.holdOpen(1200 * time.Millisecond)
+		// The flights are spread out for about overviewTime and land after
+		// landingDelay: hold the strip out while the last of them shows,
+		// as a switch does (flightSpan).
+		d.strip.holdOpen(overviewTime + landLinger)
 	}
 	if len(left) > 0 {
 		a.reveal(d, left[0])
@@ -560,14 +622,15 @@ func (o *overview) close(pick *ovTile) {
 		t.to, t.toSh = p, cardShade(float32(p.h/o.scale))
 	}
 	o.badges = a.flights.landingIcons(d)
-	o.phase, o.start = ovClosing, time.Time{}
+	o.to(ovClosing)
+	o.start = time.Time{}
 	o.gen++
 	o.win.Invalidate()
 	gen := o.gen
 	after(overviewTime+overviewTimeout, func() {
 		if o.gen == gen && o.phase == ovClosing {
 			debugf("overview: timed out closing")
-			o.phase = ovLanding
+			o.to(ovLanding)
 			o.land()
 		}
 	})
@@ -578,10 +641,9 @@ func (o *overview) close(pick *ovTile) {
 // theirs; the overview hides a moment later, once those are drawn.
 func (o *overview) land() {
 	a, d := o.a, o.d
-	if d == nil || o.landed || a.quitting {
+	if a.quitting || !o.to(ovLanded) {
 		return
 	}
-	o.landed = true
 	order := slices.Clone(o.tiles)
 	slices.SortStableFunc(order, func(x, y ovTile) int {
 		switch {
@@ -618,17 +680,14 @@ func (o *overview) land() {
 	}
 	d.inOverview = false
 	a.redraw()
-	after(700*time.Millisecond, func() {
-		for _, w := range came {
-			a.liven(w)
-		}
-	})
+	a.livenLater(came)
 	gen := o.gen
 	after(landingDelay, func() {
 		if o.gen != gen {
 			return
 		}
-		o.phase, o.d, o.tiles, o.badges = ovHidden, nil, nil, nil
+		o.to(ovHidden)
+		o.d, o.tiles, o.badges = nil, nil, nil
 		// One last, empty frame, so that it never shows these again.
 		o.win.Invalidate()
 		after(50*time.Millisecond, func() {
@@ -645,13 +704,14 @@ func (o *overview) land() {
 func (o *overview) abort() {
 	a, d := o.a, o.d
 	switch {
-	case o.phase == ovHidden || o.phase == ovLanding:
+	case o.phase == ovHidden || o.phase == ovLanding || o.phase == ovLanded:
 		return
-	case !o.flying:
+	case !o.phase.opened():
 		// Nothing left the desktop yet, nor the strip: it only goes, and
 		// the keyboard back where it was.
 		o.gen++
-		o.phase, o.d, o.tiles = ovHidden, nil, nil
+		o.to(ovHidden)
+		o.d, o.tiles = nil, nil
 		if winapi.Foreground() == o.hwnd && o.prev != 0 && winapi.IsWindow(o.prev) {
 			winapi.Activate(o.prev)
 		}
@@ -660,7 +720,7 @@ func (o *overview) abort() {
 		return
 	}
 	o.close(nil)
-	o.phase = ovLanding
+	o.to(ovLanding)
 	o.land()
 }
 
@@ -682,7 +742,7 @@ func (o *overview) view(c *ui.Context) {
 		return
 	}
 	now := c.Now()
-	if debugOn && o.flying && (o.phase == ovOpening || o.phase == ovClosing) {
+	if debugOn && o.phase.moving() {
 		t0 := time.Now()
 		p := 0.0
 		if !o.start.IsZero() {
@@ -691,10 +751,10 @@ func (o *overview) view(c *ui.Context) {
 		o.frames.frame(now, progress(p))
 		defer func() { o.frames.built(time.Since(t0)) }()
 	}
-	if !o.held {
+	if o.phase == ovShowing {
 		// The windows show where they are; once that is surely on the
 		// screen, the real ones may go.
-		o.held = true
+		o.to(ovHolding)
 		gen := o.gen
 		after(takeOffDelay, func() {
 			if o.gen == gen {
@@ -702,7 +762,7 @@ func (o *overview) view(c *ui.Context) {
 			}
 		})
 	}
-	if o.flying && (o.phase == ovOpening || o.phase == ovClosing) {
+	if o.phase.moving() {
 		// The strips under it draw too, as under the flight layer
 		// (App.paintStrips): the cards take their new places meanwhile.
 		post(o.a.paintStrips)
@@ -715,7 +775,7 @@ func (o *overview) view(c *ui.Context) {
 			o.pace.frame(o.win)
 		} else if o.phase == ovOpening {
 			o.frames.report(fmt.Sprintf("overview %s opens, %d windows", o.d.mon.Device, len(o.tiles)))
-			o.phase = ovOpen
+			o.to(ovOpen)
 			for i := range o.tiles {
 				t := &o.tiles[i]
 				t.from, t.fromOp, t.fromSh = t.to, t.toOp, t.toSh
@@ -723,13 +783,13 @@ func (o *overview) view(c *ui.Context) {
 			o.spreadFrom = o.spreadTo
 		} else {
 			o.frames.report(fmt.Sprintf("overview %s closes, %d windows", o.d.mon.Device, len(o.tiles)))
-			o.phase = ovLanding
+			o.to(ovLanding)
 			post(o.land)
 		}
 	}
 	e := o.eased(now)
 	spread := o.spread(e)
-	live := o.flying && (o.phase == ovOpening || o.phase == ovOpen)
+	live := o.phase.live()
 	if live && c.Shortcut(0, ui.KeyEscape) {
 		post(func() { o.a.closeOverviews(nil) })
 	}
@@ -742,7 +802,7 @@ func (o *overview) view(c *ui.Context) {
 	// home above the others.
 	picked := -1
 	for i := len(o.tiles) - 1; i >= 0; i-- {
-		if o.phase >= ovClosing && o.tiles[i].w.HWND == o.focus {
+		if o.phase.closing() && o.tiles[i].w.HWND == o.focus {
 			picked = i
 			continue
 		}
@@ -751,7 +811,7 @@ func (o *overview) view(c *ui.Context) {
 	if picked >= 0 {
 		o.drawTile(c, &o.tiles[picked], e, spread, live)
 	}
-	if o.phase >= ovClosing {
+	if o.phase.closing() {
 		// The cards' icons come in over the second half, to be in place as
 		// the cards show.
 		op := float32(min(max(e*2-1, 0), 1))
@@ -795,7 +855,7 @@ func (o *overview) drawTile(c *ui.Context, t *ovTile, e float64, spread float32,
 	if at.tilt < 0 {
 		originX = 1
 	}
-	radius := max(min(h*0.03, 10), 3)
+	radius := tileRadius(h)
 	iconSize := min(max(h*0.2, 26), 48)
 	el.Children(func() {
 		var pane ui.Element
@@ -803,8 +863,7 @@ func (o *overview) drawTile(c *ui.Context, t *ovTile, e float64, spread float32,
 			pane = ui.Image(c.Key("still"), t.still).Absolute().Left(0).Top(0).Size(w, h).Fit(ui.FillBox).Radius(radius)
 		} else {
 			// No still: a frosted pane with the app's icon, as its card shows it.
-			pane = ui.Column(c.Key("pane")).Absolute().Left(0).Top(0).Size(w, h).Radius(radius).
-				Background(ui.RGBA(250, 250, 252, 0.2)).Border(1, ui.RGBA(255, 255, 255, 0.3)).Center()
+			pane = frosted(ui.Column(c.Key("pane")).Absolute().Left(0).Top(0).Size(w, h).Radius(radius)).Center()
 			pane.Children(func() {
 				if t.icon != nil {
 					sz := min(h*0.32, 72)
@@ -840,6 +899,11 @@ func (o *overview) drawTile(c *ui.Context, t *ovTile, e float64, spread float32,
 	})
 }
 
+// tileRadius rounds the corners of a window h DIPs tall spread out in the
+// overview, as Windows rounds a window's; its close button keeps within
+// them.
+func tileRadius(h float32) float32 { return max(min(h*0.03, 10), 3) }
+
 // closeButton draws the button in the top right corner of tile t, w by h
 // DIPs, that closes its window: the block of a title bar's close button,
 // as wide as the bar is tall, dark and translucent until the pointer sets
@@ -851,7 +915,7 @@ func (o *overview) closeButton(c *ui.Context, t *ovTile, w, h, op float32) {
 	width := min(height*1.3, w*0.4)
 	// Flush with the corner, rounded as the window it covers is at its
 	// top right, so that it never shows outside it.
-	corner := max(min(h*0.03, 10), 3)
+	corner := tileRadius(h)
 	btn := ui.Box(c.Key("close")).Absolute().Left(w-width).Top(0).Size(width, height).
 		Cursor(ui.CursorPointer).Label(o.a.tr().CloseWindow)
 	if btn.Clicked() {
@@ -882,7 +946,7 @@ func (o *overview) closeButton(c *ui.Context, t *ovTile, w, h, op float32) {
 // not close (it may ask to save first), it goes back with the others as
 // the overview closes.
 func (o *overview) closeWindow(t *ovTile) {
-	if o.phase != ovOpening && o.phase != ovOpen || t.closing {
+	if !o.phase.live() || t.closing {
 		return
 	}
 	debugf("overview: close %x %q", t.w.HWND, t.w.Title)

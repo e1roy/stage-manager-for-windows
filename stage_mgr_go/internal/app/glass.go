@@ -101,8 +101,7 @@ func (s *strip) frost(r winapi.Rect) {
 // shows on the screen, in pixels: with the corner button joined to it,
 // down to the display's bottom.
 func (s *strip) buttonScreen(r ui.Rect) winapi.Rect {
-	x, y, w, h := s.toScreen(r)
-	b := winapi.Rect{Left: int32(math.Floor(x)), Top: int32(math.Floor(y)), Right: int32(math.Ceil(x + w)), Bottom: int32(math.Ceil(y + h))}
+	b := s.toPixels(r)
 	if s.joined {
 		b.Bottom = s.d.mon.Monitor.Bottom
 	}

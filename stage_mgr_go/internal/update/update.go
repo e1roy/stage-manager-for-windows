@@ -19,10 +19,19 @@ import (
 // read from raw.githubusercontent.com, which unlike api.github.com is not
 // limited to 60 requests an hour for each address, a limit that a shared
 // address, as an office's, uses up for everyone behind it.
-const VersionURL = "https://raw.githubusercontent.com/e1roy/stage-manager-for-windows/main/.version"
+const VersionURL = rawHost + "/e1roy/stage-manager-for-windows/main/.version"
+
+// rawHost serves the files of a repository's branch directly, as
+// github.com does only by redirect: one hop a proxy's rule for github.com
+// need not cover.
+const rawHost = "https://raw.githubusercontent.com"
+
+// Repo is the project's home. The other addresses are built on it, so a
+// move or a rename is one change here.
+const Repo = "https://github.com/e1roy/stage-manager-for-windows"
 
 // ReleasesURL is the page of the latest release, where its installer is.
-const ReleasesURL = "https://github.com/e1roy/stage-manager-for-windows/releases/latest"
+const ReleasesURL = Repo + "/releases/latest"
 
 // Release is a version published on GitHub.
 type Release struct {
@@ -54,7 +63,15 @@ func Latest(ctx context.Context, src string, proxy Proxy) (Release, error) {
 	}
 	r, err := fetch(req, proxy)
 	if err != nil && ctx.Err() == nil {
-		return fetch(req, nil)
+		// Asked directly instead. That failing too, both errors join: it
+		// is the proxy's the user with one needs to see, and the direct
+		// attempt alone would bury it. Succeeding, the check succeeded:
+		// a dead proxy the registry still names is no failure of it.
+		r2, err2 := fetch(req, nil)
+		if err2 == nil {
+			return r2, nil
+		}
+		return r2, errors.Join(err, err2)
 	}
 	return r, err
 }

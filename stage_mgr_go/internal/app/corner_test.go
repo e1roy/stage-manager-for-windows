@@ -210,3 +210,15 @@ func TestJoinedFooter(t *testing.T) {
 		t.Fatalf("the panel is still lit %v, in %v, while the overview shows", s.footHover, s.footerHit)
 	}
 }
+
+// A corner button on its own centers the mark, which the joined button
+// sizes for both its halves.
+func TestJointGlyphBoxAlone(t *testing.T) {
+	g, gh, y := jointGlyphBox(0, 48, 120)
+	if gh != g*glyphAspect || y != (48-gh)/2 {
+		t.Fatalf("alone, the mark is %v by %v at %v", g, gh, y)
+	}
+	if g2, _, _ := jointGlyphBox(38, 48, 120); g2 < g {
+		t.Fatalf("joined, the mark is smaller (%v) than alone (%v)", g2, g)
+	}
+}

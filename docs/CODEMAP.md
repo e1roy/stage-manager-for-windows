@@ -18,8 +18,8 @@ internal/app                应用本体，全部状态只在 MyGo 主线程
   ├─ internal/settings      设置的读取、归一化、原子保存
   ├─ internal/i18n          四种语言的文字表
   ├─ internal/catalog       枚举窗口 → 归到应用（含 UWP 宿主）、应用名
-  ├─ internal/parking       停放 / 放回窗口 + 崩溃恢复日志
-  ├─ internal/update        查 GitHub 最新 release、比较版本、解析系统代理（只读，不下载安装）
+  ├─ internal/parking       停放 / 放回窗口 + 崩溃恢复日志（原子写入；退出时先 `Close` 拒绝再停放）
+  ├─ internal/update        读 main 分支 .version 的最新版本、比较版本、解析系统代理（只读，不下载安装）
   └─ internal/winapi        Win32 薄封装（syscall）：窗口、显示器、钩子、AppBar、静帧、DWM
 ```
 
@@ -59,7 +59,7 @@ stage_mgr_go/
 | `app.go` | `App`、`display`、`group`、`set`、`Start`、`syncDisplays`、`refresh`、`initStage`、`applySettings`、`shutdown`、`post`/`after` | 状态中枢：显示器同步、窗口刷新、初始舞台、空闲补位、`settings` 应用 | 新状态字段加在 `App` / `display` 上，只在主线程读写；后台结果一律走 `post`/`after` |
 | `events.go` | `hookEvents`、`onWinEvent`、`onForeground`、`settleForeground`、`desktopClick`、`startPolling`、`poll`、`syncWinTab`/`winTab` | WinEvent 驱动：前台跟随、点壁纸清舞台、指针轮询（浮出侧边栏、peek、触发角）、Win+Tab 概览 | 新增拍照时机要避免拍用户正在用的窗口（JetBrains 弹窗闪一下）；调试日志有 `capture [...]` |
 | `switch.go` | `switchStage`/`start`（`switchStage` 包成 `switchRequest` 交给 `start`；忙时排队的也是同一个请求）、`handover`（`takeOff` / `land` / `stop` / `done`）、`switchRequest`（`commit` 改模型：带 `split` 的请求先 `Split` 再 `Switch`，同一刻完成）、`runQueued`、`ended`、`arrange`（同步 `model.Keep(AllStages)`、标出台前的 `set.staged`）、`reveal`（`AllStages` 时离场的卡片回自己的槽位，可能在可视区外，飞行前先滚到它）、`action` 常量（`actPick`…`actFront`/`actUnstage`）、`request`、`requestOverview`、`pick`/`join`/`split`（台前的组拆开后最前的应用留台，其余切下去：从 `heading(d)` 里去掉它们，正在加入舞台的应用照样加入；组在切换 `commit` 时才拆，切换被丢弃或接管时舞台不会碎成几张“幽灵”卡片）/`closeApps` | 舞台切换、真实窗口交接、切换排队与打断、卡片与舞台窗口列表的动作分发 | 动画时长常量在 `flights.go`；改交接顺序先看 `handover` 的注释 |
-| `flights.go` | `flights`、`layer`、`flight`、`trip`、`badge`、`pose`、`shade`、`ownShadow`、`around`、`flightTime`/`takeOffDelay`/`landingDelay` | 每台显示器一层的飞行层：静帧在卡片与舞台间飞行、阴影交接、拖动卡片时的让位 | 整屏动画必须走 `pacer`；飞行层要避开被拖窗口（`hole`）；一处时序改动会牵动阴影 |
+| `flights.go` | `flights`、`layer`、`flight`、`trip`/`tripPhase`/`tripNext`、`badge`、`pose`、`shade`、`ownShadow`、`around`、`flightTime`/`takeOffDelay`/`landingDelay` | 每台显示器一层的飞行层：静帧在卡片与舞台间飞行、阴影交接、拖动卡片时的让位 | 整屏动画必须走 `pacer`；飞行层要避开被拖窗口（`hole`）；一处时序改动会牵动阴影 |
 | `pacer.go` | `pacer.frame` | 用 `DwmFlush` 按 DWM 合成节奏要帧，代替 `AnimationFrame` | 只有整屏窗口（飞行层、概览）用它，小窗口别用 |
 | `strip.go` | `strip`、`place`、`applyBounds`、`message`、`poll`、`approach`、`setShown`、`setClickThrough`、`holdOpen`、`line` | 侧边栏窗口：物理像素摆放、AppBar（固定模式）、浮动模式滑出/滑入、点击穿透；收到 `TaskbarCreated` 广播（Explorer 重启）时 `AppBar.Forget()` 再 `place()` 重新占位 | 窗口位置是物理像素；DIP 换算只在 `toScreen` 一类地方做；Explorer 重启后新的 shell 不认旧 AppBar |
 | `stripview.go` | `cardState`、`(*strip).view`、`(*strip).card`、`footer`、`dragPoses`、`windowStill`、`panel`/`showPanel`、`previousStage`/`previousMark`、`cardCloseSize` | 侧边栏界面：卡片、3D 透视、悬停、拖动、右键菜单、底部概览面板；悬停时最前窗口右上角出现圆形关闭按钮（`closeButton`，灰色半透明，指针移上去变红），点击 `actClose` 关掉整张卡片的窗口（组合里的全部），按钮画在卡片的窗口层里随卡片倾斜、缩放；上一个舞台（`stage.Display.Previous()`，任何方式离开舞台都算）的卡片套主题色虚线框（关掉主题色时为白色）（`settings.MarkPrevious`，默认开），虚线框画在卡片的窗口层里，随卡片倾斜、缩放，落地前不显示，几何在 `layout.go` 的 `markRect`；开了“侧边栏显示所有舞台”（`settings.AllStages`）后，台前的应用也是一张卡片（`set.staged`），画成“幽灵”：窗口层按 `StagedOpacity` 整体淡出（外层 `Opacity`、内层 `Cache()`，因为 MyGo 的不透明度是逐图形相乘，叠放的窗口会透出来）、按 `StagedGray` 在静帧上叠一张灰度副本（`windowStill` 的 `gray`，`Grayscale()` 只有开关），右下角带一个绿色对钩徽章（`stageBadge`：MyGo 没有径向渐变，所以用线性渐变的圆片（左上亮、右下深）、上下两道内阴影、上半部渐隐的白色高光和投在卡片上的阴影叠出玻璃质感，白色粗对钩下面垫一份深绿的副本做浮雕；位置 `layout.go: badgeRect` 取窗口层外框 `markRect` 的内侧下角，大小是应用图标的 0.55 倍（`badgeShare`），颜色取浅薄荷绿到系统绿（不用深绿，免得比幽灵本身还抢眼）、夹在侧边栏窗口里；它是正圆的，不放进窗口层的倾斜里（MyGo 里在倾斜的父层中再反向旋转不会抵消，只会再压扁一次，而整个跟着转会压成椭圆），而是用 `layout.go: turnedPoint` 算出卡片的那个角转过去之后的位置，再绕自己的中心转卡片倾斜角的一半（`badgeTurn`，带 `badgePerspective` 的透视）：既不平贴在倾斜的卡片旁边，又不会被压成椭圆；跟着卡片抬起，不跟着窗口层淡出，只随幽灵出现时弹出），指针移上去和点击都不切换而是左右震动一下（`shakeSpring`；指针“刚移上去”靠 `cardState.over` 判上升沿，`shakeGap`（800ms）内不重复，免得震动把卡片从指针下挪开又挪回来，在卡片边缘无限抖下去；`Jump("shake")` 之后 `AnimateTo` 弹回，表示“当前就是它”）、悬停不倾斜不抬起不拍照也没有关闭按钮，右键菜单没有“切换/加入”，但能“拆开组合”（`App.split`）；随从应用只在设置的“例外”页里选，卡片右键菜单不再有这一项，拖动只能在本侧边栏里排序（`carddrag.go: aimCard`） | 卡片动作不要直接改模型，走 `a.request`（无头测试靠 `App.act` 截获）；`d.sets` 此时含台前的卡片，“等待的卡片”用 `d.waiting()` 或跳过 `staged` |
@@ -70,7 +70,7 @@ stage_mgr_go/
 | `iconfit.go` | `iconBounds` | 按 alpha 裁掉图标四周透明边 | 有单测 |
 | `lineup.go` | `lineup`、`lineThumb`、`lineTint`、`stageWindows`、`lineupFor`、`lineupView`/`lineTile`/`lineMore`、`placeThumbs`、`sampleTints`、`overLineup`、`bringForward`、`unstage`、`lineupLift`、`closeButton`（卡片和小框共用的圆形关闭按钮） | 舞台窗口列表（`settings.StageList`，默认开）：舞台有 2 个以上窗口时在侧边栏顶部从上到下列出独立的小框（外面不再包一层），每个小框是序号 `1/N` + 标题 + DWM 实时缩略图，应用图标在小框外侧的下角（与卡片一致，右侧侧边栏镜像到右下角；缩略图区域两侧让出图标那一列，免得 DWM 把图标盖住），当前窗口（`a.fg.prev`，否则最前的）用强调色描边；点击 `actFront`，悬停出现关闭按钮 `actClose`，右键可 `actUnstage`；小框在指针下按 `lineupLift`（6%）绕中心放大、阴影加深，DWM 缩略图同步放大；放不下时最后一行“还有 N 个”打开概览 | 缩略图是 DWM 画在侧边栏窗口之上的，MyGo 画的东西（包括 tooltip）会被盖住，所以不用 tooltip；位置每帧随 `reveal` 平移手动同步；顺序在帧间保持稳定（按应用、再按首次出现），点击改变 z 序时列表不跳；几何在 `layout.go` 的 `layoutLineup`，卡片经 `layoutStrip` 的 `head` 参数让出顶部 |
 | `tint.go` | `dominantColor`、`hue`、`toOklch`、`tileTint`、`blank` | 列表小框的底色：`lineup.sampleTints` 每 3s（以及缩略图移动或变大小后 250ms）在 goroutine 里用 `winapi.CaptureScreen` 复制侧边栏上那块缩略图的屏幕像素（DWM 已合成好的，不让应用自己重画，不会闪），按色相直方图找主色：排除近黑、近白和灰，越鲜艳权重越大，上下 10%（标题栏、状态栏）×2.5；彩色像素不足 1.2% 视为没有主色，用默认底色。主色在 OKLCH 里定成同样的明度 0.34，白字在任何色相上都看得清；颜色变化 400ms 渐变 | 侧边栏不在屏幕上、飞行中、概览中不取色；锁屏时复制出来是纯色（`blank`），保留原来的颜色 |
-| `overview.go` | `overview`、`ovTile`、`overviewPhase`、`openOverview(s)`、`closeOverviews`、`closeWindow`、`accent` | “所有窗口”概览（类 Mission Control）：每台显示器一个窗口，铺开本显示器窗口，点选切换、悬停关闭 | 多显示器同步开关；超时（`overviewTimeout`）必须保证停放的窗口回来；焦点窗口设计见 `newOverview` 注释 |
+| `overview.go` | `overview`、`ovTile`、`overviewPhase`/`overviewNext`、`openOverview(s)`、`closeOverviews`、`closeWindow`、`accent` | “所有窗口”概览（类 Mission Control）：每台显示器一个窗口，铺开本显示器窗口，点选切换、悬停关闭 | 多显示器同步开关；超时（`overviewTimeout`）必须保证停放的窗口回来；焦点窗口设计见 `newOverview` 注释 |
 | `corner.go` | `cornerHint`、`cornerRect`、`cornerNearness`/`boundsNearness`、`cornerBounds`、`joinable`/`strip.setJoined`、`jointView`、`display.flash`、`panelEdge`、`hotCorner`/`cornerReach`/`cornerLinger` | Win11 左下角触发角：不抢焦点的小窗口，靠近显示标记，点击开概览。侧边栏在左侧、任务栏在底部时与侧边栏的概览面板合成一个按钮（`strip.joined`）：面板（`stripview.go: jointFooter`，几何在 `layout.go: jointButton/jointBand/jointGlyph`）贴左边和任务栏顶，触发角从任务栏顶到屏幕底、与面板同宽；悬停/按下经 `strip.footHover/footPress` 与 `cornerHint.hover/pressing` 互通并互相 `redraw`，点击的闪光按 `display.flashAt` 同步；靠近程度都用侧边栏的 `strip.near` | 只有 `winapi.TaskbarCornerFree()` 为真时才盖（轮询里按 1s 缓存，`taskbarCornerFree`）；`a.poll` 先轮询侧边栏再 `watchCorner`，合体时触发角跟着面板出现；合体后 `CornerWidth` 不起作用；判定有单测 |
 | `glass.go` | `glass`、`strip.frost`/`reblur`/`buttonScreen`、`frostImage`、`shrinkBy`、`gaussBoxes`、`boxBlur`、`panelFill`、`glassSigma` | 概览面板与合体触发角的毛玻璃：面板从隐藏到出现时（`stripview.go: footer` 里的 `strip.frosted`）在 goroutine 里截下按钮及四周（按最大模糊留边）的屏幕，缩小 1–8 倍后三次横竖盒式模糊（running sum，近似高斯），裁出按钮部分转成 `ui.Bitmap`；面板画上半段，合体触发角画下半段（`Clip` + 圆角）。设置改模糊时 `reblur` 用存下的原图重做 | 只在面板完全隐藏后才重新截，避免把自己截进去；无头测试没有窗口时不截（`s.win == nil`）；算法有单测和 benchmark |
 | `peek.go` | `peekStart`、`watchTaskbar`、`peekClass` | 任务栏缩略图 peek 时临时放回被停放的窗口 | 只在指针停在该按钮的缩略图上时放回，避免一次放回太多 |
@@ -83,12 +83,13 @@ stage_mgr_go/
 
 ## 核心数据结构
 
-- `App`（`app.go`）：`settings` / `store`、`cat`（窗口目录）、`park`（停放）、`media`（静帧与图标）、`displays`、`windows`（最近一次列出的窗口）、`busy` + `running` + `queued`（切换状态）、`drag` / `cardDrag`、`flights`、`tray`、`settingsUI`、`latest` + `checking` + `checkFailed` + `dotted`（更新检查，`update.go`）。
+- `App`（`app.go`）：`settings` / `store`、`cat`（窗口目录）、`park`（停放）、`media`（静帧与图标）、`displays`、`windows`（最近一次列出的窗口）、`hold` + `running` + `queued`（舞台归谁：`holdNone`/`holdSwitch`/`holdOverview`，`busy()`、`take`/`letGo`，见 `switch.go`；`running` 只在 `holdSwitch` 时非空）、`drag` / `cardDrag`、`flights`、`tray`、`settingsUI`、`latest` + `checking` + `checkFailed` + `dotted`（更新检查，`update.go`）。
 - `display`（`app.go`）：一台显示器的 `mon`、纯逻辑模型 `model stage.Display`、`strip` 窗口、`sets`（卡片，顶在前）、`onStage`、`cards`（每张卡片的帧间状态）、`scroll`、`layout`、`landing`、`dropPoses`、以 `ov` 表示的概览。
 - `group`：一个应用在这台显示器上的窗口，按 z 序，`z` 是它最前面那扇窗口在应用之间的位置。开了 `SplitWindows` 时一个 `group` 只有一扇窗口，`label()` 用窗口标题当卡片名。`set`：一张卡片，可能包含多个一起上/下舞台的应用；`windows` 前面是每个应用的窗口，后面是其余窗口。
 - `cardState`（`stripview.go`）：卡片在帧间要记住的拖动偏移、松手去向、飞行起点（`poses`）、`tilt`/`lift`。
 - `strip`（`strip.go`）：窗口与其物理矩形、缩放、`shown`/`away`、`clickThrough`、命中的卡片矩形（DIP）、浮动模式的边缘计时。
-- `flights` / `layer` / `flight`（`flights.go`）：每台显示器一层或两层（`under` 放应用自绘阴影），`flight` 是从 `from` 到 `to` 的一扇窗口；`trip` 是一次飞行的一组。
+- `flights` / `layer` / `flight`（`flights.go`）：每台显示器一层或两层（`under` 放应用自绘阴影），`flight` 是从 `from` 到 `to` 的一扇窗口；`trip` 是一次飞行的一组，进度只看 `phase`：`pending → holding → flying → arrived → landed → done`，飞行中或已到达时被接管则进 `stopped`（`tripNext`，`to` 拒绝表外的迁移）。
+- `overview`（`overview.go`）：`phase` 走 `hidden → shooting → showing → holding → opening → open → closing → landing → landed → hidden`；`opening` 之前没有窗口离开桌面，可以直接回 `hidden`（`abort`），之后只能原路飞回（`overviewNext`）。
 - `lineup`（`lineup.go`）：舞台窗口列表跨帧记住的顺序 `order`、每扇窗口的 DWM 缩略图 `lineThumb`、取色结果的 `lineTint`，以及 `sampling`/`wake`（取色进行中与何时重新取）。`strip.line` 是每台显示器的一份。
 - `parking.Service`：`Park` / `Unpark` / `UnparkUnder` / `Rehome` / `Lift` / `Lower` / `RestoreAll` / `CollectEscaped` / `Recover` / `Chase` / `Settle`，每次变动写 `parked-windows.json`。
 - `stage.Display`：舞台上应用的有序列表、侧边栏的卡片分组、`above`（从哪张卡片上来的）、`recent`（回退用）、`changedAt`（`Settling` 靠它）、`Rekey`（窗口拆开或合回时给舞台和侧边栏里的应用改名，位置不变）、`keep`（`Keep(true)` 后侧边栏把台前的应用也列成一组，在 `sets` 里占一个槽位，`Switch` 不挪任何卡片：离场的应用留在自己的槽位，台前的新组取被点卡片的槽位，加入舞台的取舞台自己的槽位；新应用追加在最下面；`Leave` 原地不动；`Split` 也能拆台前的组：应用先都留在台上，下一次 `Switch` 时各回各的槽位；不 `Keep` 时台前的组不在侧边栏里，拆不了）。
@@ -108,7 +109,7 @@ stage_mgr_go/
 ### 一次切换
 
 1. 触发：卡片 → `request(actPick)`；Alt+Tab/任务栏 → `onForeground`；新窗口 → `settleForeground`；点壁纸 → `switchStage(d, nil, …)`。
-2. `switchStage` 算 departing / arriving；`busy` 时放进 `queued` 并 `flights.interrupt`（空中的窗口原地掉头）。
+2. `switchStage` 算 departing / arriving；`busy()`（切换或概览占着舞台）时放进 `queued` 并 `flights.interrupt`（空中的窗口原地掉头）。
 3. `media.capture` 在 goroutine 给离场窗口拍静帧（带超时）。
 4. 更新 `d.model.Switch` → `arrange` → `flights.run`。
 5. `handover.takeOff`（停放离场/激活到场）→ `land`（放回到场窗口）→ `stop`/`done` → `runQueued` / `settleForeground`。
@@ -186,6 +187,7 @@ stage_mgr_go/
 | `app/set` | 跨应用卡片的窗口顺序 |
 | `app/corner` | 触发角几何、靠近程度、点击开概览 |
 | `app/flights` | `around` 给被拖窗口让出的“洞” |
+| `app/phases` | 显式状态机的迁移表：`trip` 与 `overview` 的合法路线、拒绝的迁移，`hold` 只能由持有者释放，`minimizeStep` |
 | `app/iconfit`、`app/peek`、`app/update` | 图标裁边、peek 的按钮匹配、托盘红点图标 |
 | `app/snapshot` | 需要 `STAGEMANAGER_SNAPSHOT_DIR`，否则跳过 |
 | `winapi/monitor` | 显示器几何与 DPI |

@@ -82,7 +82,8 @@ func (a *App) cardDropAt(from *display, st *cardState, p winapi.Point) (*display
 		return nil, 0
 	}
 	s := d.strip
-	return d, d.layout.slotAt(float32(float64(p.Y-s.rect.Top) / s.scale))
+	_, y := s.toLocal(p)
+	return d, d.layout.slotAt(y)
 }
 
 // aimCard works out where card g of display d's strip, dragged as st
@@ -386,8 +387,7 @@ func (a *App) moveSet(to *display, s *set, at int, drop winapi.Rect) {
 			}
 			continue
 		}
-		winapi.SetWindowPos(w.HWND, 0, w.Rect.Left+dx, w.Rect.Top+dy, 0, 0,
-			winapi.SwpNoSize|winapi.SwpNoZOrder|winapi.SwpNoActivate)
+		winapi.Move(w.HWND, w.Rect.Left+dx, w.Rect.Top+dy)
 	}
 	a.park.Unpark(show...)
 	a.windows = a.cat.Windows()

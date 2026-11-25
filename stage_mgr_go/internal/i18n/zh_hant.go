@@ -125,6 +125,8 @@ var zhHant = Strings{
 	Issues:        "回報問題",
 
 	NewVersion:       "有新版本 %s",
+	NewVersionMenu:   "有新版本 %s，點擊前往下載…",
+	Copyright:        "© 2026 Renkai ·",
 	Download:         "前往下載",
 	UpdateUnknown:    "無法檢查新版本，",
 	SeeReleases:      "前往查詢最新版",

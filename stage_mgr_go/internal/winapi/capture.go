@@ -177,7 +177,7 @@ type bitmap struct {
 
 // WindowIcon returns the large icon a window shows in Alt+Tab, or nil.
 func WindowIcon(h HWND) *image.NRGBA {
-	const wmGetIcon, iconBig, iconSmall2, smtoAbortIfHung = 0x007F, 1, 2, 0x0002
+	const wmGetIcon, iconBig, iconSmall2 = 0x007F, 1, 2
 	const gclpHIcon = -14
 	var hicon uintptr
 	for _, kind := range []uintptr{iconBig, iconSmall2} {
@@ -237,7 +237,11 @@ func iconImage(hicon uintptr) *image.NRGBA {
 	defer procDeleteDC.Call(dc)
 	bi := bitmapInfoHeader{Size: uint32(unsafe.Sizeof(bitmapInfoHeader{})), Width: int32(w), Height: -int32(h), Planes: 1, BitCount: 32}
 	buf := make([]byte, w*h*4)
-	procGetDIBits.Call(dc, ii.HbmColor, 0, uintptr(h), uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&bi)), 0)
+	if ok, _, _ := procGetDIBits.Call(dc, ii.HbmColor, 0, uintptr(h), uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&bi)), 0); ok == 0 {
+		// Without the bits there is no picture, only a black square: none
+		// at all lets the caller fall back to the icon alone.
+		return nil
+	}
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 	hasAlpha := false
 	for i := 0; i < w*h; i++ {

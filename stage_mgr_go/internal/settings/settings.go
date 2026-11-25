@@ -4,13 +4,16 @@ package settings
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
+	"log"
 	"maps"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/i18n"
 )
@@ -55,8 +58,11 @@ const (
 
 // Limits of the adjustable values.
 const (
-	MinWidth     = 120
-	MaxWidth     = 360
+	MinWidth = 120
+	MaxWidth = 360
+	// WidthStep is what the width goes by: a strip a few DIPs wider is
+	// not seen, and each change moves the work area and the windows in it.
+	WidthStep    = 10
 	MinIconScale = 0.6
 	MaxIconScale = 1.6
 	MaxTilt      = 10
@@ -291,9 +297,9 @@ func (s Settings) Normalize() Settings {
 	if s.Width == 0 || math.IsNaN(s.Width) {
 		s.Width = Default().Width
 	}
-	s.Width = math.Round(min(max(s.Width, MinWidth), MaxWidth))
+	s.Width = math.Round(min(max(s.Width, MinWidth), MaxWidth)/WidthStep) * WidthStep
 	if s.IconScale == 0 || math.IsNaN(s.IconScale) {
-		s.IconScale = 1
+		s.IconScale = Default().IconScale
 	}
 	s.IconScale = min(max(s.IconScale, MinIconScale), MaxIconScale)
 	if math.IsNaN(s.Spacing) {
@@ -382,7 +388,7 @@ func listed(list []string, exe string) bool {
 // withApp adds the app of an executable to a list of apps, by its name, or
 // takes it out, however it was listed.
 func withApp(list []string, exe string, on bool) []string {
-	path, name := entry(exe), exeName(exe)
+	path, name := entry(exe), ExeName(exe)
 	list = slices.DeleteFunc(slices.Clone(list), func(e string) bool { return e == path || e == name })
 	if on && name != "" {
 		list = append(list, name)
@@ -397,7 +403,7 @@ func (s Settings) Companion(exe string) bool { return listed(s.Companions, exe) 
 // CompanionMatches reports whether an entry of a list of apps, as Normalize
 // keeps it, stands for the app of an executable, by its path.
 func CompanionMatches(e, exe string) bool {
-	return exe != "" && (e == entry(exe) || e == exeName(exe))
+	return exe != "" && (e == entry(exe) || e == ExeName(exe))
 }
 
 // WithCompanion makes the app of an executable a companion, by its name,
@@ -428,15 +434,17 @@ func (s Settings) Splits(exe string) bool { return s.SplitWindows && !s.KeptToge
 func entry(e string) string {
 	n := strings.ToLower(strings.Trim(strings.TrimSpace(e), `"`))
 	if !strings.ContainsAny(n, `\/`) {
-		return exeName(n)
+		return ExeName(n)
 	}
 	return strings.ReplaceAll(n, "/", `\`)
 }
 
-// exeName returns an executable's name as companions list it: lower case,
-// without its folder or ".exe", so "C:\...\TortoiseProc.exe" is
-// "tortoiseproc".
-func exeName(path string) string {
+// ExeName returns an executable's name as the companions list it: lower
+// case, without its folder or ".exe", so "C:\...\TortoiseProc.exe" is
+// "tortoiseproc". The filter of a debug run (STAGEMANAGER_APP_FILTER) and
+// the catalog's window filter go by the same name, so that an app named
+// either way is caught. Exported for the catalog, whose layer may use it.
+func ExeName(path string) string {
 	n := strings.ToLower(strings.TrimSpace(path))
 	n = n[strings.LastIndexAny(n, `\/`)+1:]
 	return strings.TrimSpace(strings.TrimSuffix(n, ".exe"))
@@ -464,15 +472,54 @@ type Store struct{ Path string }
 // NewStore keeps settings.json in dir.
 func NewStore(dir string) Store { return Store{Path: filepath.Join(dir, "settings.json")} }
 
+// aside keeps a settings file that cannot be read where the next save
+// cannot take it: renamed aside when nothing holds it, copied when
+// something does, as a scanner or backup may for a moment at startup —
+// a rename over a file like that fails, and the copy is the one way the
+// original's bytes outlive the defaults the app starts from. It reports
+// whether the original is still in place.
+func aside(path string) bool {
+	bad := asideName(path)
+	if err := os.Rename(path, bad); err == nil {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return true
+	}
+	if err := os.WriteFile(bad, data, 0o644); err != nil {
+		log.Println("stagebar: keeping the settings aside:", err)
+	}
+	return true
+}
+
+// asideName is where a settings file that cannot be read is kept: itself
+// with .bad, or, taken already by an earlier one, timestamped beside it,
+// so that a second broken file does not take the first's place.
+func asideName(path string) string {
+	if _, err := os.Stat(path + ".bad"); err != nil {
+		return path + ".bad"
+	}
+	return fmt.Sprintf("%s.bad.%d", path, time.Now().Unix())
+}
+
 // Load returns the saved settings, or the defaults when there are none or
 // they cannot be read: broken settings must not keep the app from starting.
+// A file that cannot be read is kept aside as settings.json.bad, rather than
+// overwritten by the next change: it may be one the user edited by hand,
+// or one a newer version wrote.
 func (st Store) Load() Settings {
 	s := Default()
 	data, err := os.ReadFile(st.Path)
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return s
 	}
-	if json.Unmarshal(data, &s) != nil {
+	if err == nil {
+		err = json.Unmarshal(data, &s)
+	}
+	if err != nil {
+		log.Printf("stagebar: the settings cannot be read, kept as %s; starting from the defaults: %v", asideName(st.Path), err)
+		aside(st.Path)
 		return Default()
 	}
 	// Settings from before the tilt had a switch for the perspective,
@@ -487,7 +534,9 @@ func (st Store) Load() Settings {
 	return s.Normalize()
 }
 
-// Save writes the settings atomically.
+// Save writes the settings atomically: to a file beside and renamed over
+// the settings, pushed to the disk first, so that power lost as it takes
+// its place leaves the old settings rather than an empty file.
 func (st Store) Save(s Settings) error {
 	data, err := json.MarshalIndent(s.Normalize(), "", "  ")
 	if err != nil {
@@ -497,11 +546,25 @@ func (st Store) Save(s Settings) error {
 		return err
 	}
 	tmp := st.Path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := writeSynced(tmp, data); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, st.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	return os.Rename(tmp, st.Path)
+}
+
+// writeSynced writes bytes to a new file and sees them to the disk.
+func writeSynced(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
 		return err
 	}
-	return nil
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
