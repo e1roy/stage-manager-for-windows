@@ -113,6 +113,10 @@ stage_mgr_go/
 4. 更新 `d.model.Switch` → `arrange` → `flights.run`。
 5. `handover.takeOff`（停放离场/激活到场）→ `land`（放回到场窗口）→ `stop`/`done` → `runQueued` / `settleForeground`。
 
+### 最小化与清空舞台
+
+`events.go: onMinimizeStart` 缓存台前窗口所属组合，等待系统最小化后无激活还原，再走 `switchStage` 收进侧边栏；等待期间防止刷新丢失窗口，超时会解除等待。`winapi.HookWinDesktop` 在独立线程截获准确的 Win+D/Win+M 并 `post(clearStages)`；重复清空不还原。`syncWinDesktop` 随隐藏非台前窗口设置启停，退出时卸载，Win+Tab 保持独立。`events_test.go` 和 `keyboard_test.go` 覆盖状态转换与按键规则。
+
 ### 拖动真实窗口
 
 `EventSystemMoveSizeStart` → `startDrag`；跨到另一台显示器 → `dragOver`（等 `dwell` 后那边舞台让位）；`EventSystemMoveSizeEnd` → `windowMoved`：留在本显示器就保持，落到另一台就加入那边的舞台（`sendAcross`），松手在侧边栏带内则 `sendToStrip`。

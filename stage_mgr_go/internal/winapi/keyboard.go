@@ -4,6 +4,7 @@ package winapi
 
 import (
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
@@ -24,10 +25,14 @@ const (
 	hcAction     = 0
 	wmQuit       = 0x0012
 	wmKeyDown    = 0x0100
+	wmKeyUp      = 0x0101
 	wmSysKeyDown = 0x0104
+	wmSysKeyUp   = 0x0105
 	pmNoRemove   = 0
 
 	vkTab     = 0x09
+	vkD       = 0x44
+	vkM       = 0x4D
 	vkShift   = 0x10
 	vkControl = 0x11
 	vkMenu    = 0x12
@@ -192,5 +197,116 @@ func HookWinTab(fn func()) (unhook func(), err error) {
 		winTab.fn.Store(nil)
 		winTab.held.Store(false)
 		procPostThreadMessageW.Call(uintptr(s.tid), wmQuit, 0, 0)
+	}, nil
+}
+
+// This hook is separate from Win+Tab. A seen bit tracks a physical press,
+// even when its initial chord was not intercepted; a taken bit suppresses
+// the corresponding repeats and release.
+var winDesktop struct {
+	fn   atomic.Pointer[func()]
+	held atomic.Uint32
+}
+
+const (
+	desktopDSeen = 1 << iota
+	desktopDTaken
+	desktopMSeen
+	desktopMTaken
+)
+
+// winDesktopKey can be called again during sendMask, so it never takes a lock.
+func winDesktopKey(key uint32, down bool) (taken bool, fire func()) {
+	var seen, suppressed uint32
+	switch key {
+	case vkD:
+		seen, suppressed = desktopDSeen, desktopDTaken
+	case vkM:
+		seen, suppressed = desktopMSeen, desktopMTaken
+	default:
+		return false, nil
+	}
+	state := winDesktop.held.Load()
+	if !down {
+		winDesktop.held.Store(state &^ (seen | suppressed))
+		return state&suppressed != 0, nil
+	}
+	if state&seen != 0 {
+		return state&suppressed != 0, nil
+	}
+	fn := winDesktop.fn.Load()
+	if fn == nil || (!keyIsDown(vkLWin) && !keyIsDown(vkRWin)) ||
+		keyIsDown(vkShift) || keyIsDown(vkControl) || keyIsDown(vkMenu) {
+		winDesktop.held.Store(state | seen)
+		return false, nil
+	}
+	// Set held before SendInput, whose nested hook delivery may see a repeat
+	// or release while the original invocation is still on the stack.
+	winDesktop.held.Store(state | seen | suppressed)
+	sendMask()
+	return true, *fn
+}
+
+var winDesktopCallback = syscall.NewCallback(func(code, wParam uintptr, k *kbdllHookStruct) uintptr {
+	if int32(code) == hcAction && k.ExtraInfo != maskTag {
+		if wParam == wmKeyDown || wParam == wmSysKeyDown || wParam == wmKeyUp || wParam == wmSysKeyUp {
+			taken, fire := winDesktopKey(k.VkCode, wParam == wmKeyDown || wParam == wmSysKeyDown)
+			if fire != nil {
+				fire()
+			}
+			if taken {
+				return 1
+			}
+		}
+	}
+	r, _, _ := procCallNextHookEx.Call(0, code, wParam, uintptr(unsafe.Pointer(k)))
+	return r
+})
+
+// HookWinDesktop replaces exact Win+D and Win+M with fn once per physical
+// press. fn runs on the hook thread and must return promptly. Call unhook
+// outside fn: it waits for the hook to be removed.
+func HookWinDesktop(fn func()) (unhook func(), err error) {
+	type started struct {
+		tid uint32
+		err error
+	}
+	ready := make(chan started)
+	stopped := make(chan struct{})
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		defer close(stopped)
+		var m threadMsg
+		procPeekMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0, pmNoRemove)
+		mod, _, _ := procGetModuleHandleW.Call(0)
+		h, _, e := procSetWindowsHookExW.Call(whKeyboardLL, winDesktopCallback, mod, 0)
+		if h == 0 {
+			ready <- started{err: e}
+			return
+		}
+		winDesktop.held.Store(0)
+		winDesktop.fn.Store(&fn)
+		ready <- started{tid: CurrentThreadID()}
+		for {
+			if r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0); int32(r) <= 0 {
+				break
+			}
+		}
+		winDesktop.fn.Store(nil)
+		procUnhookWindowsHookEx.Call(h)
+		winDesktop.held.Store(0)
+	}()
+	s := <-ready
+	if s.err != nil {
+		return nil, s.err
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			winDesktop.fn.Store(nil)
+			procPostThreadMessageW.Call(uintptr(s.tid), wmQuit, 0, 0)
+			<-stopped
+		})
 	}, nil
 }

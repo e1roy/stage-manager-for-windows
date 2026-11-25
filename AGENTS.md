@@ -116,7 +116,7 @@ stage_mgr_go/
 - **线程模型**：`App` 的所有状态只在 MyGo 主线程读写。后台 goroutine 的结果必须用 `post(fn)` / `after(d, fn)`（内部是 `mygo.RunOnMain`）回到主线程。WinEvent 钩子在主线程安装和回调。唯一例外是 Win+Tab 的低级键盘钩子（`winapi/keyboard.go`）：它在自己的线程里跑消息循环，免得主线程一忙全系统打字卡顿，回调里只 `post`，且回调会被它自己注入的按键重入，所以里面不能加锁或等待（状态用原子变量）。不要加锁来“修”并发，正确做法是回到主线程。
 - **不要在主线程做可能阻塞的事**：`PrintWindow` 会等目标应用自己绘制，只能在 goroutine 里做并带超时。看门狗在主线程 5 秒无响应时会直接按日志放回所有窗口。
 - **坐标**：与系统打交道一律是物理像素（进程是 Per-Monitor V2，`winapi.Rect`）；MyGo 在窗口内按 DIP 绘制（`ui.Rect`）。两者之间的换算集中在 `strip.toScreen`、`display.mon.Scale()` 一类地方，别在别处随手乘 DPI。
-- **停放而不是最小化**：隐藏窗口一律走 `parking.Service`（移到同一显示器旁的桌面外，保持 DPI），每次变动写日志。绕过它直接 `SetWindowPos` 移走窗口，崩溃后窗口就回不来了。用户手动最小化的窗口交给任务栏，不进侧边栏。
+- **停放而不是最小化**：隐藏窗口一律走 `parking.Service`（移到同一显示器旁的桌面外，保持 DPI），每次变动写日志。绕过它直接 `SetWindowPos` 移走窗口，崩溃后窗口就回不来了。开启 `HideInactive` 时，用户最小化台前窗口会经 `events.go` 的异步还原再走正常切换，把所在舞台组合收进侧边栏；其他最小化窗口仍交给任务栏。Win+D/Win+M 通过独立低级钩子 `HookWinDesktop` 清空受管理舞台，不切换还原；关闭隐藏非台前窗口时释放钩子。
 - **分层**：`winapi` 不持有应用状态；`stage` 不认识 HWND（规则改动先在 `stage` 里写测试）；纯几何放 `layout.go`。新逻辑放进对应层，别把 Win32 调用塞进 `stage`/`settings`。
 - **依赖**：除 MyGo 外不引入第三方依赖，不用 cgo。Windows 专用文件加 `//go:build windows`。
 - **设置**：新增设置项要同时改 `Settings`、`Default()`、`Normalize()`（如有范围）、`Equal/Clone`（如是引用类型）、`settingsview.go` 和 `applySettings`。

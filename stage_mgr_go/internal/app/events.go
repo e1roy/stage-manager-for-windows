@@ -22,11 +22,152 @@ func (a *App) hookEvents() {
 	},
 		[2]uint32{winapi.EventSystemForeground, winapi.EventSystemForeground},
 		[2]uint32{winapi.EventSystemMoveSizeStart, winapi.EventSystemMoveSizeEnd},
+		[2]uint32{winapi.EventSystemMinimizeStart, winapi.EventSystemMinimizeStart},
 		[2]uint32{winapi.EventSystemMinimizeEnd, winapi.EventSystemMinimizeEnd},
 		[2]uint32{winapi.EventObjectCreate, winapi.EventObjectHide},
 		[2]uint32{winapi.EventObjectLocationChange, winapi.EventObjectNameChange},
 		[2]uint32{winapi.EventObjectCloaked, winapi.EventObjectUncloaked},
 	)
+	a.syncWinDesktop()
+}
+
+// Give the native shortcuts back whenever stages are not being hidden or
+// there is no managed display to send them to.
+func (a *App) wantsWinDesktop() bool {
+	return a.settings.HideInactive && !a.quitting && slices.ContainsFunc(a.displays, a.managed)
+}
+
+func (a *App) syncWinDesktop() {
+	want := a.wantsWinDesktop()
+	if want == (a.unhookWinDesktop != nil) {
+		return
+	}
+	if !want {
+		a.unhookWinDesktop()
+		a.unhookWinDesktop = nil
+		return
+	}
+	// The keyboard hook only suppresses the native desktop/minimize action;
+	// all stage and window work must happen on the main thread.
+	unhook, err := winapi.HookWinDesktop(func() { post(a.clearStages) })
+	if err != nil {
+		log.Println("stagebar: taking Win+D/Win+M:", err)
+	} else {
+		a.unhookWinDesktop = unhook
+	}
+}
+
+// stagesToClear includes a stage still in flight, but never an already
+// empty one. A second Win+D must not bring anything back.
+func (a *App) stagesToClear() []*display {
+	var out []*display
+	for _, d := range a.displays {
+		if a.managed(d) && len(a.heading(d)) > 0 {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func (a *App) clearStages() {
+	if !a.ready || a.quitting || !a.settings.HideInactive {
+		return
+	}
+	for _, d := range a.stagesToClear() {
+		a.switchStage(d, nil, 0, false, false)
+	}
+}
+
+// minimizeNext distinguishes the stage group being minimized from an app
+// that is not staged. The grouped apps leave as one card.
+func minimizeNext(d *display, app string) []string {
+	if !d.model.OnStage(app) {
+		return nil
+	}
+	return []string{}
+}
+
+type minimizeTarget struct {
+	d         *display
+	app       string
+	timer     *time.Timer
+	watchdog  *time.Timer
+	sawIconic bool
+}
+
+// observe ignores the pre-minimize Start event until Windows has actually
+// made the window iconic, then waits for our nonactivating restore.
+func (t *minimizeTarget) observe(iconic bool) (restore, done bool) {
+	if iconic {
+		t.sawIconic = true
+		return true, false
+	}
+	return false, t.sawIconic
+}
+
+// onMinimizeStart saves the window's identity before the catalog removes it.
+func (a *App) onMinimizeStart(h winapi.HWND) {
+	if !a.ready || !a.settings.HideInactive || a.park.IsParked(h) || a.minimizing[h] != nil {
+		return
+	}
+	root := catalog.RootOwner(h)
+	for _, w := range a.windows {
+		if w.HWND != root {
+			continue
+		}
+		if d := a.displayOf(w); d != nil && a.managed(d) && d.model.OnStage(w.App) {
+			t := &minimizeTarget{d: d, app: w.App}
+			a.minimizing[h] = t
+			// A crashed/closed window may never report MinimizeEnd. Never
+			// leave foreground and refresh processing suppressed indefinitely.
+			t.watchdog = after(2*time.Second, func() {
+				if a.minimizing[h] == t {
+					if t.timer != nil {
+						t.timer.Stop()
+					}
+					delete(a.minimizing, h)
+					a.refreshSoon()
+				}
+			})
+			t.timer = after(30*time.Millisecond, func() { a.finishMinimize(h) })
+		}
+		return
+	}
+}
+
+func (a *App) finishMinimize(h winapi.HWND) {
+	t := a.minimizing[h]
+	if t == nil {
+		return
+	}
+	t.timer = nil
+	if a.quitting || !a.managed(t.d) || !slices.Contains(a.displays, t.d) || !winapi.IsWindow(h) || winapi.IsHung(h) {
+		t.watchdog.Stop()
+		delete(a.minimizing, h)
+		a.refreshSoon()
+		return
+	}
+	iconic := winapi.IsIconic(h)
+	restore, done := t.observe(iconic)
+	if restore {
+		// Post rather than wait for the app's UI thread. Do not activate.
+		winapi.ShowNoActivate(h)
+	}
+	if !done || !winapi.IsWindowVisible(h) {
+		t.timer = after(50*time.Millisecond, func() { a.finishMinimize(h) })
+		return
+	}
+	t.watchdog.Stop()
+	delete(a.minimizing, h)
+	a.refreshSoon()
+	if next := minimizeNext(t.d, t.app); next != nil {
+		a.fg.h = 0
+		if a.fg.timer != nil {
+			a.fg.timer.Stop()
+			a.fg.timer = nil
+		}
+		a.switchStage(t.d, next, 0, false, false)
+	}
 }
 
 // syncWinTab takes Win+Tab from Task View for the overview while the
@@ -70,6 +211,13 @@ func (a *App) onWinEvent(event uint32, h winapi.HWND) {
 		return
 	}
 	switch event {
+	case winapi.EventSystemMinimizeStart:
+		a.onMinimizeStart(h)
+		return
+	case winapi.EventSystemMinimizeEnd:
+		// MinimizeEnd signals a restore, not completion of a minimize.
+		a.refreshSoon()
+		return
 	case winapi.EventSystemForeground:
 		a.onForeground(h)
 		return
@@ -129,6 +277,11 @@ func (a *App) updateCovered() {
 // onForeground follows the user to another window: its app takes the stage.
 func (a *App) onForeground(h winapi.HWND) {
 	if !a.ready {
+		return
+	}
+	// Windows activates the next window while minimizing the old one. It
+	// must not pull a different group back onto the stage mid-restore.
+	if len(a.minimizing) > 0 {
 		return
 	}
 	// The window the user left gets a fresh still, for when its app goes.
