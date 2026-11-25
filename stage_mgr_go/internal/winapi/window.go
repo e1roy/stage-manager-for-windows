@@ -35,10 +35,11 @@ func (r Rect) Contains(p Point) bool {
 type Point struct{ X, Y int32 }
 
 const (
-	gaRoot     = 2
-	gwOwner    = 4
-	gwlStyle   = -16
-	gwlExStyle = -20
+	gaRoot      = 2
+	gaRootOwner = 3
+	gwOwner     = 4
+	gwlStyle    = -16
+	gwlExStyle  = -20
 
 	WsExTopmost     = 0x00000008
 	WsExTransparent = 0x00000020

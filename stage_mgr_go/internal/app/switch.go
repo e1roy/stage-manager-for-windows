@@ -228,9 +228,7 @@ func (h *handover) land() {
 	arrived := h.arriving
 	after(700*time.Millisecond, func() {
 		for _, w := range arrived {
-			if winapi.IsWindow(w.HWND) {
-				winapi.SetTransitionsDisabled(w.HWND, false)
-			}
+			h.a.liven(w)
 		}
 	})
 }

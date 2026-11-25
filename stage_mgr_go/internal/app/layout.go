@@ -504,13 +504,15 @@ func splitRows(byY []int, n int, items []overviewItem) [][]int {
 // The list of the windows on a display's stage (lineup.go) shows at the top
 // of its strip, over the column the cards take, once the stage has more
 // than one window: a tile for each, with nothing around them. Every tile
-// has the same height, a line of its place in the list, its app's icon and
-// title over its picture, as Alt+Tab gives windows one height, so the list
-// reads as a column rather than a jumble of shapes.
+// has the same height, a line of its place in the list and title over its
+// picture, as Alt+Tab gives windows one height, so the list reads as a
+// column rather than a jumble of shapes. Its app's icon sits in the tile's
+// outer bottom corner, as on the cards.
 const (
 	lineupTop      = 12   // from the strip's top edge
-	lineupCaption  = 20   // a tile's line of place, icon and title
+	lineupCaption  = 20   // a tile's line of place and title
 	lineupInset    = 4    // between a tile's edge and its picture
+	lineupIcon     = 18   // the app's icon in a tile's bottom corner
 	lineupGap      = 6    // between tiles
 	lineupMore     = 24   // the line that counts those with no room
 	lineupThumbMax = 64   // a picture's height, at most
@@ -551,10 +553,18 @@ func layoutLineup(n int, width, height float32, right bool) lineupLayout {
 	x := float32(stripPadLeft)
 	var l lineupLayout
 	y := float32(lineupTop)
+	// DWM draws the pictures over the strip, so a picture keeps clear of
+	// the icon's corner: its area leaves the icon's column on both sides,
+	// which keeps it centered. Wide windows, fitted to the height, rarely
+	// reach that far anyway.
+	side := float32(lineupInset)
+	if cw-2*(lineupInset+lineupIcon+2) >= lineupThumbMin {
+		side = lineupInset + lineupIcon + 2
+	}
 	for i := 0; i < shown; i++ {
 		t := ui.Rect{X: x, Y: y, W: cw, H: tile(th)}
 		l.tiles = append(l.tiles, t)
-		l.thumbs = append(l.thumbs, ui.Rect{X: t.X + lineupInset, Y: t.Y + lineupCaption, W: t.W - 2*lineupInset, H: th})
+		l.thumbs = append(l.thumbs, ui.Rect{X: t.X + side, Y: t.Y + lineupCaption, W: t.W - 2*side, H: th})
 		y += t.H + lineupGap
 	}
 	if shown < n {

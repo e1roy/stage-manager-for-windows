@@ -593,11 +593,13 @@ func (o *overview) land() {
 		return frontFirst(x.w, y.w)
 	})
 	var back []winapi.HWND
+	var came []catalog.Window
 	for _, t := range order {
 		if t.home && a.park.IsParked(t.w.HWND) {
 			// The overview showed it arrive; DWM would fade it in again.
 			winapi.SetTransitionsDisabled(t.w.HWND, true)
 			back = append(back, t.w.HWND)
+			came = append(came, t.w)
 		}
 	}
 	a.park.Unpark(back...)
@@ -617,10 +619,8 @@ func (o *overview) land() {
 	d.inOverview = false
 	a.redraw()
 	after(700*time.Millisecond, func() {
-		for _, h := range back {
-			if winapi.IsWindow(h) {
-				winapi.SetTransitionsDisabled(h, false)
-			}
+		for _, w := range came {
+			a.liven(w)
 		}
 	})
 	gen := o.gen

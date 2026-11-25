@@ -67,6 +67,7 @@ stage_mgr_go/
       monitor.go      显示器枚举与几何、Scale()
       hooks.go        WinEvent 事件常量与 HookWinEvents
       keyboard.go     Win+Tab 低级键盘钩子（独立线程，只 post 回主线程；回调会被自己注入的按键重入，状态只用原子变量、不加锁，有单测）
+      minbutton.go    最小化按钮的低级鼠标钩子（独立线程，按下时用 WM_NCHITTEST 问是不是 HTMINBUTTON，是台前窗口就吞掉这次点击、只 post 回主线程）；也截任务栏上台前窗口的按钮（`SetTaskbarTargets`，按钮位置由 `app/peek.go: aimTaskbar` 用 UI Automation 提前列出）
       capture.go      PrintWindow 静帧、`CaptureScreen`（读 DWM 合成后的屏幕，舞台窗口列表取色用）；thumbnail.go 是 DWM 缩略图（自绘阴影、peek）
       taskbar.go      任务栏按钮（peek 用）；taskbarcorner.go 是 WindowsBuild / TaskbarCornerFree / IsTaskbar
       process.go / version.go / locale.go；proxy.go 读注册表里的系统代理（SystemProxy）
@@ -113,10 +114,10 @@ stage_mgr_go/
 
 ## 必须遵守的约束
 
-- **线程模型**：`App` 的所有状态只在 MyGo 主线程读写。后台 goroutine 的结果必须用 `post(fn)` / `after(d, fn)`（内部是 `mygo.RunOnMain`）回到主线程。WinEvent 钩子在主线程安装和回调。唯一例外是 Win+Tab 的低级键盘钩子（`winapi/keyboard.go`）：它在自己的线程里跑消息循环，免得主线程一忙全系统打字卡顿，回调里只 `post`，且回调会被它自己注入的按键重入，所以里面不能加锁或等待（状态用原子变量）。不要加锁来“修”并发，正确做法是回到主线程。
+- **线程模型**：`App` 的所有状态只在 MyGo 主线程读写。后台 goroutine 的结果必须用 `post(fn)` / `after(d, fn)`（内部是 `mygo.RunOnMain`）回到主线程。WinEvent 钩子在主线程安装和回调。例外是低级键盘/鼠标钩子（`winapi/keyboard.go`、`winapi/minbutton.go`）：它们在自己的线程里跑消息循环，免得主线程一忙全系统打字、点击卡顿，回调里只 `post`；键盘钩子的回调会被它自己注入的按键重入，所以里面不能加锁或等待（状态用原子变量）。鼠标钩子要知道哪些是台前窗口，主线程把 `calm` 的副本放进 `calmShared`（原子指针，整份替换）。不要加锁来“修”并发，正确做法是回到主线程。
 - **不要在主线程做可能阻塞的事**：`PrintWindow` 会等目标应用自己绘制，只能在 goroutine 里做并带超时。看门狗在主线程 5 秒无响应时会直接按日志放回所有窗口。
 - **坐标**：与系统打交道一律是物理像素（进程是 Per-Monitor V2，`winapi.Rect`）；MyGo 在窗口内按 DIP 绘制（`ui.Rect`）。两者之间的换算集中在 `strip.toScreen`、`display.mon.Scale()` 一类地方，别在别处随手乘 DPI。
-- **停放而不是最小化**：隐藏窗口一律走 `parking.Service`（移到同一显示器旁的桌面外，保持 DPI），每次变动写日志。绕过它直接 `SetWindowPos` 移走窗口，崩溃后窗口就回不来了。开启 `HideInactive` 时，用户最小化台前窗口会经 `events.go` 的异步还原再走正常切换，把所在舞台组合收进侧边栏；其他最小化窗口仍交给任务栏。Win+D/Win+M 通过独立低级钩子 `HookWinDesktop` 清空受管理舞台，不切换还原；关闭隐藏非台前窗口时释放钩子。
+- **停放而不是最小化**：隐藏窗口一律走 `parking.Service`（移到同一显示器旁的桌面外，保持 DPI），每次变动写日志。绕过它直接 `SetWindowPos` 移走窗口，崩溃后窗口就回不来了。开启 `HideInactive` 时最小化台前窗口分两种（设置 `MinimizeToStrip`，默认关）：关着时交给 Windows，窗口进任务栏，`settleMinimize` 在舞台上没有别的窗口时换回上一个舞台（`Previous`），否则舞台不变、焦点若落到停放的窗口上就拉回舞台；打开时经 `events.go` 的异步还原再走正常切换，把所在舞台组合收进侧边栏并换回上一个舞台（台前窗口的最小化/还原动画因此一直关着，见 `events.go: syncCalm`，否则会先缩进任务栏再放大回来）。点标题栏的最小化按钮不走这条路：`HookMinButton`（只在 `MinimizeToStrip` 打开时装）在点击到达窗口前吞掉它，直接 `switchStage`，窗口不会先消失再出现；点任务栏上台前窗口的按钮也一样截下（`aimTaskbar`）；Win+Down、不回答 HTMINBUTTON 的自绘标题栏、任务栏按钮还没列出来时的点击仍走异步还原；其他最小化窗口仍交给任务栏。Win+D/Win+M 通过独立低级钩子 `HookWinDesktop` 清空受管理舞台，不切换还原；关闭隐藏非台前窗口时释放钩子。
 - **分层**：`winapi` 不持有应用状态；`stage` 不认识 HWND（规则改动先在 `stage` 里写测试）；纯几何放 `layout.go`。新逻辑放进对应层，别把 Win32 调用塞进 `stage`/`settings`。
 - **依赖**：除 MyGo 外不引入第三方依赖，不用 cgo。Windows 专用文件加 `//go:build windows`。
 - **设置**：新增设置项要同时改 `Settings`、`Default()`、`Normalize()`（如有范围）、`Equal/Clone`（如是引用类型）、`settingsview.go` 和 `applySettings`。

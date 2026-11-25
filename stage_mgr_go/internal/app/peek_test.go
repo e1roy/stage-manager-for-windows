@@ -7,6 +7,20 @@ import (
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
 
+func TestButtonCount(t *testing.T) {
+	for name, want := range map[string]int{
+		"微信 - 1 个运行窗口 已固定":            1,
+		"Google Chrome - 2 个运行窗口 已固定": 2,
+		"Notepad - 1 running window":  1,
+		"Microsoft Edge 已固定":          0,
+		"a - b - 12 windows":          12,
+	} {
+		if got := buttonCount(name); got != want {
+			t.Errorf("buttonCount(%q) = %d, want %d", name, got, want)
+		}
+	}
+}
+
 func TestButtonOf(t *testing.T) {
 	chrome := catalog.Window{Title: "AOEM : Code Review - Google Chrome", Exe: `C:\Program Files\Google\Chrome\Application\chrome.exe`, PID: 10}
 	weixin := catalog.Window{Title: "微信", Exe: `C:\Program Files\Tencent\Weixin\Weixin.exe`, PID: 20}

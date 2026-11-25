@@ -85,6 +85,10 @@ var zhHant = Strings{
 	HideInactiveDesc: "只有目前的應用程式留在桌面上，其他應用程式收進側邊欄。關閉後側邊欄只列出它們。",
 	ClickDesktop:     "按一下桌面清空舞台",
 	ClickDesktopDesc: "按一下桌布時，把舞台上的應用程式都收進側邊欄。",
+
+	MinimizeToStrip:     "最小化時收進側邊欄",
+	MinimizeToStripDesc: "最小化舞台上的視窗時，把舞台上的應用程式收進側邊欄，並換回上一個舞台。關閉時視窗照常最小化到工作列，舞台上沒有其他視窗了才換回上一個舞台。",
+
 	Animation:        "動畫",
 	Quality:          "切換動畫畫質",
 	QualityDesc:      "視窗在側邊欄和舞台之間飛行時的清晰度，越高佔用的記憶體越多。",

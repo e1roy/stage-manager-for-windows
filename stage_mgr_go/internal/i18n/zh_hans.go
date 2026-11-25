@@ -84,6 +84,10 @@ var zhHans = Strings{
 	HideInactiveDesc: "只有当前应用留在桌面上，其他应用收进侧边栏。关闭后侧边栏只列出它们。",
 	ClickDesktop:     "点击桌面清空舞台",
 	ClickDesktopDesc: "点击壁纸时，把舞台上的应用都收进侧边栏。",
+
+	MinimizeToStrip:     "最小化时收进侧边栏",
+	MinimizeToStripDesc: "最小化舞台上的窗口时，把舞台上的应用收进侧边栏，并换回上一个舞台。关闭时窗口照常最小化到任务栏，舞台上没有别的窗口了才换回上一个舞台。",
+
 	Animation:        "动画",
 	Quality:          "切换动画画质",
 	QualityDesc:      "窗口在侧边栏和舞台之间飞行时的清晰度，越高占用的内存越多。",

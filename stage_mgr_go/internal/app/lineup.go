@@ -251,15 +251,15 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 	})
 
 	el.Children(func() {
-		// The caption: the window's place in the list, as 1/2, its app's
-		// icon and its title, and while the pointer is on the tile, a
-		// button that closes the window. The button keeps to the caption's
-		// end, out of the row: a title, which does not shrink below its
-		// text, would push it off the tile.
+		// The caption: the window's place in the list, as 1/2, and its
+		// title, and while the pointer is on the tile, a button that closes
+		// the window. The button keeps to the caption's end, out of the
+		// row: a title, which does not shrink below its text, would push it
+		// off the tile.
 		place := fmt.Sprintf("%d/%d", i+1, n)
 		placeW := float32(8 + 6*len(place))
 		row := r.W - 2*lineupInset - 2
-		titleW := row - placeW - 5 - 14 - 5
+		titleW := row - placeW - 5
 		if hovered {
 			titleW -= lineupCloseSize + 5
 		}
@@ -269,9 +269,6 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 				Background(ui.RGBA(255, 255, 255, 0.14).Mix(accent, on)).Children(func() {
 				ui.Text(c, place).FontSize(10).Bold().TextColor(white).MaxLines(1)
 			})
-			if icon := a.media.cachedIcon(w); icon != nil {
-				ui.Image(c, icon).Size(14, 14).Shrink(0)
-			}
 			text := lineupMuted.Mix(white, max(on, hot))
 			t := ui.Text(c, title).FontSize(11).TextColor(text).MaxLines(1).MaxWidth(max(titleW, 0)).Shrink(1)
 			if active {
@@ -296,6 +293,17 @@ func (s *strip) lineTile(c *ui.Context, w catalog.Window, name string, i, n int,
 				sz := min(pic.H*0.6, 28)
 				ui.Image(c, icon).Absolute().Left(pic.X+(pic.W-sz)/2).Top(pic.Y+(pic.H-sz)/2).Size(sz, sz).Opacity(0.8)
 			}
+		}
+		// The app's icon, in the tile's outer bottom corner as on the
+		// cards: the bottom-left, or the bottom-right in a strip on the
+		// right. The picture's area keeps clear of it (layoutLineup), since
+		// DWM would draw the picture over it.
+		if icon := a.media.cachedIcon(w); icon != nil {
+			x := float32(lineupInset)
+			if s.right() {
+				x = r.W - lineupInset - lineupIcon
+			}
+			ui.Image(c.Key("icon"), icon).Absolute().Left(x).Top(r.H - lineupInset - lineupIcon).Size(lineupIcon, lineupIcon)
 		}
 	})
 	return op, lifted

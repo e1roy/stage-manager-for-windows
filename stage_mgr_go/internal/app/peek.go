@@ -3,6 +3,7 @@ package app
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
@@ -25,7 +26,97 @@ func (a *App) watchTaskbar(cur winapi.Point) {
 	root := winapi.Root(winapi.WindowFromPoint(cur))
 	if winapi.IsTaskbar(root) {
 		a.taskbar = taskbarPoint{tray: root, at: cur}
+		a.aimTaskbar(root)
+	} else if a.aim.tray != 0 {
+		a.aim.tray = 0
+		winapi.SetTaskbarTargets(nil)
 	}
+}
+
+// taskbarAim is the taskbar whose buttons the minimize-button hook takes
+// clicks on, while the pointer is over it.
+type taskbarAim struct {
+	tray winapi.HWND
+	at   time.Time
+	busy bool
+}
+
+// aimEvery is how often the buttons of a taskbar under the pointer are
+// listed again: they move as apps open and close.
+const aimEvery = 500 * time.Millisecond
+
+// aimTaskbar has the minimize-button hook take the clicks on the taskbar
+// buttons that minimize a window on a stage (MinimizeToStrip). Clicked,
+// the button of the window in front minimizes it, which Windows does at
+// once: it vanished, came back, and flew to the strip. Taken, it flies
+// from where it is, as its minimize button has it. Which button stands for
+// which window only UI Automation tells, in tens of milliseconds, so the
+// buttons are listed as the pointer comes onto the taskbar, not as it
+// clicks: one clicked before they are, the hook leaves to Windows.
+func (a *App) aimTaskbar(tray winapi.HWND) {
+	if a.unhookMinButton == nil || a.aim.busy || tray == a.aim.tray && time.Since(a.aim.at) < aimEvery {
+		return
+	}
+	a.aim.busy = true
+	go func() {
+		buttons, err := winapi.TaskbarButtons(tray)
+		post(func() {
+			a.aim.busy = false
+			if a.taskbar.tray != tray || a.unhookMinButton == nil {
+				return
+			}
+			if a.aim.tray != tray && a.aim.tray != 0 {
+				winapi.SetTaskbarTargets(nil)
+			}
+			a.aim.tray, a.aim.at = tray, time.Now()
+			if err != nil {
+				debugf("taskbar buttons: %v", err)
+				winapi.SetTaskbarTargets(nil)
+				return
+			}
+			winapi.SetTaskbarTargets(a.taskbarTargets(buttons))
+		})
+	}()
+}
+
+// taskbarTargets are the buttons that stand for one window alone, on a
+// stage. A button with more windows shows their thumbnails when clicked,
+// rather than minimize one.
+func (a *App) taskbarTargets(buttons []winapi.TaskbarButton) []winapi.TaskbarTarget {
+	var out []winapi.TaskbarTarget
+	for _, b := range buttons {
+		if buttonCount(b.Name) != 1 {
+			continue
+		}
+		var h winapi.HWND
+		n := 0
+		for _, w := range a.windows {
+			if buttonOf(b, w, a.cat.Name(w)) {
+				h, n = w.HWND, n+1
+			}
+		}
+		if n == 1 && a.calm[h] {
+			out = append(out, winapi.TaskbarTarget{Rect: b.Rect, HWND: h})
+		}
+	}
+	return out
+}
+
+// buttonCount is how many windows a button reads out it has, 0 for one
+// with none or that does not say ("微信 - 1 个运行窗口 已固定" reads 1).
+func buttonCount(name string) int {
+	i := strings.LastIndex(name, " - ")
+	if i < 0 {
+		return 0
+	}
+	n := 0
+	for _, c := range name[i+3:] {
+		if c < '0' || c > '9' {
+			break
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }
 
 // peekStart brings home the parked windows of the button whose thumbnails

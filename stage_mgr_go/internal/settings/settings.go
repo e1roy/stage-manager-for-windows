@@ -108,6 +108,11 @@ type Settings struct {
 	// ClickDesktopClears sends the stage to the strip when the wallpaper
 	// is clicked.
 	ClickDesktopClears bool `json:"clickDesktopClears"`
+	// MinimizeToStrip sends the set on the stage to the strip when one of
+	// its windows is minimized, and brings back the stage before it. Off, the
+	// window goes to the taskbar as in Windows, and the stage before comes
+	// back only when no other window is left on the stage.
+	MinimizeToStrip bool `json:"minimizeToStrip"`
 	// IconScale sizes the app icons on the cards.
 	IconScale float64 `json:"iconScale"`
 	// Spacing is the gap between the cards of a strip, in DIPs at their

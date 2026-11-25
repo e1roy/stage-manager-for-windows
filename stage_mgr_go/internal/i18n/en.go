@@ -84,6 +84,10 @@ var en = Strings{
 	HideInactiveDesc: "Only the current app stays on the desktop; other apps go to the sidebar. When off, the sidebar just lists them.",
 	ClickDesktop:     "Click the desktop to clear the stage",
 	ClickDesktopDesc: "Clicking the wallpaper sends the apps on the stage to the sidebar.",
+
+	MinimizeToStrip:     "Minimize sends the stage to the sidebar",
+	MinimizeToStripDesc: "Minimizing a window on the stage sends the apps on the stage to the sidebar and brings back the previous stage. When off, the window goes to the taskbar as usual, and the previous stage comes back only when no other window is left on the stage.",
+
 	Animation:        "Animation",
 	Quality:          "Switch animation quality",
 	QualityDesc:      "How sharp windows look as they fly between the sidebar and the stage. Higher takes more memory.",

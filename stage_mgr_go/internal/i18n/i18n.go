@@ -146,8 +146,11 @@ type Strings struct {
 
 	HideInactive, HideInactiveDesc                        string
 	ClickDesktop, ClickDesktopDesc, ClickDesktopNeedsHide string
-	Animation, Quality, QualityDesc                       string
-	Low, LowDesc, Medium, MediumDesc, High, HighDesc      string
+	// MinimizeToStrip names what minimizing a window on the stage does,
+	// which MinimizeToStripDesc explains.
+	MinimizeToStrip, MinimizeToStripDesc             string
+	Animation, Quality, QualityDesc                  string
+	Low, LowDesc, Medium, MediumDesc, High, HighDesc string
 	// LightFlights names flying windows at a lower resolution, which
 	// LightFlightsDesc explains.
 	LightFlights, LightFlightsDesc string

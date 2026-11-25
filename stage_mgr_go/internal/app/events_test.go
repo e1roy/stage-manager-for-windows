@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
 	"github.com/e1roy/stage_manager_for_windows/internal/stage"
 	"github.com/e1roy/stage_manager_for_windows/internal/winapi"
 )
@@ -25,6 +26,26 @@ func TestMinimizeTargetOnlyTakesStagedGroup(t *testing.T) {
 	}
 	if got := minimizeNext(a.displays[1], "browser"); len(got) != 0 || got == nil {
 		t.Fatalf("last app should clear stage: %v", got)
+	}
+}
+
+func TestMinimizeBringsBackThePreviousStage(t *testing.T) {
+	var m stage.Display
+	m.Init("old", time.Now())
+	m.Switch([]string{"editor"}, time.Now())
+	d := &display{model: m}
+	if got := minimizeNext(d, "editor"); len(got) != 1 || got[0] != "old" {
+		t.Fatalf("minimize should bring back the previous stage, got %v", got)
+	}
+}
+
+func TestMinimizeLeftToWindowsKeepsItsAnimation(t *testing.T) {
+	var m stage.Display
+	m.Init("editor", time.Now())
+	a := &App{displays: []*display{{mon: winapi.Monitor{Device: "on"}, model: m}}}
+	a.settings.HideInactive = true
+	if a.calmWanted(catalog.Window{App: "editor"}) {
+		t.Fatal("with the window going to the taskbar, its minimize animation plays")
 	}
 }
 

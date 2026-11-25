@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/e1roy/stage_manager_for_windows/internal/catalog"
@@ -200,7 +201,15 @@ type App struct {
 	stopPoll chan struct{}
 	// A native minimize is asynchronous: hold its stage identity until the
 	// window has returned from iconic state and can be parked.
-	minimizing       map[winapi.HWND]*minimizeTarget
+	minimizing map[winapi.HWND]*minimizeTarget
+	// calm is the windows on a stage whose minimize and restore
+	// animations are off, for as long as they stay there (syncCalm).
+	calm map[winapi.HWND]bool
+	// calmShared is calm for the minimize-button hook, which runs on a
+	// thread of its own: a copy, replaced whole, never changed.
+	calmShared atomic.Pointer[map[winapi.HWND]bool]
+	// unhookMinButton gives the minimize button back to Windows (events.go).
+	unhookMinButton  func()
 	unhookWinDesktop func()
 	// unhookWinTab gives Win+Tab back to Task View, while the overview
 	// has it (events.go).
@@ -216,6 +225,9 @@ type App struct {
 	// it shows one, and taskbar where the pointer was last over a taskbar.
 	peek    winapi.HWND
 	taskbar taskbarPoint
+	// aim is the taskbar whose buttons the minimize-button hook takes
+	// clicks on (peek.go).
+	aim taskbarAim
 	// hint is the window over a hot corner (corner.go); made the first
 	// time the pointer nears one.
 	hint *cornerHint
@@ -267,6 +279,7 @@ func Start(o Options) *App {
 		dropHomes:  map[winapi.HWND]winapi.Rect{},
 		queued:     map[*display]*switchRequest{},
 		minimizing: map[winapi.HWND]*minimizeTarget{},
+		calm:       map[winapi.HWND]bool{},
 		trayIcon:   o.TrayIcon,
 		sysLang:    i18n.FromLANGID(winapi.UILanguage()),
 	}
@@ -690,9 +703,18 @@ func (a *App) refresh() {
 				a.media.icon(g.front())
 			}
 		}
+		// The stage's apps, which may never have had a card, show their
+		// icons in the stage's list (lineup.go). An icon is keyed by its
+		// app, so this loads each at most once.
+		for _, g := range d.onStage {
+			for _, w := range g.windows {
+				a.media.icon(w)
+			}
+		}
 		d.covered = a.covered(d)
 		debugf("display %s stage=%v strip=%d covered=%v", d.mon.Device, d.model.Stage(), len(d.sets), d.covered)
 	}
+	a.syncCalm()
 	if len(want) > 0 {
 		a.media.capture(want, false, 3*time.Second, a.redraw)
 	}
@@ -981,6 +1003,10 @@ func (a *App) applySettings(s settings.Settings) {
 	}
 	a.syncDisplays()
 	a.syncWinDesktop()
+	a.syncMinButton()
+	// The stage's windows go without their minimize animation only while
+	// minimizing sends the stage to the strip.
+	a.syncCalm()
 	// Hiding again starts the stages with what shows on the displays.
 	if !old.HideInactive && s.HideInactive {
 		a.ready = false
@@ -1006,10 +1032,13 @@ func (a *App) shutdown() {
 		}
 		delete(a.minimizing, h)
 	}
+	// The windows go back to Windows with their animations.
+	a.syncCalm()
 	if a.unhookWinDesktop != nil {
 		a.unhookWinDesktop()
 		a.unhookWinDesktop = nil
 	}
+	a.syncMinButton()
 	if a.unhook != nil {
 		a.unhook()
 	}

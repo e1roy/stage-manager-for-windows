@@ -889,6 +889,15 @@ func (sw *settingsWindow) stagePane(c *ui.Context, f form, tr *i18n.Strings) {
 				sw.apply()
 			}
 		})
+		desc = tr.MinimizeToStripDesc
+		if !sw.s.HideInactive {
+			desc = tr.ClickDesktopNeedsHide
+		}
+		f.child(c, sw.s.HideInactive, tr.MinimizeToStrip, desc, func(f form) {
+			if ui.Switch(c, &sw.s.MinimizeToStrip).Disabled(f.disabled).Changed() {
+				sw.apply()
+			}
+		})
 	})
 	f.section(c, tr.Grouping, func() {
 		f.row(c, tr.SplitWindows, tr.SplitWindowsDesc, func() {

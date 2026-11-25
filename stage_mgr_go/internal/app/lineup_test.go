@@ -41,6 +41,11 @@ func TestLineupFits(t *testing.T) {
 				if th.X < r.X || th.Y < r.Y || th.X+th.W > r.X+r.W || th.Y+th.H > r.Y+r.H {
 					t.Fatalf("picture %v out of its tile %v", th, r)
 				}
+				// DWM draws the picture over the strip, so it keeps clear
+				// of the icon in the tile's bottom corner.
+				if th.X < r.X+lineupInset+lineupIcon || th.X+th.W > r.X+r.W-lineupInset-lineupIcon {
+					t.Fatalf("picture %v reaches the icon of its tile %v", th, r)
+				}
 				if i > 0 && r.Y < l.tiles[i-1].Y+l.tiles[i-1].H {
 					t.Fatalf("tiles overlap: %v %v", l.tiles[i-1], r)
 				}
